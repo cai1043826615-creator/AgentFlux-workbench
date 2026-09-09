@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentOnlineStatus, Message } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { Avatar } from '../../components/ui.tsx';
@@ -115,9 +115,8 @@ export function ChatPanel() {
   const [filter, setFilter] = useState<EventFilter>('all'); // 筛选：默认「全部」
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 事件消息（kind==='evt'）数量与首个位置：折叠行显示在首个 evt 原位
+  // 事件消息（kind==='evt'）数量：折叠行显示在固定筛选区右侧
   const evtCount = messages.filter((m) => m.kind === 'evt').length;
-  const firstEvtIndex = messages.findIndex((m) => m.kind === 'evt');
 
   /** evt 行渲染（── body ── 分隔行；带 taskId 时可点击跳任务详情） */
   const renderEvt = (m: Message) => (
@@ -146,6 +145,39 @@ export function ChatPanel() {
     <div className="flex h-full flex-col">
       <ChatHeader />
 
+      {/* 事件筛选 + 折叠行（固定区：不随消息滚动，任何位置均可见） */}
+      {messages.length > 0 && chatTarget.kind === 'group' ? (
+        <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="flex items-center gap-1">
+            {EVENT_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className="qs-meta rounded px-2 py-0.5 transition-colors"
+                style={{
+                  cursor: 'pointer',
+                  color: filter === f.key ? 'var(--color-ink)' : 'var(--color-ink-faint)',
+                  background: filter === f.key ? 'var(--color-signal-soft)' : 'transparent',
+                }}
+                onClick={() => setFilter(f.key)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {filter === 'all' && evtCount > 0 ? (
+            <button
+              type="button"
+              className="qs-meta flex items-center gap-1 rounded px-2 py-0.5 transition-colors hover:opacity-70"
+              style={{ color: 'var(--color-ink-faint)', cursor: 'pointer' }}
+              onClick={() => setShowEvents((v) => !v)}
+            >
+              {evtCount} 条系统事件 {showEvents ? '▴' : '▾'}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* 消息流 */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
         {messages.length === 0 ? (
@@ -154,25 +186,7 @@ export function ChatPanel() {
           </div>
         ) : (
           <>
-            {/* 事件筛选按钮组（本地过滤渲染） */}
-            <div className="flex items-center gap-1 pb-1">
-              {EVENT_FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  type="button"
-                  className="qs-meta rounded px-2 py-0.5 transition-colors"
-                  style={{
-                    cursor: 'pointer',
-                    color: filter === f.key ? 'var(--color-ink)' : 'var(--color-ink-faint)',
-                    background: filter === f.key ? 'var(--color-signal-soft)' : 'transparent',
-                  }}
-                  onClick={() => setFilter(f.key)}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            {messages.map((m, idx) => {
+            {messages.map((m) => {
               if (m.kind === 'receipt') {
                 // 回执属于非 evt 内容：「事件」筛选时隐藏
                 if (filter === 'evt') return null;
@@ -183,24 +197,7 @@ export function ChatPanel() {
                 if (filter === 'msg') return null;
                 // 「事件」筛选：直接展开显示全部 evt 行
                 if (filter === 'evt') return renderEvt(m);
-                // 「全部」筛选：事件默认折叠为一行「n 条系统事件 ▾」，点击展开/收起
-                const isFirstEvt = idx === firstEvtIndex;
-                if (isFirstEvt) {
-                  return (
-                    <Fragment key={m.id}>
-                      <button
-                        type="button"
-                        className="qs-meta block w-full px-2 py-1 text-center transition-colors hover:opacity-70"
-                        style={{ color: 'var(--color-ink-faint)', cursor: 'pointer' }}
-                        onClick={() => setShowEvents((v) => !v)}
-                      >
-                        {evtCount} 条系统事件 {showEvents ? '▴' : '▾'}
-                      </button>
-                      {showEvents ? renderEvt(m) : null}
-                    </Fragment>
-                  );
-                }
-                // 非首个 evt：仅展开态下原位显示
+                // 「全部」筛选：折叠行已在固定区显示，此处仅展开态下原位显示 evt
                 return showEvents ? renderEvt(m) : null;
               }
               // 署名消息 / 用户消息：非 evt，「事件」筛选时隐藏

@@ -6,7 +6,7 @@ import { useWorkbench, type TaskWithMeta } from '../store/useWorkbench.tsx';
  * 右下角 Toast 通知（意见12 + 意见1 重构）：
  * - 触发：任务进入待拍板（approvalQueue 新增）/ 任务完成归档（tasks 中 column 变为 done）
  * - 不自动关闭（移除 45s 淡出）；手动 × 关闭，或点击主卡 / action 按钮跳转对应任务并关闭
- * - Aceternity 风卡片：宽 280、padding/字号/图标等比微调；底部右侧 action 按钮
+ * - Aceternity 风卡片：宽 500；底部右侧 action 按钮
  *   （待拍板「去处理」紫 primary / 任务完成「查看」绿）
  * - 常驻上限约 5 条：容器 max-height + overflow-y-auto，超出滚动，按时间顺序排列
  */
@@ -20,7 +20,7 @@ export interface ToastItem {
 }
 
 const FADE_MS = 220; // 手动关闭淡出时长
-const TOAST_W = 280; // 单卡宽度（缩窄 50%，原 560）
+const TOAST_W = 500; // 单卡宽度（用户指定 500px）
 const TOAST_H = 140; // 单卡估算高度（含 padding + 按钮行），用于容器 max-height
 const TOAST_GAP = 8; // 卡片间距
 const MAX_VISIBLE = 5; // 常驻上限（容器高度近似 5 条）
@@ -60,24 +60,24 @@ function ToastCard({
       onClick={() => onOpen(item)}
     >
       {/* 主体：图标 + 标题 / 正文 / 阶段 */}
-      <div className="flex items-start gap-2 px-4 pt-4 pb-2.5">
-        <span aria-hidden="true" className="mt-1 shrink-0 text-[13px] leading-none" style={{ color: accent }}>
+      <div className="flex items-start gap-2.5 px-5 pt-4 pb-2.5">
+        <span aria-hidden="true" className="mt-1 shrink-0 text-[14px] leading-none" style={{ color: accent }}>
           {isApproval ? '●' : '✓'}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-bold leading-tight" style={{ color: isApproval ? 'var(--color-signal-strong)' : 'var(--color-ok)' }}>
+          <div className="text-[15px] font-bold leading-tight" style={{ color: isApproval ? 'var(--color-signal-strong)' : 'var(--color-ok)' }}>
             {isApproval ? '待你拍板' : '任务完成'}
           </div>
-          <div className="qs-meta mt-1.5 truncate text-[12px] leading-snug" style={{ color: 'var(--color-ink-soft)' }}>
+          <div className="qs-meta mt-1.5 truncate text-[13px] leading-snug" style={{ color: 'var(--color-ink-soft)' }}>
             #{item.taskId} {item.title}
           </div>
-          <div className="qs-meta mt-0.5 text-[12px] leading-snug" style={{ color: 'var(--color-ink-faint)' }}>
+          <div className="qs-meta mt-0.5 text-[13px] leading-snug" style={{ color: 'var(--color-ink-faint)' }}>
             {stageText(item.stage)}
           </div>
         </div>
         <button
           type="button"
-          className="qs-clickable shrink-0 px-1 py-0 text-[15px] leading-none opacity-50 transition-opacity hover:opacity-100"
+          className="qs-clickable shrink-0 px-1 py-0 text-[16px] leading-none opacity-50 transition-opacity hover:opacity-100"
           style={{ color: 'var(--color-ink-soft)' }}
           title="关闭"
           aria-label="关闭通知"
@@ -90,10 +90,10 @@ function ToastCard({
         </button>
       </div>
       {/* Aceternity 风 action 按钮行：底部分隔线 + 右侧按钮（点击 = 跳转 + 关闭该条） */}
-      <div className="flex justify-end border-t px-4 py-2.5" style={{ borderColor: 'var(--color-line)' }}>
+      <div className="flex justify-end border-t px-5 py-3" style={{ borderColor: 'var(--color-line)' }}>
         <button
           type="button"
-          className="qs-clickable shrink-0 rounded-[4px] px-4 py-2 text-[12px] font-semibold leading-none transition hover:brightness-95 active:translate-y-px"
+          className="qs-clickable shrink-0 rounded-[4px] px-5 py-2 text-[13px] font-semibold leading-none transition hover:brightness-95 active:translate-y-px"
           style={{ background: accent, color: '#fff' }}
           onClick={(e) => {
             e.stopPropagation();

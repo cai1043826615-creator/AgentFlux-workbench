@@ -177,7 +177,7 @@ export function ObservabilityView() {
                       </div>
                     </div>
                     <Btn variant="ghost" size="sm" onClick={() => setSettingsAgent(a)}>
-                      Agent 设置
+                      设置
                     </Btn>
                   </div>
 

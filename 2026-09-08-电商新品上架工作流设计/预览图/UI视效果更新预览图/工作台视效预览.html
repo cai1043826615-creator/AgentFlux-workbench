@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>电商多 Agent 工作台 · UI 组件视效预览（待确认）</title>
+<style>
+  /* ============ 基础 ============ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --canvas: #fafafa;
+    --surface: #ffffff;
+    --sunken: #f4f4f5;
+    --ink: #0a0a0a;
+    --ink-soft: #52525b;
+    --ink-faint: #a1a1aa;
+    --line: #ececee;
+    --line-strong: #dcdce0;
+    --signal: #7c3aed;
+    --signal-strong: #6d28d9;
+    --signal-soft: #f3effe;
+    --ok: #15803d;
+    --ok-soft: #ecfdf3;
+    --warn: #b45309;
+    --warn-soft: #fff8e6;
+    --danger: #b91c1c;
+    --danger-soft: #fef2f2;
+    --font-display: "Noto Serif SC", "Songti SC", SimSun, serif;
+    --font-body: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  html { background: var(--canvas); }
+  body {
+    font-family: var(--font-body);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 48px 64px;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+  .qs-meta { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-faint); }
+  .display { font-family: var(--font-display); }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* ============ 页眉 ============ */
+  .preview-head { margin-bottom: 40px; }
+  .preview-head h1 {
+    font-family: var(--font-display);
+    font-size: clamp(30px, 4vw, 44px);
+    font-weight: 700;
+    line-height: 1.15;
+    max-width: 900px;
+    letter-spacing: -0.01em;
+  }
+  .preview-head .sub { margin-top: 10px; font-size: 14px; color: var(--ink-soft); line-height: 1.8; max-width: 860px; }
+  .badge-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .sec-title { display: flex; align-items: baseline; gap: 12px; margin: 56px 0 18px; }
+  .sec-title .no { font-family: var(--font-mono); font-size: 12px; color: var(--signal); font-weight: 600; }
+  .sec-title h2 { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
+  .sec-title .note { font-size: 12px; color: var(--ink-faint); }
+
+  /* ============ 工作台 mockup ============ */
+  .app { border: 1px solid var(--line-strong); background: var(--canvas); overflow: hidden; }
+  .topbar { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .topbar .logo { width: 28px; height: 28px; border-radius: 7px; background: var(--ink); display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--font-display); font-size: 13px; font-weight: 700; }
+  .topbar .name { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+  .topbar .grow { flex: 1; }
+  .body3 { display: flex; min-height: 560px; }
+  .left { width: 216px; background: var(--surface); border-right: 1px solid var(--line); padding: 12px; }
+  .left .group-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--ink-faint); margin: 10px 0 6px; }
+  .nav-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 4px; font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: background 160ms var(--ease); }
+  .nav-item:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
+  .nav-item.active { background: var(--signal-soft); color: var(--signal-strong); font-weight: 600; }
+  .nav-item .count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--signal); }
+  .main { flex: 1; padding: 18px; min-width: 0; }
+  .board-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .board-head h3 { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
+  .right { width: 264px; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+  .chat-head { padding: 12px; border-bottom: 1px solid var(--line); }
+  .chat-avatars { display: flex; gap: 12px; }
+  .avatar-stack { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--font-display); font-size: 15px; position: relative; }
+  .avatar .dot { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); }
+  .avatar .dot.green { background: var(--ok); }
+  .avatar .dot.purple { background: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); animation: pulse 1.6s var(--ease) infinite; }
+  .avatar-stack .label { font-size: 10px; color: var(--ink-faint); font-family: var(--font-mono); }
+  .chat-msgs { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .bubble { max-width: 88%; padding: 8px 12px; border-radius: 4px; font-size: 12px; line-height: 1.6; }
+  .bubble.agent { background: var(--sunken); align-self: flex-start; }
+  .bubble.me { background: var(--ink); color: #fff; align-self: flex-end; }
+  .chat-input { border-top: 1px solid var(--line); padding: 10px; display: flex; gap: 8px; }
+  .chat-input .field { flex: 1; border: 1px solid var(--line-strong); border-radius: 4px; padding: 7px 10px; font-size: 12px; color: var(--ink-faint); background: var(--surface); }
+
+  /* ============ 看板卡片 ============ */
+  .cols { display: flex; gap: 12px; }
+  .col { flex: 1; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+  .col-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 500; }
+  .col-head .n { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+  .col-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .tcard { border: 1px solid var(--line); padding: 12px; cursor: pointer; transition: border-color 160ms var(--ease), transform 160ms var(--ease), box-shadow 160ms var(--ease); background: var(--surface); }
+  .tcard:hover { border-color: var(--line-strong); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .tcard .id { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+  .tcard h5 { font-family: var(--font-display); font-size: 13px; font-weight: 600; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tcard .note { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); margin-top: 6px; line-height: 1.5; }
+  .tcard .flowbar { display: flex; gap: 3px; margin-top: 10px; }
+  .flowbar .seg { height: 3px; border-radius: 999px; flex: 1; }
+  .tcard .owner { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; background: var(--sunken); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 11px; color: var(--ink-soft); }
+  .tcard .mini-avatar { width: 16px; height: 16px; border-radius: 50%; background: var(--signal); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; }
+
+  /* ============ 通用组件 ============ */
+  .btn { display: inline-flex; align-items: center; gap: 6px; border-radius: 4px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; padding: 7px 16px; cursor: pointer; transition: background 160ms var(--ease), border-color 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease); font-family: var(--font-body); }
+  .btn:hover { border-color: var(--ink); }
+  .btn:active { transform: translateY(0.5px); }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .btn.primary:hover { background: var(--signal-strong); border-color: var(--signal-strong); }
+  .btn.signal { background: var(--signal); border-color: var(--signal); color: #fff; }
+  .btn.signal:hover { background: var(--signal-strong); border-color: var(--signal-strong); box-shadow: 0 0 0 3px var(--signal-soft); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--ink-soft); }
+  .btn.ghost:hover { color: var(--signal); }
+  .btn.danger { color: var(--danger); }
+  .btn.danger:hover { border-color: var(--danger); background: var(--danger-soft); }
+  .btn.sm { font-size: 12px; padding: 4px 12px; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .field label { font-size: 12px; color: var(--ink-soft); }
+  .input { border: 1px solid var(--line-strong); border-radius: 4px; padding: 9px 12px; font-size: 13px; background: var(--surface); color: var(--ink); outline: none; transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease); font-family: var(--font-body); }
+  .input::placeholder { color: var(--ink-faint); }
+  .input:focus { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); }
+  .select-wrap { position: relative; display: inline-block; }
+  .select-wrap::after { content: "▾"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--ink-faint); pointer-events: none; }
+  select.input { appearance: none; padding-right: 32px; }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; line-height: 18px; border-radius: 9px; padding: 0 8px; border: 1px solid var(--line-strong); color: var(--ink-soft); background: var(--surface); white-space: nowrap; font-weight: 500; font-family: var(--font-body); }
+  .badge.ok { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+  .badge.no { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+  .badge.warn { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+  .badge.signal { border-color: var(--signal); color: var(--signal-strong); background: var(--signal-soft); }
+
+  .card { background: var(--surface); border: 1px solid var(--line); transition: border-color 160ms var(--ease), transform 160ms var(--ease); }
+  .card.hoverable:hover { border-color: var(--line-strong); transform: translateY(-2px); }
+  .card .card-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+  .card .card-head h4 { font-family: var(--font-display); font-size: 15px; font-weight: 600; }
+  .card .card-body { padding: 16px; }
+
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
+  .tab { padding: 9px 14px; font-size: 13px; color: var(--ink-soft); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 160ms var(--ease); background: none; border-top: none; border-left: none; border-right: none; font-family: var(--font-body); }
+  .tab.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--signal); }
+
+  .stepper { display: flex; align-items: flex-start; padding: 10px 0; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+  .step:last-child { flex: none; }
+  .step .node { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; position: relative; }
+  .step .node.done { background: var(--ok); color: #fff; }
+  .step .node.done::after { content: "✓"; position: absolute; top: -3px; right: -3px; width: 13px; height: 13px; border-radius: 50%; background: #fff; color: var(--ok); font-size: 9px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--surface); }
+  .step .node.current { background: var(--ink); color: #fff; box-shadow: 0 0 0 2px var(--signal); }
+  .step .node.todo { background: var(--surface); border: 1px solid var(--line-strong); color: var(--ink-faint); }
+  .step .label { font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); text-align: center; line-height: 1.3; }
+  .step .label.done { color: var(--ok); }
+  .step .label.current { color: var(--ink); }
+  .stepper .line { flex: 1; height: 2px; background: var(--line); margin-top: 14px; position: relative; min-width: 12px; }
+  .stepper .line.filled::before { content: ""; position: absolute; inset: 0; background: var(--ok); border-radius: 999px; }
+
+  .progress { display: flex; align-items: center; gap: 10px; }
+  .progress .track { flex: 1; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .progress .fill { height: 100%; border-radius: 999px; background: var(--signal); transition: width 300ms var(--ease); }
+  .progress .pct { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); width: 40px; text-align: right; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th { text-align: left; font-weight: 400; font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tbody td { padding: 9px 12px; border-bottom: 1px solid var(--line); color: var(--ink-soft); }
+  tbody tr:hover td { background: rgba(0,0,0,0.02); }
+  tbody td:first-child, thead th:first-child { padding-left: 0; }
+
+  .toast { width: 340px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04); overflow: hidden; }
+  .toast .body { display: flex; gap: 10px; padding: 14px 16px 10px; }
+  .toast .icon { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+  .toast .t { font-size: 14px; font-weight: 700; }
+  .toast .d { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+  .toast .foot { display: flex; justify-content: flex-end; border-top: 1px solid var(--line); padding: 10px 16px; }
+
+  .empty { text-align: center; padding: 36px 20px; }
+  .empty .icon { width: 44px; height: 44px; border-radius: 50%; background: var(--sunken); display: inline-flex; align-items: center; justify-content: center; font-size: 18px; color: var(--ink-faint); margin-bottom: 12px; }
+  .empty .t { font-size: 14px; font-weight: 600; }
+  .empty .d { font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
+
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; }
+  .dot.ok { background: var(--ok); }
+  .dot.purple { background: var(--signal); }
+  .dot.gray { background: var(--ink-faint); }
+  .dot.busy { background: var(--signal); animation: pulse 1.6s var(--ease) infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 var(--signal-soft); } 50% { opacity: 0.55; box-shadow: 0 0 0 4px var(--signal-soft); } }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .panel { background: var(--surface); border: 1px solid var(--line); padding: 16px; }
+  .panel-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--ink-faint); margin-bottom: 10px; }
+
+  .footnote { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-faint); line-height: 1.9; }
+  .footnote a { color: var(--signal-strong); }
+</style>
+</head>
+<body>
+
+<!-- ================= 页眉 ================= -->
+<div class="preview-head">
+  <div class="badge-row">
+    <span class="badge signal">待确认稿 v0.9</span>
+    <span class="badge">Quiet Signal 基座</span>
+    <span class="badge">gpt-taste 品味注入</span>
+    <span class="badge">Aceternity / 21st.dev / GodUI 适度借鉴</span>
+  </div>
+  <h1 style="margin-top:16px;">电商多 Agent 工作台<br/>UI 组件视效预览</h1>
+  <div class="sub">目标视效：近白画布 + 黑灰信息层级 + 衬线 Display 标题 + 稀疏紫色焦点；大结构直角、小控件 4px 圆角、默认无阴影；克制的 hover 微交互与焦点光晕；不做玻璃拟态 / 渐变 / 粒子。下方图 1 为工作台全局效果，图 2 为组件视效陈列，均用于方向确认。</div>
+</div>
+
+<!-- ================= 图 1：全局效果 ================= -->
+<div class="sec-title"><span class="no">FIG.01</span><h2>全局效果 · 工作台视效</h2><span class="note">三栏布局 mockup（顶栏 / 左导航 / 看板 / 右聊天 / Toast）</span></div>
+
+<div class="app">
+  <!-- 顶栏 -->
+  <div class="topbar">
+    <div class="logo">电</div>
+    <span class="name">电商工作台</span>
+    <span class="qs-meta">MULTI-AGENT E-COMMERCE</span>
+    <div class="grow"></div>
+    <button class="btn sm ghost">任务<span class="badge signal" style="margin-left:4px;">1</span></button>
+    <span class="qs-meta">在岗 <b class="tabular" style="color:var(--ink)">3</b> ｜ 忙碌 <b class="tabular" style="color:var(--ink)">1</b></span>
+    <span class="badge ok">● 实时连接</span>
+  </div>
+  <div class="body3">
+    <!-- 左栏 -->
+    <div class="left">
+      <div class="group-label">工作流</div>
+      <div class="nav-item active"><span>▦</span>电商工作流<span class="count">6</span></div>
+      <div class="nav-item" style="opacity:.5"><span>▦</span>直播带货上架<span class="qs-meta" style="margin-left:auto">占位</span></div>
+      <div class="nav-item" style="opacity:.5"><span>▦</span>跨境选品<span class="qs-meta" style="margin-left:auto">占位</span></div>
+      <div class="group-label" style="margin-top:18px">通用</div>
+      <div class="nav-item"><span>◉</span>Agent 状态</div>
+      <div class="nav-item"><span>⚙</span>设置</div>
+      <div class="group-label" style="margin-top:18px">任务推进方式</div>
+      <div class="nav-item active"><span>◉</span>手动确认</div>
+      <div class="nav-item"><span>○</span>全自动</div>
+    </div>
+    <!-- 主区 -->
+    <div class="main">
+      <div class="board-head">
+        <h3>任务看板</h3>
+        <span class="qs-meta">6 个任务</span>
+        <div style="flex:1"></div>
+        <button class="btn">＋ 新建任务</button>
+      </div>
+      <div class="cols">
+        <div class="col">
+          <div class="col-head">规划中 <span class="n">1</span></div>
+          <div class="col-body">
+            <div class="tcard">
+              <div class="id">#11</div>
+              <h5>便携榨汁杯新品上架</h5>
+              <div class="note">需求对齐 · 待补充素材</div>
+              <div class="flowbar"><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div></div>
+              <div><span class="owner"><span class="mini-avatar">美</span>美美</span></div>
+              <div style="margin-top:10px"><button class="btn sm primary">确认开工</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-head">进行中 <span class="n">2</span></div>
+          <div class="col-body">
+            <div class="tcard">
+              <div class="id">#10</div>
+              <h5>石墨烯发热围巾</h5>
+              <div class="note">主图设计 · 第 2 张生成中</div>
+              <div class="flowbar"><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--ink)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div></div>
+              <div><span class="owner"><span class="mini-avatar" style="background:var(--ink)">平</span>平平</span> <span class="qs-meta" style="margin-left:6px"><span class="dot busy"></span> 推进中</span></div>
+            </div>
+            <div class="tcard">
+              <div class="id">#9</div>
+              <h5>无线磁吸充电宝</h5>
+              <div class="note">卖点文案 · 返工第 2 轮</div>
+              <div class="flowbar"><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--signal)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div></div>
+              <div><span class="owner"><span class="mini-avatar" style="background:var(--signal-strong)">波</span>波波</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-head">待确认 <span class="n">1</span></div>
+          <div class="col-body">
+            <div class="tcard" style="border-color:var(--warn)">
+              <div class="id">#8</div>
+              <h5>折叠午睡枕</h5>
+              <div class="note">卖点文案 · 完成</div>
+              <div class="flowbar"><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--signal)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div><div class="seg" style="background:var(--line)"></div></div>
+              <div style="margin-top:8px"><span class="badge warn">待你拍板 · 卖点文案</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-head">已完成 <span class="n">2</span></div>
+          <div class="col-body">
+            <div class="tcard">
+              <div class="id">#7</div>
+              <h5>香薰加湿器</h5>
+              <div class="note">已交付 · 已归档</div>
+              <div class="flowbar"><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--ok)"></div><div class="seg" style="background:var(--ok)"></div></div>
+              <div style="margin-top:8px"><span class="badge ok">✓ 已归档</span> <span class="qs-meta"><span class="dot ok"></span> 已交付</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 右栏 -->
+    <div class="right">
+      <div class="chat-head">
+        <div class="chat-avatars">
+          <div class="avatar-stack">
+            <div class="avatar" style="background:var(--signal-soft); border:2px solid var(--signal); color:var(--signal-strong);">群</div>
+            <span class="label" style="color:var(--ink)">工作群</span>
+          </div>
+          <div class="avatar-stack">
+            <div class="avatar" style="background:#7c3aed"><span class="dot green"></span>美</div>
+            <span class="label">美美</span>
+          </div>
+          <div class="avatar-stack">
+            <div class="avatar" style="background:#0a0a0a"><span class="dot purple"></span>平</div>
+            <span class="label">平平</span>
+          </div>
+          <div class="avatar-stack">
+            <div class="avatar" style="background:#52525b"><span class="dot green"></span>波</div>
+            <span class="label">波波</span>
+          </div>
+        </div>
+      </div>
+      <div class="chat-msgs">
+        <div class="qs-meta" style="text-align:center; font-size:10px;">── 2 条系统事件 ▾ ──</div>
+        <div class="bubble agent"><b style="color:var(--signal-strong)">美美</b> · 卖点文案完成，5 条核心卖点已就绪<br/>#8 折叠午睡枕 进入待你拍板</div>
+        <div class="bubble me">采纳，文案不错</div>
+        <div class="bubble agent">收到，已推进主图设计<br/>设计师 平平 正在生成主图…</div>
+      </div>
+      <div class="chat-input">
+        <div class="field">输入消息，回车发送…</div>
+        <button class="btn sm primary">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 图 2：组件视效陈列 ================= -->
+<div class="sec-title"><span class="no">FIG.02</span><h2>组件视效陈列</h2><span class="note">沉淀组件 × 目标视效（对应《组件视效规划表》§1）</span></div>
+
+<!-- 2.1 按钮 -->
+<div class="panel" style="margin-bottom:20px">
+  <div class="panel-label">01 · BUTTON 按钮（21st.dev shadcn button + 现有 Btn 变体；主 CTA 才用紫）</div>
+  <div class="row" style="gap:14px">
+    <button class="btn">默认按钮</button>
+    <button class="btn primary">主要按钮</button>
+    <button class="btn signal">紫色焦点</button>
+    <button class="btn ghost">幽灵按钮</button>
+    <button class="btn danger">危险按钮</button>
+    <button class="btn sm">小按钮</button>
+    <button class="btn" disabled>禁用</button>
+    <button class="btn primary"><span class="dot" style="border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; width:12px; height:12px; animation:spin 0.9s linear infinite"></span>加载中</button>
+  </div>
+  <div class="qs-meta" style="margin-top:10px">hover：边框加深/紫 focus ring（0 0 0 3px signal-soft）；active：translateY(0.5px)；loading 态带旋转指示</div>
+</div>
+@keyframes spin { to { transform: rotate(360deg); } }
+
+<!-- 2.2 输入 -->
+<div class="grid2" style="margin-bottom:20px">
+  <div class="panel">
+    <div class="panel-label">02 · INPUT 输入（shadcn input；聚焦紫 ring）</div>
+    <div class="stack">
+      <div class="field"><label>任务标题</label><input class="input" placeholder="如：无线磁吸充电宝新品上架全套物料" /></div>
+      <div class="field"><label>产品资料 / 任务描述</label><textarea class="input" rows="2" placeholder="品名/类目/卖点素材…" style="resize:none; min-height:64px"></textarea></div>
+      <div class="field"><label>目标平台</label><div class="select-wrap"><select class="input"><option>天猫</option><option>京东</option><option>拼多多</option></select></div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-label">03 · BADGE 徽章（21st.dev badge 浅底细边 + 前缀状态点）</div>
+    <div class="stack">
+      <div class="row">
+        <span class="badge">默认</span>
+        <span class="badge ok"><span class="dot ok"></span>已采纳</span>
+        <span class="badge warn"><span class="dot" style="background:var(--warn)"></span>待你拍板</span>
+        <span class="badge no"><span class="dot" style="background:var(--danger)"></span>已打回</span>
+        <span class="badge signal"><span class="dot purple"></span>生成中</span>
+      </div>
+      <div class="row">
+        <span class="badge">文案</span><span class="badge">设计师</span><span class="badge">主管</span>
+        <span class="badge signal">拍板点</span>
+      </div>
+      <div class="qs-meta">状态徽标浅底细边 + 色点，不整条实心彩色，避免喧宾夺主</div>
+    </div>
+  </div>
+</div>
+
+<!-- 2.3 卡片 / Tabs / 步骤条 -->
+<div class="grid2" style="margin-bottom:20px">
+  <div class="panel">
+    <div class="panel-label">04 · CARD 卡片（大结构直角 + 1px 边框 + hover 微抬升）</div>
+    <div class="card hoverable" style="margin-bottom:12px">
+      <div class="card-head"><h4>卖点文案</h4><span class="badge signal">待你拍板</span></div>
+      <div class="card-body">
+        <div class="display" style="font-size:16px;font-weight:600">无线磁吸充电宝 · 15W 快充</div>
+        <div class="qs-meta" style="margin-top:6px">版本 v2 · 09-08 14:32</div>
+        <div style="margin-top:10px;font-size:13px;color:var(--ink-soft);line-height:1.7">① 磁吸即贴，告别线缆缠绕<br/>② 15W 磁吸快充，30 分钟回血 50%</div>
+        <div style="margin-top:12px" class="row"><button class="btn sm danger">打回</button><button class="btn sm primary">采纳</button></div>
+      </div>
+    </div>
+    <div class="qs-meta">hover：border → line-strong + translateY(-2px)（无阴影，或 0 2px 8px rgba(0,0,0,0.04) 极轻）</div>
+  </div>
+  <div class="panel">
+    <div class="panel-label">05 · TABS 标签页（下划线式，安静；支持角标计数）</div>
+    <div class="tabs" style="margin-bottom:14px">
+      <button class="tab active">内容交付</button>
+      <button class="tab">任务详情</button>
+      <button class="tab">活动日志 <span class="badge" style="margin-left:2px">12</span></button>
+    </div>
+    <div class="tabs" style="margin-bottom:14px">
+      <button class="tab active">主图 <span class="qs-meta">(4)</span></button>
+      <button class="tab">详情图 <span class="qs-meta">(1)</span></button>
+    </div>
+    <div class="card" style="padding:12px">
+      <div class="row" style="gap:8px">
+        <span style="font-size:12px">事件筛选：</span>
+        <button class="tab" style="padding:4px 10px; border-bottom:none; border-radius:4px; background:var(--signal-soft); color:var(--signal-strong); font-weight:600">全部</button>
+        <button class="tab" style="padding:4px 10px; border-bottom:none">消息</button>
+        <button class="tab" style="padding:4px 10px; border-bottom:none">事件</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2.4 阶段条 / 进度 -->
+<div class="grid2" style="margin-bottom:20px">
+  <div class="panel">
+    <div class="panel-label">06 · STAGE STEPPER 阶段条（GodUI stepper spring 线 + 头像内嵌，21st.dev steps 三态）</div>
+    <div class="stepper">
+      <div class="step"><div class="node done"><span class="mini-avatar" style="width:20px;height:20px;background:#7c3aed">美</span></div><span class="label done">需求对齐</span></div>
+      <div class="line filled"></div>
+      <div class="step"><div class="node done"><span class="mini-avatar" style="width:20px;height:20px;background:#7c3aed">美</span></div><span class="label done">卖点文案</span></div>
+      <div class="line filled"></div>
+      <div class="step"><div class="node current"><span class="mini-avatar" style="width:20px;height:20px;background:#0a0a0a">平</span></div><span class="label current">主图设计</span></div>
+      <div class="line"></div>
+      <div class="step"><div class="node todo">4</div><span class="label">详情图设计</span></div>
+      <div class="line"></div>
+      <div class="step"><div class="node todo">5</div><span class="label">主管校对</span></div>
+      <div class="line"></div>
+      <div class="step"><div class="node todo">6</div><span class="label">交付归档</span></div>
+    </div>
+    <div class="qs-meta" style="margin-top:8px">完成=绿底+✓角标 / 当前=黑底紫描边 / 未到=灰描边数字；拍板点带紫「拍板」角标</div>
+  </div>
+  <div class="panel">
+    <div class="panel-label">07 · PROGRESS 进度（21st.dev progress 细条 + 百分比）</div>
+    <div class="stack" style="gap:14px">
+      <div class="progress"><div class="track"><div class="fill" style="width:42%"></div></div><span class="pct">42%</span></div>
+      <div class="progress"><div class="track"><div class="fill" style="width:100%;background:var(--ok)"></div></div><span class="pct">100%</span></div>
+      <div class="card" style="padding:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:12px;color:var(--ink-soft)">总执行</span><span class="display tabular" style="font-size:18px;font-weight:700">128</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-size:12px;color:var(--ink-soft)">成功率</span><span class="display tabular" style="font-size:18px;font-weight:700">93.8%</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-size:12px;color:var(--ink-soft)">平均耗时</span><span class="display tabular" style="font-size:18px;font-weight:700">46秒</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2.5 表格 / Toast / 空态 -->
+<div class="grid2" style="margin-bottom:20px">
+  <div class="panel">
+    <div class="panel-label">08 · DATA TABLE 表格（21st.dev tanstack 表：无边框 + 表头弱化 + 行 hover 轻）</div>
+    <table>
+      <thead><tr><th>时间</th><th>Agent</th><th>任务</th><th>状态</th><th>耗时</th></tr></thead>
+      <tbody>
+        <tr><td class="qs-meta">09-08 14:32</td><td>美美</td><td class="qs-meta">#8</td><td><span class="badge ok">成功</span></td><td class="qs-meta">38秒</td></tr>
+        <tr><td class="qs-meta">09-08 14:28</td><td>平平</td><td class="qs-meta">#9</td><td><span class="badge ok">成功</span></td><td class="qs-meta">52秒</td></tr>
+        <tr><td class="qs-meta">09-08 14:15</td><td>波波</td><td class="qs-meta">#7</td><td><span class="badge no">失败</span></td><td class="qs-meta">12秒</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <div class="panel-label">09 · TOAST 通知（Sonner 栈式 / 21st.dev toast；近白底 + 轻阴影浮层例外）</div>
+    <div class="toast">
+      <div class="body">
+        <span class="icon" style="background:var(--signal)"></span>
+        <div><div class="t" style="color:var(--signal-strong)">待你拍板</div><div class="d">#8 折叠午睡枕 · 卖点文案</div><div class="d">美美 已完成撰写，等待确认</div></div>
+        <span style="margin-left:auto;color:var(--ink-faint);cursor:pointer">×</span>
+      </div>
+      <div class="foot"><button class="btn sm signal">去处理</button></div>
+    </div>
+    <div style="height:12px"></div>
+    <div class="toast">
+      <div class="body">
+        <span class="icon" style="background:var(--ok)"></span>
+        <div><div class="t" style="color:var(--ok)">任务完成</div><div class="d">#7 香薰加湿器 · 已交付归档</div></div>
+        <span style="margin-left:auto;color:var(--ink-faint);cursor:pointer">×</span>
+      </div>
+      <div class="foot"><button class="btn sm primary">查看</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid3" style="margin-bottom:20px">
+  <div class="panel">
+    <div class="panel-label">10 · EMPTY 空态（21st.dev empty-state；可接生图插画）</div>
+    <div class="empty">
+      <div class="icon">◇</div>
+      <div class="t">暂无任务</div>
+      <div class="d">点击右上角「＋ 新建任务」开始第一个上架流程</div>
+      <div style="margin-top:14px"><button class="btn sm primary">新建任务</button></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-label">11 · AVATAR STATUS 头像状态（Origin UI avatar-with-badge；4px 色点）</div>
+    <div class="row" style="gap:20px;padding:10px 0">
+      <div class="avatar" style="width:48px;height:48px;background:#7c3aed;font-size:18px">美<span class="dot green" style="border-width:2px"></span></div>
+      <div class="avatar" style="width:48px;height:48px;background:#0a0a0a;font-size:18px">平<span class="dot purple" style="border-width:2px"></span></div>
+      <div class="avatar" style="width:48px;height:48px;background:#52525b;font-size:18px">波<span class="dot green" style="border-width:2px"></span></div>
+      <div class="avatar" style="width:48px;height:48px;background:#a1a1aa;font-size:18px">待<span class="dot gray" style="border-width:2px"></span></div>
+    </div>
+    <div class="row" style="gap:16px">
+      <span style="font-size:12px;color:var(--ink-soft)"><span class="dot ok"></span> 在线</span>
+      <span style="font-size:12px;color:var(--ink-soft)"><span class="dot busy"></span> 忙碌中</span>
+      <span style="font-size:12px;color:var(--ink-soft)"><span class="dot gray"></span> 未配置</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-label">12 · AGENT FLOW 节点图（GodUI Agent Flow，去光晕保留结构）</div>
+    <div style="display:flex;align-items:center;gap:8px;padding:14px 4px">
+      <div class="card" style="padding:8px 12px;font-size:12px;border-color:var(--signal)">需求对齐</div>
+      <span style="color:var(--ink-faint)">→</span>
+      <div class="card" style="padding:8px 12px;font-size:12px">卖点文案</div>
+      <span style="color:var(--ink-faint)">→</span>
+      <div class="card" style="padding:8px 12px;font-size:12px;border-style:dashed">主图设计</div>
+      <span style="color:var(--ink-faint)">→</span>
+      <div class="card" style="padding:8px 12px;font-size:12px;opacity:.6">详情图设计</div>
+    </div>
+    <div class="qs-meta">节点连线 + 数据包流动动效（克制版）；用于编排视图展示 Agent 协作路径</div>
+  </div>
+</div>
+
+<!-- ================= 脚注 ================= -->
+<div class="footnote">
+  <b>参考来源（可点击核对）：</b><br/>
+  · <a href="https://ui.aceternity.com/components">Aceternity UI</a>（微交互/卡片 hover/焦点光晕）｜ <a href="https://ui.aceternity.com/components/tabs">Animated Tabs</a> · <a href="https://ui.aceternity.com/components/bento-grid">Bento Grid</a> · <a href="https://ui.aceternity.com/components/tailwindcss-buttons">Tailwind Buttons</a><br/>
+  · <a href="https://21st.dev/">21st.dev</a>（shadcn registry，工作台基础组件首选）｜ <a href="https://21st.dev/@shadcn/components/button">shadcn Button</a> · <a href="https://21st.dev/@originui/components/avatar/with-badge">Origin UI Avatar</a> · <a href="https://21st.dev/community/components/s/steps">Stepper</a><br/>
+  · <a href="https://godui.design/">GodUI</a>（动效哲学 + AI/Agent 组件）｜ <a href="https://godui.design/docs/components/ai/agent-flow">Agent Flow</a> · <a href="https://godui.design/docs/motion/principles">Motion Principles</a><br/>
+  · <a href="https://recent.design/websites?category=agency">recent.design</a>（页面级灵感，调研中）<br/>
+  <br/>
+  图 1 与图 2 均为目标视效示意（非真实页面代码）。确认后按《组件视效规划表》分批实施；风格红线：不做玻璃拟态 / 渐变光晕 / 层层圆角 / 粒子。
+</div>
+
+</body>
+</html>
