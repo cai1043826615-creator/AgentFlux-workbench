@@ -212,7 +212,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
               <div className="flex flex-col items-center gap-1.5">
                 <div className="relative">
                   <div
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-semibold tabular"
+                    className={`flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-semibold tabular${state === 'current' ? ' qs-step-current' : ''}`}
                     aria-current={state === 'current' ? 'step' : undefined}
                     style={{
                       background: state === 'done' ? 'var(--color-ok)' : state === 'current' ? 'var(--color-ink)' : 'var(--color-surface)',

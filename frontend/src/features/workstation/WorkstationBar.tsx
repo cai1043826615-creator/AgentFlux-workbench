@@ -33,7 +33,7 @@ export function WorkstationBar() {
           {agents.map((a) => (
             <div
               key={a.id}
-              className="group flex items-center gap-3.5 rounded-[4px] border px-3 py-4 transition-colors"
+              className="group flex items-center gap-3.5 rounded-[4px] border px-3 py-4 transition-colors hover:border-[var(--color-line-strong)]"
               style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)', transitionDuration: 'var(--dur-fast)' }}
             >
               {/* 头像（放大）+ 状态点右下（参照 ChatPanel：relative 包裹 + 白描边） */}

@@ -2,11 +2,18 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 /* ===== Quiet Signal 风格轻量 UI 基座（design.md D6.1：大结构直角、4px 小控件、无阴影、衬线标题） ===== */
 
-export function Btn({ children, onClick, variant = 'default', size, disabled, title }: { children: ReactNode; onClick?: () => void; variant?: 'default' | 'primary' | 'ghost' | 'danger' | 'signal'; size?: 'sm'; disabled?: boolean; title?: string }) {
-  const cls = ['qs-btn', variant === 'primary' ? 'primary' : variant === 'ghost' ? 'ghost' : variant === 'signal' ? 'signal' : '', variant === 'danger' ? 'danger' : '', size === 'sm' ? 'sm' : ''].filter(Boolean).join(' ');
+export function Btn({ children, onClick, variant = 'default', size, disabled, title, loading = false }: { children: ReactNode; onClick?: () => void; variant?: 'default' | 'primary' | 'ghost' | 'danger' | 'signal'; size?: 'sm'; disabled?: boolean; title?: string; loading?: boolean }) {
+  const cls = ['qs-btn', variant === 'primary' ? 'primary' : variant === 'ghost' ? 'ghost' : variant === 'signal' ? 'signal' : '', variant === 'danger' ? 'danger' : '', size === 'sm' ? 'sm' : '', loading ? 'is-loading' : ''].filter(Boolean).join(' ');
   return (
-    <button type="button" className={cls} onClick={onClick} disabled={disabled} title={title}>
-      {children}
+    <button type="button" className={cls} onClick={onClick} disabled={disabled || loading} title={title} aria-busy={loading || undefined}>
+      {loading ? (
+        <>
+          <span className="qs-btn-spinner" aria-hidden="true" />
+          {children}
+        </>
+      ) : (
+        children
+      )}
     </button>
   );
 }

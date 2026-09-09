@@ -346,7 +346,7 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
 
       <ModalFooter>
         <Btn onClick={onClose}>取消</Btn>
-        <Btn variant="primary" onClick={() => void save()} disabled={saving}>
+        <Btn variant="primary" onClick={() => void save()} loading={saving}>
           {saving ? '保存中…' : '保存'}
         </Btn>
       </ModalFooter>

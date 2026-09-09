@@ -299,5 +299,6 @@ frontend/src/components/
 | P5 AvatarStatus/阶段组件抽取 | ⏸ 文档已定稿 | App/ChatPanel 使用不同的 dot 体系（busy/idle/ok/no 后缀）且文案有意差异，强行统一有回归风险；规格已在 §4 定稿，待后续工作流页面实际复用时再实施 | — |
 | P6 间距 token | ✅ 完成 | index.css @theme 新增 `--space-1..6`（4px 基数体系）；现有内联值保持不动（视觉零变化），供新组件/后续页面引用 | tsc 0 error |
 | P7 视效升级（克制版） | ✅ 完成 | index.css 新增 `.qs-interactive`（可点击卡 hover 微抬升+边框加深+极轻阴影，含 reduced-motion 降级）、`.qs-btn.signal`（紫色主按钮可选变体，不替换现有黑色 primary）、`.qs-input:disabled` 视觉；BoardView 看板卡应用 qs-interactive；未动图片/头像/功能 | tsc 0 error；看板/详情/交付页截图回归无异常 |
+| P7 视效升级（完整版） | ✅ 完成 | 追加 5 项规划表借鉴点：① 输入框 hover 边框微加深（21st.dev input）；② 默认按钮 hover 背景微变 sunken；③ 左侧导航激活项主色 2px 指示条（21st.dev Sidebar）；④ 步骤当前节点「点亮」呼吸光圈 `qs-step-pulse`（Aceternity Multi Step Loader，2px 主色+7px 浅紫外圈，2.6s 缓呼吸）；⑤ 按钮 loading 态 `qs-btn-spinner`（Aceternity Stateful Button，随前景色旋转指示）——Btn 组件新增 `loading` prop 并接入 AgentSettingsModal 保存按钮（文案不变）；全部含 prefers-reduced-motion 降级 | tsc 0 error；DOM 实测：导航指示条 2px/#7C3AED ✓、qs-step-pulse 动画运行 ✓、看板/详情页截图无回归 |
 
 > 说明：vite build 在本沙箱环境因 esbuild spawn EPERM（命名管道限制）无法执行；已用 `tsc --noEmit`（build 脚本内同样先跑，0 error）+ 运行中 dev server 浏览器截图回归替代验证。dev server 构建环境不受该限制，正式构建请在本机正常终端执行。
