@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
 import { Badge, Btn, Field, Modal, ModalFooter } from './components/ui.tsx';
+import { api } from './lib/api.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
 import { ChatPanel } from './features/chat/ChatPanel.tsx';
 import { WorkstationBar } from './features/workstation/WorkstationBar.tsx';
@@ -14,9 +15,7 @@ function TopBar() {
   const busyCount = agents.filter((a) => a.onlineStatus === 'busy').length;
   return (
     <header className="flex items-center gap-3 px-4 h-[52px] border-b shrink-0" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
-      <span className="flex h-7 w-7 items-center justify-center font-display text-[15px] font-bold text-white" style={{ background: 'var(--color-ink)' }}>
-        电
-      </span>
+      <img src="/logo.png" alt="logo" className="h-7 w-7 object-contain" style={{ imageRendering: 'auto' }} />
       <span className="font-display text-[17px] font-bold leading-none" style={{ fontFamily: 'var(--font-display)' }}>
         电商工作台
       </span>
@@ -44,28 +43,55 @@ function TopBar() {
   );
 }
 
-/** 新建任务：两步弹窗（对齐线框 form → 确认内容 → 确认并开工） */
+/** 可选目标平台（多选） */
+const PLATFORM_OPTIONS = ['天猫', '京东', '拼多多', '抖音小店', '小红书', '其他'];
+
+/** 新建任务：两步弹窗（第1步 表单：标题+资料+平台多选+参考图；第2步 确认摘要 → 确认并开工） */
 function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { createTask } = useWorkbench();
   const [step, setStep] = useState<'form' | 'confirm'>('form');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
-  const [platform, setPlatform] = useState('天猫+京东');
+  const [platforms, setPlatforms] = useState<string[]>([]);
+  const [refDataUrl, setRefDataUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const canNext = title.trim() !== '' && platforms.length > 0 && refDataUrl !== null;
 
   const reset = () => {
     setStep('form');
     setTitle('');
     setDesc('');
-    setPlatform('天猫+京东');
+    setPlatforms([]);
+    setRefDataUrl(null);
+    if (fileRef.current) fileRef.current.value = '';
     onClose();
   };
 
+  const togglePlatform = (p: string) =>
+    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+
+  const pickFile = (f: File | undefined) => {
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setRefDataUrl(String(reader.result));
+    reader.readAsDataURL(f);
+  };
+
   const submit = async () => {
-    if (!title.trim() || busy) return;
+    if (!canNext || busy) return;
     setBusy(true);
     try {
-      await createTask({ title: title.trim(), description: desc.trim(), platform: platform.trim() });
+      let referenceImage: string | undefined = refDataUrl ?? undefined;
+      // 优先上传换取 /uploads 地址；后端未实现（404 等）时回退为直接存 dataURL
+      try {
+        const { url } = await api.uploadImage(refDataUrl as string);
+        if (url) referenceImage = url;
+      } catch (err) {
+        console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
+      }
+      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage });
       reset();
     } finally {
       setBusy(false);
@@ -83,30 +109,86 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
           <Field label="产品资料 / 任务描述">
             <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="品名/类目/卖点素材…" />
           </Field>
-          <Field label="目标平台">
-            <input className="qs-input" value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="如：天猫+京东" />
+          <div className="mb-3">
+            <span className="qs-label">目标平台（必填，可多选）</span>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {PLATFORM_OPTIONS.map((p) => (
+                <label key={p} className="flex cursor-pointer items-center gap-1.5 text-[13px] select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-[var(--color-signal)]"
+                    checked={platforms.includes(p)}
+                    onChange={() => togglePlatform(p)}
+                  />
+                  {p}
+                </label>
+              ))}
+            </div>
+            {platforms.length === 0 ? (
+              <span className="qs-meta mt-1 block" style={{ color: 'var(--color-danger)' }}>
+                ● 请至少选择一个目标平台
+              </span>
+            ) : null}
+          </div>
+          <Field label="参考图（必填，后续全部产出基于此图）">
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
+            <div className="flex items-center gap-3">
+              <div
+                className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden border"
+                style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-sunken)' }}
+              >
+                {refDataUrl ? <img src={refDataUrl} alt="参考图预览" className="h-full w-full object-cover" /> : <span className="qs-meta">无图</span>}
+              </div>
+              <div className="flex flex-col items-start gap-1.5">
+                <Btn size="sm" onClick={() => fileRef.current?.click()}>
+                  选择图片
+                </Btn>
+                {refDataUrl ? (
+                  <Btn
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setRefDataUrl(null);
+                      if (fileRef.current) fileRef.current.value = '';
+                    }}
+                  >
+                    移除图片
+                  </Btn>
+                ) : null}
+                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>PNG / JPG，上传后由本地代理转存</span>
+              </div>
+            </div>
           </Field>
-          <Field label="工作流">
-            <select className="qs-input" defaultValue="电商新品上架 · 6阶段（默认）">
-              <option>电商新品上架 · 6阶段（默认）</option>
-            </select>
-          </Field>
-          <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
-            提交后将展示任务内容摘要，<b>确认后 AI 才开工</b>
-          </p>
+          {canNext ? (
+            <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
+              提交后将展示任务内容摘要，<b>确认后 AI 才开工</b>
+            </p>
+          ) : (
+            <p className="qs-meta mt-2" style={{ color: 'var(--color-danger)' }}>
+              ● {!title.trim() ? '请先填写任务标题' : platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步
+            </p>
+          )}
           <ModalFooter>
             <Btn onClick={reset}>取消</Btn>
-            <Btn variant="primary" onClick={() => setStep('confirm')} disabled={!title.trim()}>
+            <Btn variant="primary" onClick={() => setStep('confirm')} disabled={!canNext}>
               下一步：确认内容
             </Btn>
           </ModalFooter>
         </>
       ) : (
         <>
-          <div className="rounded border px-3 py-2.5 space-y-1" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="rounded border px-3 py-2.5 space-y-1.5" style={{ borderColor: 'var(--color-line)' }}>
             <div className="text-[13px]"><b>标题：</b>{title}</div>
             <div className="text-[13px]"><b>描述：</b>{desc || '新品上架全套物料'}</div>
-            <div className="text-[13px]"><b>平台：</b>{platform || '天猫+京东'}</div>
+            <div className="text-[13px]"><b>平台：</b>{platforms.join(' / ')}</div>
+            <div className="flex items-center gap-2 text-[13px]">
+              <b>参考图：</b>
+              {refDataUrl ? (
+                <img src={refDataUrl} alt="参考图" className="h-12 w-12 border object-cover" style={{ borderColor: 'var(--color-line-strong)' }} />
+              ) : (
+                <span className="qs-meta" style={{ color: 'var(--color-danger)' }}>未上传</span>
+              )}
+            </div>
           </div>
           <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
             确认后 AI 将开始工作（未确认前不会启动任何 Agent）
@@ -146,8 +228,15 @@ function Shell() {
           </aside>
         ) : (
           <div className="w-12 shrink-0 border-r flex items-start justify-center pt-3" style={{ borderColor: 'var(--color-line)' }}>
-            <button type="button" className="qs-meta" style={{ color: 'var(--color-ink-soft)' }} title="展开左栏" onClick={() => setShowLeft(true)}>
-              ▶
+            <button
+              type="button"
+              className="qs-meta flex flex-col items-center gap-1 transition-colors"
+              style={{ color: 'var(--color-ink-soft)' }}
+              title="展开左栏"
+              onClick={() => setShowLeft(true)}
+            >
+              <span aria-hidden="true" className="text-[12px] leading-none">▶</span>
+              <span>展开左栏</span>
             </button>
           </div>
         )}
@@ -179,8 +268,15 @@ function Shell() {
           </aside>
         ) : (
           <div className="w-12 shrink-0 border-l flex items-start justify-center pt-3" style={{ borderColor: 'var(--color-line)' }}>
-            <button type="button" className="qs-meta" style={{ color: 'var(--color-ink-soft)' }} title="展开聊天栏" onClick={() => setShowRight(true)}>
-              ◀
+            <button
+              type="button"
+              className="qs-meta flex flex-col items-center gap-1 transition-colors"
+              style={{ color: 'var(--color-ink-soft)' }}
+              title="展开聊天栏"
+              onClick={() => setShowRight(true)}
+            >
+              <span aria-hidden="true" className="text-[12px] leading-none">◀</span>
+              <span>展开聊天栏</span>
             </button>
           </div>
         )}

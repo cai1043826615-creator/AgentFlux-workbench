@@ -1,7 +1,13 @@
+/**
+ * Agent 运行时状态辅助：行转换、忙碌/空闲/在线标记，以及渠道配置判断（unconfigured 状态支持）。
+ * routes/agents.ts 读取在线状态时可结合 isAgentConfigured 把未配置渠道的 Agent 展示为「未连接API」。
+ */
 import type { Agent, AgentOnlineStatus } from '@workbench/shared';
+import { hasImageChannel, hasLlmChannel } from '../config.ts';
 import { get, run } from '../db/client.ts';
 import type { AgentRow } from '../db/schema.ts';
 import { bus } from '../engine/bus.ts';
+import { getSetting } from './channel-settings.ts';
 
 function now(): string {
   return new Date().toISOString();
@@ -59,4 +65,31 @@ export function markOnline(agentId: string): void {
   run("UPDATE agents SET online_status = 'online', last_active_at = ? WHERE id = ?", [now(), agentId]);
   const row = load(agentId);
   if (row) bus.emitAgent(toAgent(row));
+}
+
+/**
+ * 判断 Agent 渠道是否已配置：设置面板 llmChannels 按 agent 优先，回退 .env.local 默认渠道。
+ * 设计师（agent-design）走生图渠道；其余文本 Agent 走 LLM 渠道。
+ */
+export function isAgentConfigured(agentId: string): boolean {
+  const channels = getSetting<Record<string, { baseUrl: string; apiKey: string; model: string }>>('llmChannels') ?? {};
+  if (channels[agentId]?.apiKey) return true;
+  if (agentId === 'agent-design') return hasImageChannel();
+  return hasLlmChannel();
+}
+
+/** 在线状态中文标签（意见19：unconfigured 显示「未连接API」） */
+export function agentStatusLabel(status: AgentOnlineStatus): string {
+  switch (status) {
+    case 'online':
+      return '在线';
+    case 'busy':
+      return '忙碌';
+    case 'idle':
+      return '待命';
+    case 'unconfigured':
+      return '未连接API';
+    default:
+      return '未知';
+  }
 }

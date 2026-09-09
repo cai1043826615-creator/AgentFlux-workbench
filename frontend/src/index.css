@@ -200,7 +200,11 @@ body {
   background: var(--color-ok);
 }
 .qs-dot.idle {
-  background: var(--color-line-strong);
+  background: var(--color-ok);
+}
+/* unconfigured：渠道未配置（灰 #A1A1AA，意见19） */
+.qs-dot.unconfigured {
+  background: #a1a1aa;
 }
 .qs-dot.signal {
   background: var(--color-signal);
@@ -249,6 +253,42 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ===== 左侧导航项（参考图2：图标+文字，选中浅紫圆角高亮） ===== */
+.qs-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border-radius: 4px;
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-ink-soft);
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+.qs-nav-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-ink);
+}
+.qs-nav-item.active {
+  background: var(--color-signal-soft);
+  color: var(--color-signal-strong);
+  font-weight: 600;
+}
+.qs-nav-item.active:hover {
+  background: var(--color-signal-soft);
+}
+.qs-nav-item.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qs-nav-item.disabled:hover {
+  background: transparent;
+  color: var(--color-ink-soft);
 }
 
 /* ===== 滚动条（克制） ===== */

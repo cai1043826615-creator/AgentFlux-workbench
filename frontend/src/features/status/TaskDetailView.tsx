@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Deliverable, type TaskEvent, type TaskEventType } from '@workbench/shared';
-import { useWorkbench } from '../../store/useWorkbench.tsx';
-import { Badge, Empty, Spinner } from '../../components/ui.tsx';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type TaskEvent, type TaskEventType } from '@workbench/shared';
+import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
+import { Spinner } from '../../components/ui.tsx';
 import { parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 
@@ -18,16 +18,26 @@ const EVENT_LABELS: Record<TaskEventType, string> = {
   DELIVERABLE_DECIDED: '交付物定案',
 };
 
-const IMG_STAGE_LABELS: Record<string, string> = {
-  'main-image': '主图设计',
-  'detail-image': '详情图设计',
+/** 事件前缀「文字图标」（无 emoji：单字标记 + 语义色） */
+const EVENT_MARKS: Record<TaskEventType, { ch: string; tone: 'ok' | 'no' | 'warn' | 'neutral' }> = {
+  TASK_CREATED: { ch: '建', tone: 'neutral' },
+  TASK_CONFIRMED: { ch: '开', tone: 'neutral' },
+  STAGE_STARTED: { ch: '进', tone: 'neutral' },
+  STAGE_COMPLETED: { ch: '完', tone: 'ok' },
+  APPROVED: { ch: '采', tone: 'ok' },
+  REJECTED: { ch: '打', tone: 'no' },
+  REVIEW_PASSED: { ch: '放', tone: 'ok' },
+  REVIEW_ROLLBACK: { ch: '退', tone: 'no' },
+  SUB_TASK_COMPLETE: { ch: '子', tone: 'ok' },
+  DELIVERABLE_DECIDED: { ch: '定', tone: 'ok' },
 };
 
-function statusBadge(d: Deliverable) {
-  if (d.status === 'approved') return <Badge tone="ok">已采纳</Badge>;
-  if (d.status === 'rejected') return <Badge tone="no">已打回</Badge>;
-  return <Badge tone="warn">待定</Badge>;
-}
+const MARK_STYLE: Record<'ok' | 'no' | 'warn' | 'neutral', { bg: string; fg: string }> = {
+  ok: { bg: 'var(--color-ok-soft)', fg: 'var(--color-ok)' },
+  no: { bg: 'var(--color-danger-soft)', fg: 'var(--color-danger)' },
+  warn: { bg: 'var(--color-warn-soft)', fg: 'var(--color-warn)' },
+  neutral: { bg: 'var(--color-sunken)', fg: 'var(--color-ink-soft)' },
+};
 
 function fmtTime(iso?: string): string {
   if (!iso) return '—';
@@ -45,9 +55,14 @@ function fmtFull(iso?: string): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function eventStage(ev: TaskEvent): string {
+function stageKeyOf(ev: TaskEvent): string {
   const s = ev.payload?.stage;
-  return typeof s === 'string' ? WORKFLOW_STAGE_LABELS[s] ?? s : '';
+  return typeof s === 'string' ? s : '';
+}
+
+function stageLabelOf(ev: TaskEvent): string {
+  const s = stageKeyOf(ev);
+  return s ? (WORKFLOW_STAGE_LABELS[s] ?? s) : '';
 }
 
 function eventNote(ev: TaskEvent): string {
@@ -55,32 +70,102 @@ function eventNote(ev: TaskEvent): string {
   return typeof n === 'string' && n ? n : '';
 }
 
-/** 活动日志（对齐线框 .log） */
+/** 同类事件组（连续同 type + 同 stage 合并；最新在前） */
+interface EventGroup {
+  key: string;
+  type: TaskEventType;
+  stageKey: string;
+  items: TaskEvent[];
+}
+
+function groupTitle(g: EventGroup): string {
+  if (g.items.length === 1) return EVENT_LABELS[g.type];
+  if (g.type === 'SUB_TASK_COMPLETE' && g.stageKey) {
+    const unit = g.stageKey === 'main-image' || g.stageKey === 'detail-image' ? '张' : '项';
+    return `${stageLabelOf(g.items[0])} · ${g.items.length} ${unit}完成`;
+  }
+  return `${EVENT_LABELS[g.type]} × ${g.items.length}`;
+}
+
+/** 活动日志（意见16 后半：最新在前 + 同类折叠可展开 + 文字图标前缀） */
 function EventTimeline({ events }: { events: TaskEvent[] }) {
-  const sorted = useMemo(
-    () => [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    [events],
-  );
-  if (sorted.length === 0) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const groups = useMemo<EventGroup[]>(() => {
+    const sorted = [...events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const out: EventGroup[] = [];
+    for (const ev of sorted) {
+      const sk = stageKeyOf(ev);
+      const last = out[out.length - 1];
+      if (last && last.type === ev.type && last.stageKey === sk) last.items.push(ev);
+      else out.push({ key: String(ev.id), type: ev.type, stageKey: sk, items: [ev] });
+    }
+    return out;
+  }, [events]);
+
+  if (groups.length === 0) {
     return (
       <div className="qs-meta py-6 text-center" style={{ color: 'var(--color-ink-faint)' }}>暂无活动记录</div>
     );
   }
+
   return (
-    <div className="relative space-y-3 border-l pl-4" style={{ borderColor: 'var(--color-line)' }}>
-      {sorted.map((ev) => {
-        const stage = eventStage(ev);
-        const note = eventNote(ev);
+    <div className="relative space-y-2 border-l pl-4" style={{ borderColor: 'var(--color-line)' }}>
+      {groups.map((g) => {
+        const mark = EVENT_MARKS[g.type] ?? { ch: '·', tone: 'neutral' as const };
+        const ms = MARK_STYLE[mark.tone];
+        const foldable = g.items.length > 1;
+        const open = expanded === g.key;
+        const head = (
+          <span className="flex items-center gap-1.5 min-w-0">
+            {foldable ? (
+              <span
+                className="inline-block shrink-0 text-[12px] leading-none transition-transform"
+                style={{ transform: open ? 'rotate(90deg)' : '', color: 'var(--color-ink-faint)' }}
+              >
+                ›
+              </span>
+            ) : null}
+            <span className="truncate text-[12px] font-medium">{groupTitle(g)}</span>
+          </span>
+        );
         return (
-          <div key={ev.id} className="relative">
-            <span className="absolute -left-[21.5px] top-1 h-[9px] w-[9px] rounded-full" style={{ background: 'var(--color-signal)' }} />
+          <div key={g.key} className="relative">
+            <span className="absolute -left-[21.5px] top-1 h-[9px] w-[9px] rounded-full" style={{ background: 'var(--color-line-strong)' }} />
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[12px] font-medium">{EVENT_LABELS[ev.type]}</span>
-              <span className="qs-meta shrink-0">{fmtTime(ev.createdAt)}</span>
+              {foldable ? (
+                <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setExpanded(open ? null : g.key)}>
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-bold" style={{ background: ms.bg, color: ms.fg }}>
+                    {mark.ch}
+                  </span>
+                  {head}
+                </button>
+              ) : (
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-bold" style={{ background: ms.bg, color: ms.fg }}>
+                    {mark.ch}
+                  </span>
+                  {head}
+                </span>
+              )}
+              <span className="qs-meta shrink-0">{fmtTime(g.items[0].createdAt)}</span>
             </div>
-            {stage || note ? (
-              <div className="qs-meta mt-0.5 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
-                {[stage, note].filter(Boolean).join(' · ')}
+            {stageLabelOf(g.items[0]) ? (
+              <div className="qs-meta mt-0.5 pl-6 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
+                {stageLabelOf(g.items[0])}
+              </div>
+            ) : null}
+            {foldable && open ? (
+              <div className="mt-1.5 space-y-1 border-l pl-4" style={{ borderColor: 'var(--color-line)' }}>
+                {g.items.map((ev) => {
+                  const note = eventNote(ev);
+                  return (
+                    <div key={ev.id} className="flex items-baseline justify-between gap-2">
+                      <span className="text-[12px]" style={{ color: 'var(--color-ink-soft)' }}>{note || EVENT_LABELS[ev.type]}</span>
+                      <span className="qs-meta shrink-0">{fmtTime(ev.createdAt)}</span>
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -90,61 +175,60 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
   );
 }
 
-/** 交付物概览（文案包 + 图片按阶段） */
-function DeliverablesOverview({ deliverables }: { deliverables: Deliverable[] }) {
-  if (deliverables.length === 0) {
-    return (
-      <div className="qs-meta py-6 text-center" style={{ color: 'var(--color-ink-faint)' }}>暂无交付物</div>
-    );
-  }
-  const copyDel = deliverables.find((d) => d.kind === 'copy');
-  const imgDels = deliverables.filter((d) => d.kind === 'image');
+/** 6 阶段条（意见11 重构：横向节点带数字 + 箭头 + 拍板小标记） */
+function StageStepper({ task }: { task: TaskWithMeta }) {
+  const done = task.column === 'done';
+  const curIdx = WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]);
   return (
-    <div className="space-y-2.5">
-      {copyDel ? (
-        <div className="flex items-start justify-between gap-3 border-b pb-2.5" style={{ borderColor: 'var(--color-line)' }}>
-          <div className="min-w-0">
-            <div className="mb-0.5 flex items-center gap-2">
-              <span className="text-[12px] font-medium">卖点文案</span>
-              {statusBadge(copyDel)}
-            </div>
-            <p className="text-[13px] leading-snug">
-              {(() => {
-                const copy = parseCopy(copyDel);
-                if (!copy) return '文案包（内容待解析）';
-                return `${copy.title} · 卖点 ${copy.points.length} 条`;
-              })()}
-            </p>
-          </div>
-          <span className="qs-meta shrink-0">v{copyDel.version}</span>
-        </div>
-      ) : null}
-      {imgDels.map((d) => {
-        const imgs = parseImages(d);
-        const total = imgs?.length ?? 0;
-        const ok = imgs?.filter((i) => i.status === 'approved').length ?? 0;
-        const rej = imgs?.filter((i) => i.status === 'rejected').length ?? 0;
-        const pend = imgs?.filter((i) => i.status === 'pending').length ?? 0;
-        return (
-          <div key={d.id} className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="mb-0.5 flex items-center gap-2">
-                <span className="text-[12px] font-medium">{IMG_STAGE_LABELS[d.stage] ?? d.stage}</span>
-                {statusBadge(d)}
+    <div className="select-none overflow-x-auto py-1">
+      <div className="flex min-w-max items-center">
+        {WORKFLOW_STAGE_KEYS.map((k, i) => {
+          const state = done || i < curIdx ? 'done' : i === curIdx ? 'current' : 'todo';
+          const isApproval = (APPROVAL_POINT_STAGES as string[]).includes(k);
+          return (
+            <div key={k} className="flex items-center">
+              <div className="relative flex w-[76px] flex-col items-center gap-1.5">
+                <div className="relative">
+                  <div
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-semibold tabular"
+                    style={{
+                      background: state === 'done' ? 'var(--color-ok)' : state === 'current' ? 'var(--color-ink)' : 'var(--color-surface)',
+                      border: `1px solid ${state === 'todo' ? 'var(--color-line-strong)' : 'transparent'}`,
+                      color: state === 'done' || state === 'current' ? '#fff' : 'var(--color-ink-faint)',
+                    }}
+                  >
+                    {i + 1}
+                  </div>
+                  {isApproval ? (
+                    <span
+                      className="absolute -right-1.5 -top-1 flex h-[15px] items-center rounded-[3px] px-1 text-[9px] font-bold text-white"
+                      style={{ background: 'var(--color-signal)' }}
+                    >
+                      拍板
+                    </span>
+                  ) : null}
+                </div>
+                <span
+                  className="qs-meta text-[10px] text-center leading-tight"
+                  style={{ color: state === 'todo' ? 'var(--color-ink-faint)' : 'var(--color-ink)' }}
+                >
+                  {WORKFLOW_STAGE_LABELS[k]}
+                </span>
               </div>
-              <p className="text-[13px] leading-snug" style={{ color: 'var(--color-ink-soft)' }}>
-                {imgs ? `共 ${total} 张 · 已采纳 ${ok} · 待定 ${pend} · 打回 ${rej}` : '图片（内容待解析）'}
-              </p>
+              {i < WORKFLOW_STAGE_KEYS.length - 1 ? (
+                <span className="mb-5 px-0.5 text-[13px] leading-none" style={{ color: i < curIdx || done ? 'var(--color-ok)' : 'var(--color-line-strong)' }}>
+                  →
+                </span>
+              ) : null}
             </div>
-            <span className="qs-meta shrink-0">v{d.version}</span>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-/** 任务详情（对齐线框 renderTask：back + task-head + stages + tabs + 属性面板 / 内容交付） */
+/** 任务详情（对齐线框 renderTask：面包屑 + task-head + 阶段条 + tabs + 属性面板 / 内容交付） */
 export function TaskDetailView({
   taskId,
   onBack,
@@ -182,14 +266,28 @@ export function TaskDetailView({
 
   const awaiting = task.column === 'awaiting';
   const done = task.column === 'done';
-  const stageIdx = WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]);
+
+  // 产出摘要（文案标题 + 图片张数）
+  const deliverables = deliverablesByTask[task.id] ?? [];
+  const copyDel = deliverables.find((d) => d.kind === 'copy');
+  const copyTitle = copyDel ? (parseCopy(copyDel)?.title ?? null) : null;
+  const imgCount = deliverables
+    .filter((d) => d.kind === 'image')
+    .reduce((n, d) => n + (parseImages(d)?.length ?? 0), 0);
+
+  // 当前阶段状态点（对齐工位状态语义：待确认=紫、进行=紫闪、完成=绿、规划=灰）
+  const columnDot = awaiting ? 'qs-dot signal' : done ? 'qs-dot ok' : task.column === 'progress' ? 'qs-dot signal busy' : 'qs-dot unconfigured';
 
   return (
     <div className="space-y-4">
-      {/* back */}
-      <button type="button" className="qs-meta" style={{ color: 'var(--color-ink-soft)' }} onClick={onBack}>
-        ← 返回任务列表
-      </button>
+      {/* 面包屑（意见2：看板 / 任务 #id，点「看板」回列表） */}
+      <nav className="qs-meta flex items-center gap-1.5" aria-label="面包屑">
+        <button type="button" style={{ color: 'var(--color-ink-soft)' }} className="hover:underline hover:text-[var(--color-ink)]" onClick={onBack}>
+          看板
+        </button>
+        <span style={{ color: 'var(--color-ink-faint)' }}>/</span>
+        <span style={{ color: 'var(--color-ink)' }}>任务 #{task.id}</span>
+      </nav>
 
       {/* task-head（对齐线框 th-1/2/3，QS 编辑性大标题） */}
       <div>
@@ -200,33 +298,25 @@ export function TaskDetailView({
           {task.title}
         </h2>
         <div className="qs-meta mt-1.5" style={{ color: 'var(--color-ink-soft)' }}>
-          {task.description || '新品上架全套物料'} · 目标平台：{task.platform || '—'}
+          {task.description || '新品上架全套物料'} · 目标平台：{task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
         </div>
       </div>
 
-      {/* stages（对齐线框 6 阶段条 + 拍板标记 + 箭头） */}
-      <div className="flex items-center gap-1">
-        {WORKFLOW_STAGE_KEYS.map((k, i) => (
-          <div key={k} className="flex items-center gap-1">
-            <span
-              className="qs-meta rounded px-2 py-1 text-[12px]"
-              style={{
-                background: done || i < stageIdx ? 'rgba(0,0,0,0.05)' : i === stageIdx ? 'var(--color-ink)' : 'transparent',
-                color: i === stageIdx ? '#fff' : i < stageIdx || done ? 'var(--color-ok)' : 'var(--color-ink-faint)',
-                border: `1px solid ${i === stageIdx ? 'var(--color-ink)' : 'var(--color-line)'}`,
-                position: 'relative',
-              }}
-            >
-              {WORKFLOW_STAGE_LABELS[k]}
-              {(k === 'copy' || k === 'main-image') && <span className="qs-meta ml-1" style={{ color: 'var(--color-warn)' }}>拍板</span>}
-            </span>
-            {i < WORKFLOW_STAGE_KEYS.length - 1 ? <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>›</span> : null}
-          </div>
-        ))}
+      {/* stages（意见11：6 节点 + 拍板标记 + 箭头） */}
+      <div className="qs-card p-3">
+        <StageStepper task={task} />
       </div>
 
-      {/* tabs（对齐线框 tabs；QS 焦点信号） */}
+      {/* tabs（对齐线框 tabs；QS 焦点信号；意见12：内容交付在前，去掉「· 审批」） */}
       <div className="flex gap-1 border-b" style={{ borderColor: 'var(--color-line)' }}>
+        <button
+          type="button"
+          className={`px-3 py-2 text-[13px] transition-colors ${taskTab === 'deliver' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
+          style={{ borderBottom: taskTab === 'deliver' ? '2px solid var(--color-signal)' : '2px solid transparent', color: taskTab === 'deliver' ? 'var(--color-ink)' : 'var(--color-ink-soft)' }}
+          onClick={() => setTaskTab('deliver')}
+        >
+          内容交付
+        </button>
         <button
           type="button"
           className={`px-3 py-2 text-[13px] transition-colors ${taskTab === 'detail' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
@@ -234,14 +324,6 @@ export function TaskDetailView({
           onClick={() => setTaskTab('detail')}
         >
           任务详情
-        </button>
-        <button
-          type="button"
-          className={`px-3 py-2 text-[13px] transition-colors ${taskTab === 'deliver' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
-          style={{ borderBottom: taskTab === 'deliver' ? '2px solid var(--color-signal)' : '2px solid transparent', color: taskTab === 'deliver' ? 'var(--color-ink)' : 'var(--color-ink-soft)' }}
-          onClick={() => setTaskTab('deliver')}
-        >
-          内容交付{awaiting ? ' · 审批' : ''}
         </button>
       </div>
 
@@ -251,38 +333,35 @@ export function TaskDetailView({
         /* status-grid：内容区 + 280 属性面板 */
         <div className="flex gap-4">
           <div className="min-w-0 flex-1 space-y-4">
-            {/* 待拍板横幅 / 当前阶段卡（对齐线框；QS 焦点信号） */}
-            {awaiting ? (
-              <div className="rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
-                <div className="mb-1 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
-                  待你拍板 · {task.stageLabel || WORKFLOW_STAGE_LABELS[task.stage]} #{task.id}
-                </div>
-                <div className="mb-2 text-[13px]" style={{ color: 'var(--color-ink-soft)' }}>
-                  {task.ownerName || 'Agent'} 已完成输出，请到「内容交付」页看着成品直接处理（审批已并入该页）。
-                </div>
-                <button type="button" className="qs-btn sm primary" onClick={() => setTaskTab('deliver')}>
-                  去内容交付页审批
-                </button>
+            {/* 当前阶段卡片 + 产出摘要（意见16 替代横幅与交付物概览） */}
+            <div
+              className="rounded-[4px] border px-3 py-2.5"
+              style={{ borderColor: awaiting ? 'var(--color-signal)' : 'var(--color-line)', background: awaiting ? 'var(--color-signal-soft)' : 'var(--color-canvas)' }}
+            >
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className={columnDot} />
+                <span className="text-[12px] font-bold">当前阶段：{task.stageLabel || WORKFLOW_STAGE_LABELS[task.stage]}</span>
+                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>负责人 {task.ownerName || '—'}</span>
               </div>
-            ) : (
-              <div className="rounded border px-3 py-2.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-canvas)' }}>
-                <div className="mb-1 text-[12px] font-bold">当前阶段：{task.stageLabel || WORKFLOW_STAGE_LABELS[task.stage]}</div>
-                <div className="text-[13px]" style={{ color: 'var(--color-ink-soft)' }}>
-                  {task.stageNote || (done ? '已交付 · 已归档' : '引擎推进中…')}
-                </div>
+              <div className="text-[13px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
+                {task.stageNote || (done ? '已交付 · 已归档' : '引擎推进中…')}
               </div>
-            )}
+              {copyTitle || imgCount > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 border-t pt-2" style={{ borderColor: 'var(--color-line)' }}>
+                  {copyTitle ? (
+                    <span className="qs-meta">文案 <span style={{ color: 'var(--color-ink-soft)' }}>{copyTitle}</span></span>
+                  ) : null}
+                  {imgCount > 0 ? (
+                    <span className="qs-meta">图片 <span style={{ color: 'var(--color-ink-soft)' }}>{imgCount} 张</span></span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
 
             {/* 活动日志 */}
             <div className="qs-card p-4">
               <h3 className="font-display mb-3 text-[15px] font-semibold">活动日志</h3>
               <EventTimeline events={eventsByTask[task.id] ?? []} />
-            </div>
-
-            {/* 交付物概览 */}
-            <div className="qs-card p-4">
-              <h3 className="font-display mb-3 text-[15px] font-semibold">交付物概览</h3>
-              <DeliverablesOverview deliverables={deliverablesByTask[task.id] ?? []} />
             </div>
           </div>
 

@@ -27,12 +27,19 @@ export function ensureSchema(): void {
       owner_agent_id TEXT,
       description TEXT NOT NULL DEFAULT '',
       platform TEXT NOT NULL DEFAULT '',
+      reference_image TEXT,
       progress INTEGER NOT NULL DEFAULT 0,
       stage_note TEXT NOT NULL DEFAULT '',
       created_by TEXT NOT NULL DEFAULT '你',
       created_at TEXT NOT NULL
     );
   `);
+  // 旧库迁移：补充 reference_image 列（已存在则忽略）
+  try {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN reference_image TEXT');
+  } catch {
+    /* column already exists */
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS task_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

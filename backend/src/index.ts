@@ -15,7 +15,8 @@ const PORT = Number(process.env.PORT ?? 4311);
 const HOST = process.env.HOST ?? '127.0.0.1';
 
 async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  // bodyLimit 调大：参考图上传 dataURL 可能数 MB，默认 1MB 会 413
+  const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
 
   await app.register(websocket);
 

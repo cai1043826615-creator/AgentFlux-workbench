@@ -5,25 +5,36 @@ Multi-Agent E-Commerce Workbench —— 一套把「电商新品上架全套物�
 ## 工作流
 
 ```
-需求对齐 → 卖点文案 ✱ → 主图设计 ✱ → 详情图设计 → 主管校对 → 交付归档
+需求对接 → 卖点文案 ✱ → 主图设计 ✱ → 详情图设计 → 主管校对 → 交付归档
 ```
 
-- **6 阶段**：需求对齐 → 卖点文案 → 主图设计 → 详情图设计 → 主管校对 → 交付归档
-- **2 个拍板点**（✱）：卖点文案、主图设计 —— 产出后停在「待确认」，由你采纳或打回
+- **6 阶段**：需求对接 → 卖点文案 → 主图设计 → 详情图设计 → 主管校对 → 交付归档
+- **2 个拍板点**（✱）：卖点文案、主图设计 —— 产出后停在「待确认」，由你在「内容交付」页采纳或打回
+- **采纳即推进**：文案整包采纳 / 图片逐张采纳（全部采纳后自动推进），无需回看板重复操作
 - **校对回退**：主管校对发现问题时，可沿回退边把任务退回文案 / 主图 / 详情图重新输出
 - **并行生图**：主图 / 详情图按渠道分组并行生成（组间并行、组内串行），逐张上报进度，失败不阻塞
+- **交付物按阶段独立**：主图、详情图、文案各自独立存储展示，互不覆盖
 
 ## Agent 工位
 
 | 工位 | 角色 | 模型 | 职责 |
 | --- | --- | --- | --- |
-| 美美 | 文案 | deepseek-chat | 需求对齐、卖点文案、详情大纲、关键词 |
+| 美美 | 文案 | deepseek-chat | 需求对接、卖点文案、详情大纲、关键词 |
 | 平平 | 设计师 | gpt-image-2 | 主图（3 张）、详情图（4 张） |
 | 波波 | 主管 | deepseek-chat | 主管校对、终审放行 / 回退、交付归档 |
 
 - 文本 Agent 调用真实 DeepSeek 接口；生图 Agent 调用真实图像生成接口（当前渠道 gpt-image-2）
 - 未配置渠道或调用失败时自动降级为内置模拟内容，流程仍可端到端跑通
 - **编排模式**：图编排（拍板点等人工确认，默认）/ 线性降级（拍板点自动通过，全自动跑完），可在左侧「设置」切换
+
+## 0909 修改意见落地亮点
+
+- **Q 版 Agent 头像**：美美 / 平平 / 波波各有 AI 生成 Q 版 iOS 风头像，全站（工位栏 / 看板 / 聊天 / 详情 / Agent 状态）统一使用
+- **Agent 真实对话**：聊天顶部圆头像切换会话（工作群 / 各 Agent），发消息后由**负责对应工作的 Agent** 回复（私聊指定 / 群聊按进行中任务阶段负责人 / 指令性内容由主管波波记录记忆）；回复前先发「已收到」回执，再出正文
+- **参考图上传 + 平台多选**：新建任务时必填目标平台（可多选）与参考图（上传后本地转存 `/uploads/`），后续文案与生图均基于该图
+- **Agent 设置**：每工位可配模型名称 + API 地址 + 密钥，并**真实挂载技能**（`backend/skills/*.md`，注入 LLM System Prompt）与人设
+- **Agent 状态**：执行观测统一改名「Agent 状态」，平均耗时格式化为「x 分 x 秒」；状态点三色（未连接=灰 / 在线待命=绿 / 忙碌=紫闪）
+- **详情页重构**：面包屑返回、6 节点大阶段条（数字 + 箭头 + 拍板标记）、活动日志最新在前且同类折叠、审批集中在内容交付页
 
 ## 技术栈
 
@@ -40,19 +51,22 @@ Multi-Agent E-Commerce Workbench —— 一套把「电商新品上架全套物�
 ├── frontend/                 # React 前端（Vite + Tailwind v4）
 │   └── src/
 │       ├── features/         # board / status / content / observability / chat / workstation / LeftPanel
-│       ├── components/       # QS 风格 UI 基座（Btn/Badge/Card/Modal/StageFlow/Avatar）
+│       ├── components/       # QS 风格 UI 基座（Btn/Badge/Card/Modal/StageFlow/Avatar/Glyph）
 │       ├── store/            # WorkbenchProvider（视图/任务/Agent/WS 订阅/审批）
 │       └── lib/              # API 客户端 / WS 客户端
+│   └── public/               # 静态资源（avatars/ 头像、logo.png）
 ├── backend/                  # Fastify 后端
 │   └── src/
 │       ├── engine/           # 图定义 + 执行器 + 并行调度 + 事件总线
-│       ├── agents/           # 运行时 / LLM / 生图 / 渠道配置 / 执行日志 / 播报
+│       ├── agents/           # 运行时 / LLM / 生图 / 渠道配置 / 执行日志 / 播报 / 聊天回复 / 技能挂载
 │       ├── db/               # node:sqlite 客户端 / schema / 种子
 │       ├── routes/           # tasks / workflows / agents / executions / chat / settings
 │       └── ws/               # WebSocket 广播与消息处理
+│   ├── skills/               # 可挂载技能（Markdown，注入 Agent System Prompt）
+│   └── files/                # 可挂载文件（人设 / 知识库等）
 ├── packages/shared/          # @workbench/shared 共享类型与工作流常量
 ├── openspec/                 # OpenSpec 变更文档（proposal / design / tasks / specs）
-└── docs/                     # 验收清单（含大白话版）
+└── docs/                     # 验收清单（含大白话版）、修改意见落地记录
 ```
 
 ## 快速启动
@@ -95,6 +109,12 @@ cd backend && node scripts/smoke-agents.ts
 
 # 聊天 + 事件播报
 cd backend && node scripts/smoke-chat.ts
+
+# 聊天对话链路（Agent 回复 / 回执 / 主管记忆 / LLM 降级，4 段断言）
+cd backend && node scripts/smoke-chat-reply.ts
+
+# 技能挂载（技能扫描 / 内容读取 / System Prompt 注入，6 项断言）
+cd backend && node scripts/smoke-skills.ts
 ```
 
 前端验收请见 `docs/验收清单-大白话版.md`（逐步操作 + 预期表现）与 `docs/前端UI验证清单.md`、`docs/前端操作测试清单.md`。

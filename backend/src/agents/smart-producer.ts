@@ -1,9 +1,12 @@
 import type { CopyPackage, ImageItem, Task, WorkflowParallelGroup } from '@workbench/shared';
 import { runParallelGroups } from '../engine/parallel.ts';
 import { createPlaceholderImage } from '../utils/placeholder.ts';
+import { get } from '../db/client.ts';
+import type { AgentRow } from '../db/schema.ts';
 import { generateImage } from './imagegen.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
 import { MockProducer, type ReviewReport, type StageProducer, setProducer } from './producer.ts';
+import { readFileContent, readSkillContent } from './skills.ts';
 
 const AGENT_IDS: Record<string, string> = {
   '文案': 'agent-copy',
@@ -30,6 +33,47 @@ function extractJson<T>(text: string): T | null {
 }
 
 /**
+ * 解析 agents 表 skills/files 列（JSON 数组，坏 JSON 容错为空数组）
+ */
+function parseList(json: string): string[] {
+  try {
+    const v = JSON.parse(json) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 构建 LLM system prompt：在基础 system 后追加【挂载技能】与【挂载文件】段。
+ * 查 agents 表取该 agent 的 skills/files 数组，逐项读取本地技能/文件内容注入；
+ * 内容为空则跳过对应段，全部为空时原样返回 base。
+ */
+export async function buildSystemPrompt(agentId: string, base: string): Promise<string> {
+  const row = get<Pick<AgentRow, 'skills' | 'files'>>('SELECT skills, files FROM agents WHERE id = ?', [agentId]);
+  if (!row) return base;
+
+  const parts: string[] = [];
+
+  const skillBlocks: string[] = [];
+  for (const skillId of parseList(row.skills)) {
+    const content = await readSkillContent(skillId);
+    if (content) skillBlocks.push(`## 技能：${skillId}\n${content}`);
+  }
+  if (skillBlocks.length > 0) parts.push(`【挂载技能】\n\n${skillBlocks.join('\n\n')}`);
+
+  const fileBlocks: string[] = [];
+  for (const fileRef of parseList(row.files)) {
+    const content = await readFileContent(fileRef);
+    if (content) fileBlocks.push(`## 文件：${fileRef}\n${content}`);
+  }
+  if (fileBlocks.length > 0) parts.push(`【挂载文件】\n\n${fileBlocks.join('\n\n')}`);
+
+  if (parts.length === 0) return base;
+  return `${base}\n\n${parts.join('\n\n')}`;
+}
+
+/**
  * 智能 Producer：真实 LLM / 生图渠道优先，不可用或失败时自动降级为内置 mock
  * （design.md D9 mock 降级开关；渠道来自 .env.local 默认或设置面板）。
  */
@@ -38,7 +82,8 @@ export class SmartProducer implements StageProducer {
 
   private async withLlm<T>(agentId: string, system: string, user: string, fallback: () => Promise<T>, parser: (text: string) => T | null): Promise<T> {
     try {
-      const text = await callLlm({ agentId, system, user });
+      const finalSystem = await buildSystemPrompt(agentId, system);
+      const text = await callLlm({ agentId, system: finalSystem, user });
       const parsed = parser(text);
       if (parsed) return parsed;
       return fallback();

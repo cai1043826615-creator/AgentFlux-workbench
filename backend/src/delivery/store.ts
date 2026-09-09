@@ -20,13 +20,14 @@ function toDeliverable(row: DeliverableRow): Deliverable {
   };
 }
 
-function getRow(taskId: number, kind: string): DeliverableRow | undefined {
-  return get<DeliverableRow>('SELECT * FROM deliverables WHERE task_id = ? AND kind = ? ORDER BY id ASC', [taskId, kind]);
+/** 按 (任务, 阶段, 种类) 唯一定位交付物行（修复：主图/详情图/文案互相覆盖的问题） */
+function getRow(taskId: number, stage: string, kind: string): DeliverableRow | undefined {
+  return get<DeliverableRow>('SELECT * FROM deliverables WHERE task_id = ? AND stage = ? AND kind = ? ORDER BY id ASC', [taskId, stage, kind]);
 }
 
-/** 按任务+种类取交付物（v1 每任务每种类一条记录，content 内含文案包或图片数组） */
-export function getDeliverable(taskId: number, kind: DeliverableKind): Deliverable | undefined {
-  const row = getRow(taskId, kind);
+/** 按任务+阶段+种类取交付物 */
+export function getDeliverable(taskId: number, stage: string, kind: DeliverableKind): Deliverable | undefined {
+  const row = getRow(taskId, stage, kind);
   return row ? toDeliverable(row) : undefined;
 }
 
@@ -34,10 +35,10 @@ export function listDeliverables(taskId: number): Deliverable[] {
   return all<DeliverableRow>('SELECT * FROM deliverables WHERE task_id = ? ORDER BY id ASC', [taskId]).map(toDeliverable);
 }
 
-/** 保存交付物（文案包或图片集），重复产出时版本递增 */
+/** 保存交付物（文案包或图片集），同一 (任务,阶段,种类) 重复产出时版本递增 */
 export function saveDeliverable(taskId: number, stage: string, kind: DeliverableKind, content: CopyPackage | ImageItem[]): Deliverable {
   const updatedAt = now();
-  const existing = getRow(taskId, kind);
+  const existing = getRow(taskId, stage, kind);
   if (existing) {
     const version = existing.version + 1;
     run('UPDATE deliverables SET content = ?, stage = ?, status = ?, version = ?, updated_at = ? WHERE id = ?', [
@@ -78,8 +79,15 @@ export function resetStageDeliverables(taskId: number, stage: string): void {
   }
 }
 
-export function updateDeliverableStatus(taskId: number, kind: DeliverableKind, imageId: string | undefined, status: 'approved' | 'rejected'): Deliverable | undefined {
-  const existing = getRow(taskId, kind);
+/** 更新交付物状态：copy 整包；image 按 imageId 逐张（无 imageId 则整批），全部决策后交付物状态同步 */
+export function updateDeliverableStatus(
+  taskId: number,
+  stage: string,
+  kind: DeliverableKind,
+  imageId: string | undefined,
+  status: 'approved' | 'rejected',
+): Deliverable | undefined {
+  const existing = getRow(taskId, stage, kind);
   if (!existing) return undefined;
   let content: CopyPackage | ImageItem[];
   try {
@@ -106,9 +114,9 @@ export function updateDeliverableStatus(taskId: number, kind: DeliverableKind, i
   return updated;
 }
 
-/** 图片集是否全部决策完成 */
-export function allImagesDecided(taskId: number): boolean {
-  const existing = getRow(taskId, 'image');
+/** 某阶段图片集是否全部决策完成 */
+export function allImagesDecided(taskId: number, stage: string): boolean {
+  const existing = getRow(taskId, stage, 'image');
   if (!existing) return false;
   try {
     const images = JSON.parse(existing.content) as ImageItem[];
@@ -118,9 +126,9 @@ export function allImagesDecided(taskId: number): boolean {
   }
 }
 
-/** 图片集是否存在打回 */
-export function anyImageRejected(taskId: number): boolean {
-  const existing = getRow(taskId, 'image');
+/** 某阶段图片集是否存在打回 */
+export function anyImageRejected(taskId: number, stage: string): boolean {
+  const existing = getRow(taskId, stage, 'image');
   if (!existing) return false;
   try {
     const images = JSON.parse(existing.content) as ImageItem[];

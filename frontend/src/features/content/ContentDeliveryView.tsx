@@ -78,11 +78,11 @@ function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] {
   return out;
 }
 
-/** 缩略图：dataURL 加载完成前显示 Spinner */
-function Thumb({ src, name }: { src: string; name: string }) {
+/** 缩略图：dataURL 加载完成前显示 Spinner；hover 出现「放大」按钮（几何符号 + 文字） */
+function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () => void }) {
   const [loaded, setLoaded] = useState(false);
   return (
-    <div className="relative aspect-square overflow-hidden border" style={{ borderColor: 'var(--color-line)' }}>
+    <div className="group relative aspect-square overflow-hidden border" style={{ borderColor: 'var(--color-line)' }}>
       {!loaded ? (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'var(--color-canvas)' }}>
           <Spinner label="图片加载中" />
@@ -95,6 +95,17 @@ function Thumb({ src, name }: { src: string; name: string }) {
         onError={() => setLoaded(true)}
         className={`h-full w-full object-cover ${loaded ? '' : 'opacity-0'}`}
       />
+      {loaded && onZoom ? (
+        <button
+          type="button"
+          onClick={onZoom}
+          className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-1 text-[11px] text-white opacity-0 transition-opacity duration-160 group-hover:opacity-100 focus-visible:opacity-100"
+          style={{ background: 'rgba(0,0,0,0.55)' }}
+        >
+          <span aria-hidden="true" className="text-[12px] leading-none">⊕</span>
+          放大
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -109,6 +120,8 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const [rollbackStage, setRollbackStage] = useState('copy');
   const [reviewNote, setReviewNote] = useState('');
   const [busy, setBusy] = useState(false);
+  /** 大图预览（缩略图 hover 放大 / 参考图点击） */
+  const [preview, setPreview] = useState<{ url: string; name: string; status: string } | null>(null);
 
   const task = useMemo(() => tasks.find((t) => t.id === taskId) ?? null, [tasks, taskId]);
 
@@ -157,7 +170,8 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     }
   };
 
-  /* ---------- 审批条（对齐线框 approve-box；QS 焦点信号） ---------- */
+  /* ---------- 审批条（对齐线框 approve-box；QS 焦点信号） ----------
+     审批重构：卡片内「采纳」点击即推进；审批条仅保留说明 + 打回意见输入 + 打回按钮，不再重复「采纳并推进」 */
   const approveBox =
     task && task.column === 'awaiting' ? (
       <div className="rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
@@ -166,8 +180,8 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
         </div>
         <div className="mb-2 text-[13px]" style={{ color: 'var(--color-ink-soft)' }}>
           {task.stage === 'copy'
-            ? `采纳则进入下一阶段；打回需填写修改意见，将发给 ${task.ownerName || '文案 Agent'} 重新输出。`
-            : '主图请在下方面板逐张采纳/打回；全部处理后自动推进。'}
+            ? `采纳按钮在下方文案卡内，点击即推进下一阶段；打回需填写修改意见，将发给 ${task.ownerName || '文案 Agent'} 重新输出。`
+            : '采纳按钮在下方图片卡内逐张点击，全部采纳后自动推进；打回需在对应图片卡内操作。'}
         </div>
         {task.stage === 'copy' ? (
           <div className="flex items-center gap-2">
@@ -179,9 +193,6 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             />
             <Btn variant="danger" onClick={() => void doDecide('copy', 'reject', undefined, copyNote || '请按修改意见调整')}>
               打回并发送意见
-            </Btn>
-            <Btn variant="primary" onClick={() => void doDecide('copy', 'approve')}>
-              采纳并推进下一阶段
             </Btn>
           </div>
         ) : null}
@@ -263,7 +274,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                 打回
               </Btn>
               <Btn variant="primary" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'approve')}>
-                采纳 ✓
+                采纳
               </Btn>
             </div>
             {rejectingCopy ? (
@@ -305,12 +316,12 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const renderGrid = (imgs: ParsedImg[], canDecide: boolean) => {
     if (imgs.length === 0) return <Empty text="该板块图片尚未产出" />;
     return (
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-2">
         {imgs.map((img) => (
-          <div key={img.id} className="border p-2" style={{ borderColor: 'var(--color-line)' }}>
-            <Thumb src={img.url} name={img.name} />
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="truncate text-[12px]" title={img.name}>
+          <div key={img.id} className="border p-1.5" style={{ borderColor: 'var(--color-line)' }}>
+            <Thumb src={img.url} name={img.name} onZoom={() => setPreview({ url: img.url, name: img.name, status: img.status })} />
+            <div className="mt-1.5 flex items-center justify-between gap-1">
+              <span className="truncate text-[11px]" title={img.name}>
                 {img.name}
               </span>
               <Badge tone={img.status === 'approved' ? 'ok' : img.status === 'rejected' ? 'no' : canDecide ? 'signal' : 'default'}>
@@ -319,9 +330,9 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             </div>
             {img.status === 'rejected' && img.note ? <div className="qs-meta mt-1">原因 · {img.note}</div> : null}
             {canDecide && img.status === 'pending' ? (
-              <div className="mt-2">
+              <div className="mt-1.5">
                 {rejectingImg === img.id ? (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <input
                       className="qs-input"
                       autoFocus
@@ -329,7 +340,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                       value={imgNotes[img.id] ?? ''}
                       onChange={(e) => setImgNotes((p) => ({ ...p, [img.id]: e.target.value }))}
                     />
-                    <div className="flex gap-2">
+                    <div className="flex gap-1.5">
                       <Btn variant="ghost" size="sm" onClick={() => setRejectingImg(null)}>
                         取消
                       </Btn>
@@ -339,7 +350,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5">
                     <Btn size="sm" variant="primary" disabled={busy} onClick={() => void doDecide('image', 'approve', img.id)}>
                       采纳
                     </Btn>
@@ -462,17 +473,65 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     <div className="space-y-4">
       {task ? (
         <>
-          <div className="grid grid-cols-2 gap-4">
-            <Card title="卖点文案" extra={copyBadge}>
-              {copyBlock}
+          {/* 任务信息条：参考图（可点击放大）+ 目标平台（platforms 多选；兼容单数 platform） */}
+          <div className="flex items-center gap-3 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
+            {task.referenceImage ? (
+              <button
+                type="button"
+                className="h-14 w-14 shrink-0 overflow-hidden border transition-colors hover:border-[var(--color-signal)]"
+                style={{ borderColor: 'var(--color-line-strong)' }}
+                title="点击放大参考图"
+                onClick={() => setPreview({ url: task.referenceImage as string, name: '参考图', status: 'ref' })}
+              >
+                <img src={task.referenceImage} alt="参考图" className="h-full w-full object-cover" />
+              </button>
+            ) : (
+              <span className="qs-meta flex h-14 w-14 shrink-0 items-center justify-center border" style={{ borderColor: 'var(--color-line-strong)' }}>
+                无参考图
+              </span>
+            )}
+            <div className="min-w-0">
+              <div className="text-[12px] font-medium">
+                目标平台 · {task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
+              </div>
+              <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
+                {task.referenceImage ? 'AI 产出将基于参考图生成' : '未提供参考图，产出由 Agent 按产品资料生成'}
+              </div>
+            </div>
+          </div>
+
+          {/* 两卡等高：grid items-stretch + 每 Card 内部 grid 行撑满 */}
+          <div className="grid grid-cols-2 items-stretch gap-4">
+            <Card className="grid grid-rows-[auto_1fr]" title="卖点文案" extra={copyBadge}>
+              <div className="flex h-full flex-col">{copyBlock}</div>
             </Card>
-            <Card title="图片交付" extra={imgBadge}>
-              {imageBlock}
+            <Card className="grid grid-rows-[auto_1fr]" title="图片交付" extra={imgBadge}>
+              <div className="flex h-full flex-col">{imageBlock}</div>
             </Card>
           </div>
           {approveBox}
           {reviewBlock}
         </>
+      ) : null}
+
+      {/* 大图预览 overlay（深色半透明遮罩 + 居中大图 + 关闭） */}
+      {preview ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          style={{ background: 'rgba(10,10,10,0.72)' }}
+          onClick={() => setPreview(null)}
+        >
+          <div className="relative max-h-full max-w-full" onClick={(e) => e.stopPropagation()}>
+            <img src={preview.url} alt={preview.name} className="max-h-[76vh] max-w-full border object-contain" style={{ borderColor: 'rgba(255,255,255,0.25)' }} />
+            <button type="button" className="qs-btn sm absolute -top-10 right-0" onClick={() => setPreview(null)}>
+              ✕ 关闭
+            </button>
+            <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
+              {preview.name} ·{' '}
+              {preview.status === 'approved' ? '已采纳' : preview.status === 'rejected' ? '已打回' : preview.status === 'ref' ? '参考图' : '待拍板'}
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

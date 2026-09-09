@@ -24,7 +24,8 @@ export interface TaskRow {
   column: string; // planned | progress | awaiting | done
   owner_agent_id: string | null;
   description: string;
-  platform: string;
+  platform: string; // 多选平台逗号拼接
+  reference_image: string | null; // 参考图地址（/uploads/xxx.png 或 dataURL）
   progress: number;
   stage_note: string;
   created_by: string;

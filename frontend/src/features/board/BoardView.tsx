@@ -36,12 +36,10 @@ function TaskCard({
   task,
   onOpen,
   onConfirm,
-  onDecide,
 }: {
   task: TaskWithMeta;
   onOpen: (task: TaskWithMeta) => void;
   onConfirm: (id: number) => void;
-  onDecide: (task: TaskWithMeta, decision: 'approve' | 'reject') => void;
 }) {
   return (
     <article
@@ -105,14 +103,10 @@ function TaskCard({
           </span>
         ) : null}
         {task.column === 'awaiting' ? (
-          <>
-            <Btn size="sm" variant="primary" onClick={() => onDecide(task, 'approve')}>
-              采纳
-            </Btn>
-            <Btn size="sm" variant="danger" onClick={() => onDecide(task, 'reject')}>
-              打回
-            </Btn>
-          </>
+          <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-warn)' }}>
+            <span className="qs-dot signal" />
+            审批已并入「内容交付」页
+          </span>
         ) : null}
         {task.column === 'done' ? (
           <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
@@ -127,7 +121,7 @@ function TaskCard({
 
 /** 任务看板（对齐线框 renderBoard：标题行 + ＋新建任务 + 四列） */
 export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onNew: () => void }) {
-  const { tasks, loading, confirmTask, decide, openTask } = useWorkbench();
+  const { tasks, loading, confirmTask, openTask } = useWorkbench();
 
   if (loading && tasks.length === 0) {
     return (
@@ -142,18 +136,13 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
     openTask(task.id);
   };
 
-  const handleDecide = (task: TaskWithMeta, decision: 'approve' | 'reject') => {
-    const kind = task.stage === 'copy' ? 'copy' : 'image';
-    void decide(task.id, kind, decision, undefined, decision === 'reject' ? '一键打回' : undefined);
-  };
-
   return (
     <div className="flex h-full flex-col">
       {/* 标题行（对齐线框 board-title-row） */}
       <div className="mb-3.5 flex items-center gap-3">
         <span className="font-display text-xl font-bold">任务看板</span>
         <span className="qs-meta hidden sm:inline" style={{ color: 'var(--color-ink-faint)' }}>
-          电商新品上架 · 6阶段 · 2拍板点 · {tasks.length}个任务
+          {tasks.length}个任务
         </span>
         <div className="flex-1" />
         <Btn onClick={onNew}>＋ 新建任务</Btn>
@@ -173,7 +162,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
                 </header>
                 <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5">
                   {list.map((t) => (
-                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => void confirmTask(id)} onDecide={handleDecide} />
+                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => void confirmTask(id)} />
                   ))}
                   {list.length === 0 ? (
                     <div className="qs-meta py-6 text-center" style={{ color: 'var(--color-ink-faint)' }}>

@@ -62,6 +62,26 @@ export function sendChatMessage(
   });
 }
 
+/** 主管记忆前缀：recordSupervisorNote 落库的 receipt 消息体前缀 */
+const NOTE_PREFIX = '已记录要求：';
+
+/**
+ * 记录主管记忆：把用户要求以 receipt 消息落库（群聊 from='波波'）。
+ * 供 chat-reply 主管分支调用；review 阶段通过 listSupervisorNotes 注入注意事项。
+ */
+export function recordSupervisorNote(note: string): void {
+  sendChatMessage('group', '波波', '全体', `${NOTE_PREFIX}${note}`, 'receipt');
+}
+
+/** 查询主管记忆：群聊中 from='波波'、kind='receipt' 且 body 以「已记录要求：」开头的消息，返回要求列表（去前缀） */
+export function listSupervisorNotes(): string[] {
+  const rows = all<{ body: string }>(
+    `SELECT body FROM messages WHERE chat_kind = 'group' AND "from" = '波波' AND kind = 'receipt' AND body LIKE ? ORDER BY id ASC`,
+    [`${NOTE_PREFIX}%`],
+  );
+  return rows.map((r) => r.body.slice(NOTE_PREFIX.length));
+}
+
 /** 查询聊天记录：group 固定 to='全体'；private 按对方双向过滤（from=to 或 to=to）；按 id ASC，limit 200 */
 export function getChatHistory(kind: ChatKind, to: string): Message[] {
   if (kind === 'group') {

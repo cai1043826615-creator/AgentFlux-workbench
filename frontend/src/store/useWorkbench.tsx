@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Agent, Deliverable, Message, Task, TaskEvent } from '@workbench/shared';
+import type { Agent, Deliverable, Message, Task, TaskCreateInput, TaskEvent } from '@workbench/shared';
 import { api } from '../lib/api.ts';
 import { connectWs } from '../lib/ws.ts';
 
@@ -27,7 +27,7 @@ interface WorkbenchState {
   settings: Record<string, unknown>;
   loading: boolean;
   refresh: () => Promise<void>;
-  createTask: (input: { title: string; description: string; platform: string }) => Promise<Task>;
+  createTask: (input: TaskCreateInput) => Promise<Task>;
   confirmTask: (id: number) => Promise<void>;
   decide: (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject', imageId?: string, note?: string) => Promise<void>;
   review: (taskId: number, decision: 'pass' | 'rollback', targetStage?: string, note?: string) => Promise<void>;
@@ -144,7 +144,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createTask = useCallback(
-    async (input: { title: string; description: string; platform: string }) => {
+    async (input: TaskCreateInput) => {
       const { task } = await api.createTask(input);
       upsertTask(task);
       await refresh();

@@ -14,7 +14,8 @@ export const BOARD_COLUMNS: { key: BoardColumn; label: string }[] = [
 
 // ===== Agent =====
 export type AgentRole = '文案' | '设计师' | '主管';
-export type AgentOnlineStatus = 'online' | 'busy' | 'idle';
+/** unconfigured：渠道未配置（API 未连接） */
+export type AgentOnlineStatus = 'online' | 'busy' | 'idle' | 'unconfigured';
 
 export interface Agent {
   id: string;
@@ -50,7 +51,12 @@ export interface Task {
   column: BoardColumn;
   ownerAgentId: string | null;
   description: string;
+  /** 目标平台（多选，逗号分隔文本，兼容展示） */
   platform: string;
+  /** 目标平台数组（多选） */
+  platforms?: string[];
+  /** 上传的参考图地址（/uploads/xxx.png 或 dataURL），后续全部产出基于此图 */
+  referenceImage?: string;
   /** 0-100 */
   progress: number;
   /** 卡片状态文案，如「卖点文案 · 美美 在写 20m」 */
@@ -62,7 +68,10 @@ export interface Task {
 export interface TaskCreateInput {
   title: string;
   description: string;
-  platform: string;
+  /** 目标平台（多选必填） */
+  platforms: string[];
+  /** 参考图（必填）：dataURL 或 /uploads/xxx.png */
+  referenceImage?: string;
   workflowId?: string;
 }
 
@@ -134,7 +143,8 @@ export interface DeliverableDecisionInput {
 
 // ===== 消息 =====
 export type ChatKind = 'group' | 'private';
-export type MessageKind = 'msg' | 'evt';
+/** msg 普通消息 / evt 事件播报 / receipt Agent 收到用户消息的确认与总结 */
+export type MessageKind = 'msg' | 'evt' | 'receipt';
 
 export interface Message {
   id: number;
@@ -208,6 +218,14 @@ export interface ImageChannelConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+}
+
+// ===== 技能挂载（Agent 可挂载的本地技能，内容注入 System Prompt） =====
+export interface AgentSkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  category?: string;
 }
 
 // ===== 环境/运行常量 =====

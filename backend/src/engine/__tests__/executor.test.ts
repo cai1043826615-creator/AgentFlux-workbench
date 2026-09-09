@@ -30,7 +30,7 @@ beforeAll(() => {
 
 describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   it('创建任务进入规划中，看板列映射正确', () => {
-    const task = service.createTask({ title: '测试商品', description: '测试', platform: '天猫' });
+    const task = service.createTask({ title: '测试商品', description: '测试', platforms: ['天猫'] });
     expect(task.column).toBe('planned');
     expect(task.stage).toBe(STAGE_REQUIREMENT);
     const counts = service.boardCounts();
@@ -38,18 +38,18 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   });
 
   it('确认开工自动推进到拍板点1（卖点文案）待确认', async () => {
-    const t = service.createTask({ title: '确认测试', description: '', platform: '' });
+    const t = service.createTask({ title: '确认测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     expect(task.column).toBe('awaiting');
     expect(APPROVAL_POINT_STAGES).toContain(task.stage);
   });
 
   it('拍板点进入待确认，产出文案交付物，活动日志按时间线完整', async () => {
-    const t = service.createTask({ title: '拍板测试', description: '', platform: '' });
+    const t = service.createTask({ title: '拍板测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     expect(task.column).toBe('awaiting');
     expect(task.stage).toBe(STAGE_COPY);
-    const copy = getDeliverable(task.id, 'copy');
+    const copy = getDeliverable(task.id, 'copy', 'copy');
     expect(copy).toBeDefined();
     expect(copy!.status).toBe('pending');
     const events = service.listEvents(task.id);
@@ -63,33 +63,33 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   });
 
   it('采纳沿 approved 边推进到主图设计（拍板点2）', async () => {
-    const t = service.createTask({ title: '采纳测试', description: '', platform: '' });
+    const t = service.createTask({ title: '采纳测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     const approved = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
     expect(approved.column).toBe('awaiting');
     expect(approved.stage).toBe(STAGE_MAIN_IMAGE);
-    const images = getDeliverable(approved.id, 'image');
+    const images = getDeliverable(approved.id, 'main-image', 'image');
     expect(images).toBeDefined();
   });
 
   it('打回沿 rejected 边返工再入待确认（deliverables 重置 pending）', async () => {
-    const t = service.createTask({ title: '打回测试', description: '', platform: '' });
+    const t = service.createTask({ title: '打回测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     const rejected = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'reject', note: '标题不够吸引' });
     expect(rejected.column).toBe('awaiting');
     expect(rejected.stage).toBe(STAGE_COPY);
-    const copy = getDeliverable(rejected.id, 'copy');
+    const copy = getDeliverable(rejected.id, 'copy', 'copy');
     expect(copy!.status).toBe('pending');
     const events = service.listEvents(rejected.id);
     expect(events.some((e) => e.type === 'REJECTED')).toBe(true);
   });
 
   it('逐张图片采纳联动：全采纳后推进到详情图/主管校对', async () => {
-    const t = service.createTask({ title: '图片决策测试', description: '', platform: '' });
+    const t = service.createTask({ title: '图片决策测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     const approvedCopy = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
     expect(approvedCopy.stage).toBe(STAGE_MAIN_IMAGE);
-    const images = getDeliverable(approvedCopy.id, 'image')!;
+    const images = getDeliverable(approvedCopy.id, 'main-image', 'image')!;
     const list = JSON.parse(images.content) as { id: string }[];
     let cur = approvedCopy;
     for (const img of list) {
@@ -100,10 +100,10 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   });
 
   it('逐张图片打回联动：任一打回 → 返工重产出', async () => {
-    const t = service.createTask({ title: '图片打回测试', description: '', platform: '' });
+    const t = service.createTask({ title: '图片打回测试', description: '', platforms: [] });
     let task = await service.confirmAndRun(t.id);
     task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
-    const images = getDeliverable(task.id, 'image')!;
+    const images = getDeliverable(task.id, 'main-image', 'image')!;
     const list = JSON.parse(images.content) as { id: string }[];
     let cur = task;
     for (let i = 0; i < list.length; i++) {
@@ -117,10 +117,10 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   });
 
   it('终审沿 rollback 边回退已完成→进行中', async () => {
-    const t = service.createTask({ title: '回退测试', description: '', platform: '' });
+    const t = service.createTask({ title: '回退测试', description: '', platforms: [] });
     let task = await service.confirmAndRun(t.id);
     task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
-    const images = getDeliverable(task.id, 'image')!;
+    const images = getDeliverable(task.id, 'main-image', 'image')!;
     const list = JSON.parse(images.content) as { id: string }[];
     for (const img of list) {
       task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
@@ -132,10 +132,10 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   });
 
   it('全链路：6 阶段走完并归档', async () => {
-    const t = service.createTask({ title: '全链路测试', description: '', platform: '天猫+京东' });
+    const t = service.createTask({ title: '全链路测试', description: '', platforms: ['天猫+京东'] });
     let task = await service.confirmAndRun(t.id);
     task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
-    const images = getDeliverable(task.id, 'image')!;
+    const images = getDeliverable(task.id, 'main-image', 'image')!;
     const list = JSON.parse(images.content) as { id: string }[];
     for (const img of list) {
       task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
@@ -155,7 +155,7 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   });
 
   it('并行子任务逐张完成事件', async () => {
-    const t = service.createTask({ title: '并行测试', description: '', platform: '' });
+    const t = service.createTask({ title: '并行测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     const events = service.listEvents(task.id);
     const subEvents = events.filter((e) => e.type === 'SUB_TASK_COMPLETE');

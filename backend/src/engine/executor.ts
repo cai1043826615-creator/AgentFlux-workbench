@@ -24,6 +24,10 @@ function now(): string {
 
 /** TaskRow → shared Task */
 function toTask(row: TaskRow): Task {
+  const platforms = (row.platform ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   return {
     id: row.id,
     title: row.title,
@@ -32,7 +36,9 @@ function toTask(row: TaskRow): Task {
     column: row.column as BoardColumn,
     ownerAgentId: row.owner_agent_id,
     description: row.description,
-    platform: row.platform,
+    platform: platforms[0] ?? '',
+    platforms: platforms.length > 0 ? platforms : undefined,
+    referenceImage: row.reference_image ?? undefined,
     progress: row.progress,
     stageNote: row.stage_note,
     createdBy: row.created_by,
@@ -79,11 +85,11 @@ export class TaskExecutor {
 
   // ===== 任务生命周期 =====
 
-  /** 创建任务（未确认，列=规划中） */
-  createTask(input: { title: string; description: string; platform: string; workflowId?: string }): Task {
+  /** 创建任务（未确认，列=规划中）；platforms 多选逗号拼接存储，referenceImage 参考图地址 */
+  createTask(input: { title: string; description: string; platforms: string[]; referenceImage?: string; workflowId?: string }): Task {
     const id = tx(() => {
       const res = run(
-        'INSERT INTO tasks (title, workflow_id, stage, column, owner_agent_id, description, platform, progress, stage_note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO tasks (title, workflow_id, stage, column, owner_agent_id, description, platform, reference_image, progress, stage_note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
         [
           input.title,
           input.workflowId ?? this.wf.id,
@@ -91,14 +97,15 @@ export class TaskExecutor {
           'planned',
           null,
           input.description,
-          input.platform,
+          (input.platforms ?? []).join(','),
+          input.referenceImage ?? null,
           0,
           stageNoteOf(this.wf.nodes[0], 'planned'),
           '你',
           now(),
         ],
       );
-      this.logEventSync(res.lastInsertRowid, 'TASK_CREATED', { title: input.title });
+      this.logEventSync(res.lastInsertRowid, 'TASK_CREATED', { title: input.title, platforms: input.platforms });
       return res.lastInsertRowid;
     });
     const task = this.getTask(id)!;

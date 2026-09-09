@@ -25,25 +25,25 @@ before(async () => {
 });
 
 test('创建任务进入规划中，看板列映射正确', () => {
-  const task = service.createTask({ title: '测试商品', description: '测试', platform: '天猫' });
+  const task = service.createTask({ title: '测试商品', description: '测试', platforms: ['天猫'] });
   assert.equal(task.column, 'planned');
   assert.equal(task.stage, STAGE_REQUIREMENT);
   assert.ok(service.boardCounts().planned >= 1);
 });
 
 test('确认开工自动推进到拍板点1（卖点文案）待确认', async () => {
-  const t = service.createTask({ title: '确认测试', description: '', platform: '' });
+  const t = service.createTask({ title: '确认测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   assert.equal(task.column, 'awaiting');
   assert.ok(APPROVAL_POINT_STAGES.includes(task.stage));
 });
 
 test('拍板点进入待确认，产出文案交付物，活动日志按时间线完整', async () => {
-  const t = service.createTask({ title: '拍板测试', description: '', platform: '' });
+  const t = service.createTask({ title: '拍板测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   assert.equal(task.column, 'awaiting');
   assert.equal(task.stage, STAGE_COPY);
-  const copy = getDeliverable(task.id, 'copy');
+  const copy = getDeliverable(task.id, 'copy', 'copy');
   assert.ok(copy);
   assert.equal(copy!.status, 'pending');
   const events = service.listEvents(task.id);
@@ -57,31 +57,31 @@ test('拍板点进入待确认，产出文案交付物，活动日志按时间�
 });
 
 test('采纳沿 approved 边推进到主图设计（拍板点2）', async () => {
-  const t = service.createTask({ title: '采纳测试', description: '', platform: '' });
+  const t = service.createTask({ title: '采纳测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   const approved = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
   assert.equal(approved.column, 'awaiting');
   assert.equal(approved.stage, STAGE_MAIN_IMAGE);
-  assert.ok(getDeliverable(approved.id, 'image'));
+  assert.ok(getDeliverable(approved.id, 'main-image', 'image'));
 });
 
 test('打回沿 rejected 边返工再入待确认（deliverables 重置 pending）', async () => {
-  const t = service.createTask({ title: '打回测试', description: '', platform: '' });
+  const t = service.createTask({ title: '打回测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   const rejected = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'reject', note: '标题不够吸引' });
   assert.equal(rejected.column, 'awaiting');
   assert.equal(rejected.stage, STAGE_COPY);
-  const copy = getDeliverable(rejected.id, 'copy');
+  const copy = getDeliverable(rejected.id, 'copy', 'copy');
   assert.equal(copy!.status, 'pending');
   assert.ok(service.listEvents(rejected.id).some((e) => e.type === 'REJECTED'));
 });
 
 test('逐张图片采纳联动：全采纳后自动推进（详情图→校对→交付→归档）', async () => {
-  const t = service.createTask({ title: '图片决策测试', description: '', platform: '' });
+  const t = service.createTask({ title: '图片决策测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   const approvedCopy = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
   assert.equal(approvedCopy.stage, STAGE_MAIN_IMAGE);
-  const images = getDeliverable(approvedCopy.id, 'image')!;
+  const images = getDeliverable(approvedCopy.id, 'main-image', 'image')!;
   const list = JSON.parse(images.content) as { id: string }[];
   let cur = approvedCopy;
   for (const img of list) {
@@ -94,10 +94,10 @@ test('逐张图片采纳联动：全采纳后自动推进（详情图→校对�
 });
 
 test('逐张图片打回联动：任一打回 → 返工重产出', async () => {
-  const t = service.createTask({ title: '图片打回测试', description: '', platform: '' });
+  const t = service.createTask({ title: '图片打回测试', description: '', platforms: [] });
   let task = await service.confirmAndRun(t.id);
   task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
-  const images = getDeliverable(task.id, 'image')!;
+  const images = getDeliverable(task.id, 'main-image', 'image')!;
   const list = JSON.parse(images.content) as { id: string }[];
   let cur = task;
   for (let i = 0; i < list.length; i++) {
@@ -112,10 +112,10 @@ test('主管校对发现问题自动沿 rollback 边回退已完成→进行中'
   // 注入校对问题（模拟 LLM 主管发现主图文案不一致）
   process.env.WORKBENCH_REVIEW_ISSUE = STAGE_MAIN_IMAGE;
   try {
-    const t = service.createTask({ title: '回退测试', description: '', platform: '' });
+    const t = service.createTask({ title: '回退测试', description: '', platforms: [] });
     let task = await service.confirmAndRun(t.id);
     task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
-    const images = getDeliverable(task.id, 'image')!;
+    const images = getDeliverable(task.id, 'main-image', 'image')!;
     const list = JSON.parse(images.content) as { id: string }[];
     for (const img of list) {
       task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
@@ -126,7 +126,7 @@ test('主管校对发现问题自动沿 rollback 边回退已完成→进行中'
     const events = service.listEvents(task.id);
     assert.ok(events.some((e) => e.type === 'REVIEW_ROLLBACK'), 'expected REVIEW_ROLLBACK event');
     // 返工后重产出交付物且重新待确认（detail 产出 + 回退重产出 → 版本 >= 2）
-    const regen = getDeliverable(task.id, 'image')!;
+    const regen = getDeliverable(task.id, 'main-image', 'image')!;
     assert.ok(regen, 'expected regenerated image deliverable');
     assert.ok(regen.version >= 2, 'expected rework to bump image deliverable version');
     assert.equal(regen.status, 'pending');
@@ -136,10 +136,10 @@ test('主管校对发现问题自动沿 rollback 边回退已完成→进行中'
 });
 
 test('全链路：6 阶段自动走完并归档', async () => {
-  const t = service.createTask({ title: '全链路测试', description: '', platform: '天猫+京东' });
+  const t = service.createTask({ title: '全链路测试', description: '', platforms: ['天猫+京东'] });
   let task = await service.confirmAndRun(t.id);
   task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
-  const images = getDeliverable(task.id, 'image')!;
+  const images = getDeliverable(task.id, 'main-image', 'image')!;
   const list = JSON.parse(images.content) as { id: string }[];
   for (const img of list) {
     task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
@@ -159,7 +159,7 @@ test('编排开关可读（graph / linear）', async () => {
 });
 
 test('并行子任务逐张完成事件', async () => {
-  const t = service.createTask({ title: '并行测试', description: '', platform: '' });
+  const t = service.createTask({ title: '并行测试', description: '', platforms: [] });
   let task = await service.confirmAndRun(t.id);
   // 通过拍板点1，进入主图并行产出
   task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });

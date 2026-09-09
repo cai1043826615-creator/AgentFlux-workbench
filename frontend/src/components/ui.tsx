@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 /* ===== Quiet Signal 风格轻量 UI 基座（design.md D6.1：大结构直角、4px 小控件、无阴影、衬线标题） ===== */
 
@@ -109,17 +109,98 @@ export function StageFlow({ stages, current, done }: { stages: { id: string; lab
 
 /* QS 灰紫系头像色板（SPEC §4.1：主体黑灰 + 紫色焦点，克制） */
 const AVATAR_COLORS = ['#7C3AED', '#0A0A0A', '#52525B', '#6D28D9', '#A1A1AA', '#8B5CF6'];
-export function Avatar({ name, size = 28 }: { name: string; size?: number }) {
+
+/**
+ * Agent 头像映射（意见1 前端部分）：
+ * id 含 'copy' 或名含「美美」→ /avatars/meimei.png
+ * id 含 'design' 或名含「平平」→ /avatars/pingping.png
+ * id 含 'supervisor' 或名含「波波」→ /avatars/bobo.png
+ * 其余保持字母头像兜底；图片加载失败（如资源未就绪）也自动回退字母头像。
+ */
+function avatarUrl(id: string | undefined, name: string): string | null {
+  const hay = `${id ?? ''} ${name}`;
+  if ((id ?? '').includes('copy') || hay.includes('美美')) return '/avatars/meimei.png';
+  if ((id ?? '').includes('design') || hay.includes('平平')) return '/avatars/pingping.png';
+  if ((id ?? '').includes('supervisor') || hay.includes('波波')) return '/avatars/bobo.png';
+  return null;
+}
+
+export function Avatar({ name, size = 28, id }: { name: string; size?: number; id?: string }) {
+  const url = avatarUrl(id, name);
+  const [imgFailed, setImgFailed] = useState(false);
+  useEffect(() => setImgFailed(false), [url]);
   const idx = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
   const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+  const baseCls = 'flex items-center justify-center text-white shrink-0 overflow-hidden';
+  if (url && !imgFailed) {
+    return (
+      <div className={baseCls} style={{ width: size, height: size, borderRadius: '50%' }} title={name}>
+        <img
+          src={url}
+          alt={name}
+          width={size}
+          height={size}
+          loading="lazy"
+          onError={() => setImgFailed(true)}
+          style={{ width: size, height: size, objectFit: 'cover', display: 'block', borderRadius: '50%' }}
+        />
+      </div>
+    );
+  }
   return (
     <div
-      className="rounded-full flex items-center justify-center text-white shrink-0"
-      style={{ width: size, height: size, background: color, fontSize: size * 0.42, fontFamily: 'var(--font-display)' }}
+      className={baseCls}
+      style={{ width: size, height: size, borderRadius: '50%', background: color, fontSize: size * 0.42, fontFamily: 'var(--font-display)' }}
       title={name}
     >
       {name.slice(0, 1)}
     </div>
+  );
+}
+
+/* 几何小图标（无 emoji，stroke 风格；参考图2 左栏菜单图标） */
+const GLYPH_PATHS: Record<string, ReactNode> = {
+  flow: (
+    <>
+      <rect x="2.5" y="2.5" width="4.5" height="4.5" />
+      <rect x="9" y="2.5" width="4.5" height="4.5" />
+      <rect x="2.5" y="9" width="4.5" height="4.5" />
+      <rect x="9" y="9" width="4.5" height="4.5" />
+      <path d="M7 4.75h2M7 11.25h2M4.75 7v2M11.25 7v2" />
+    </>
+  ),
+  pulse: <path d="M1.5 12h3l2.2-7 2.8 10 2.2-6.5 1.2 3.5h3.1" />,
+  gear: (
+    <>
+      <circle cx="8" cy="8" r="3.2" />
+      <path d="M8 1.2v2.2M8 12.6v2.2M1.2 8h2.2M12.6 8h2.2M3.6 3.6l1.6 1.6M10.8 10.8l1.6 1.6M12.4 3.6l-1.6 1.6M5.2 10.8l-1.6 1.6" />
+    </>
+  ),
+  box: (
+    <>
+      <path d="M3 5.2 8 2.6l5 2.6v5.6L8 13.4 3 10.8z" />
+      <path d="M3 5.2l5 2.6 5-2.6M8 7.8v5.6" />
+    </>
+  ),
+  chevron: <path d="M10.5 3.5 5 8l5.5 4.5" />,
+};
+
+export function Glyph({ name, size = 14, className = '' }: { name: 'flow' | 'pulse' | 'gear' | 'box' | 'chevron'; size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {GLYPH_PATHS[name]}
+    </svg>
   );
 }
 

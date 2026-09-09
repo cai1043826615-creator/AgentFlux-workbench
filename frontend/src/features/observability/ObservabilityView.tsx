@@ -3,8 +3,9 @@ import type { Agent, AgentExecution, ExecutionStats } from '@workbench/shared';
 import { Avatar, Badge, Btn, Card, Empty, Field, SectionTitle, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
+import { dotClass } from '../workstation/WorkstationBar.tsx';
 
-/** 执行观测视图（组9 任务 9.1-9.2：工位在线状态 + 执行统计 + 执行日志） */
+/** Agent 状态视图（意见18：工位在线状态 + 执行统计 + 执行日志） */
 
 /* ===== 工具 ===== */
 
@@ -23,11 +24,23 @@ function relTime(iso?: string): string {
 function StatusBadge({ status }: { status: Agent['onlineStatus'] }) {
   if (status === 'online') return <Badge tone="ok">在线</Badge>;
   if (status === 'busy') return <Badge tone="signal">忙碌</Badge>;
+  if (status === 'unconfigured') return <Badge tone="warn">未配置</Badge>;
   return <Badge>待命</Badge>;
 }
 
 function fmtNum(n: number): string {
   return Math.round(n).toLocaleString('zh-CN');
+}
+
+/** 平均耗时格式化（意见18：<60s x秒 / ≥60s x分x秒 / ≥1h x时x分） */
+function fmtDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms));
+  const s = Math.floor(total / 1000);
+  if (s < 60) return `${s}秒`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}分${s % 60}秒`;
+  const h = Math.floor(m / 60);
+  return `${h}时${m % 60}分`;
 }
 
 /* ===== 主视图 ===== */
@@ -148,16 +161,17 @@ export function ObservabilityView() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 连接状态提示 */}
-      <div className="flex items-center gap-2">
+      {/* 页面标题（意见18：执行观测 → Agent 状态） */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-display text-xl font-bold">Agent 状态</span>
         <Badge tone={connected ? 'ok' : 'no'}>{connected ? '实时连接' : '离线'}</Badge>
-        <span className="qs-meta">OBSERVABILITY · 工位在线 / 执行统计 / 执行日志</span>
+        <span className="qs-meta">AGENT STATUS · 在线 / 统计 / 日志</span>
       </div>
 
       <div className="flex flex-col xl:flex-row gap-4 items-start">
         {/* 工位在线状态 */}
         <div className="flex-1 min-w-0">
-          <SectionTitle meta="AGENTS / ONLINE">工位在线状态</SectionTitle>
+          <SectionTitle meta="AGENTS / ONLINE">Agent 在线状态</SectionTitle>
           {agents.length === 0 ? (
             <Card>
               <Empty text="暂无工位（Agent）" />
@@ -184,10 +198,10 @@ export function ObservabilityView() {
                     </Btn>
                   </div>
 
-                  {/* 当前活动 */}
+                  {/* 当前活动（状态点与 WorkstationBar 一致） */}
                   {a.activity ? (
                     <div className="mt-2.5 flex items-center gap-1.5 text-[12px] min-w-0" style={{ color: 'var(--color-ink-soft)' }}>
-                      <span className={`qs-dot ${a.onlineStatus === 'busy' ? 'signal busy' : a.onlineStatus === 'online' ? 'ok' : 'idle'}`} />
+                      <span className={dotClass(a.onlineStatus)} />
                       <span className="truncate">{a.activity}</span>
                     </div>
                   ) : null}
@@ -264,7 +278,7 @@ export function ObservabilityView() {
                   </div>
                   <div>
                     <div className="qs-meta">平均耗时</div>
-                    <div className="font-display text-[20px] leading-tight tabular">{fmtNum(totals.avgDurationMs)} ms</div>
+                    <div className="font-display text-[20px] leading-tight tabular">{fmtDuration(totals.avgDurationMs)}</div>
                   </div>
                 </div>
                 <div className="mt-4 pt-3 border-t space-y-2.5" style={{ borderColor: 'var(--color-line)' }}>
@@ -342,7 +356,7 @@ export function ObservabilityView() {
                       <td className="px-3 py-2 max-w-[200px]">
                         <div className="truncate" title={ex.outputSummary}>{ex.outputSummary || '—'}</div>
                       </td>
-                      <td className="px-3 py-2 qs-meta tabular whitespace-nowrap text-right">{fmtNum(ex.durationMs)} ms</td>
+                      <td className="px-3 py-2 qs-meta tabular whitespace-nowrap text-right">{fmtDuration(ex.durationMs)}</td>
                     </tr>
                     {open && ex.error ? (
                       <tr style={{ background: 'var(--color-danger-soft)', borderBottom: '1px solid var(--color-line)' }}>

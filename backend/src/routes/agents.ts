@@ -3,6 +3,7 @@ import type { AgentOnlineStatus, AgentUpdateInput, ExecutionStats, StageStat } f
 import { all, get, run } from '../db/client.ts';
 import type { AgentExecutionRow, AgentRow } from '../db/schema.ts';
 import { toAgent } from '../agents/runtime.ts';
+import { listSkills } from '../agents/skills.ts';
 
 /** PUT 请求体：AgentUpdateInput 基础上扩展工位在线状态字段（shared 冻结，本地扩展） */
 type AgentUpdateBody = AgentUpdateInput & { onlineStatus?: AgentOnlineStatus; activity?: string };
@@ -41,6 +42,11 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/agents', async () => {
     const agents = all<AgentRow>('SELECT * FROM agents ORDER BY id ASC').map(toAgent);
     return { agents };
+  });
+
+  // 可挂载技能列表（扫描本地技能目录 backend/skills/*.md）
+  app.get('/api/agents/skills', async () => {
+    return { skills: await listSkills() };
   });
 
   // 更新工位（persona/model/skills/files/onlineStatus/activity），id 不存在返回 404

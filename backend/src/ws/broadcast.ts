@@ -2,6 +2,7 @@ import type { WebSocket } from 'ws';
 import type { Agent, Deliverable, Message, Task, TaskEvent, WSClientMessage, WSServerMessage } from '@workbench/shared';
 import { USER_NAME } from '@workbench/shared';
 import { bus } from '../engine/bus.ts';
+import { handleAgentReply } from '../agents/chat-reply.ts';
 import { sendChatMessage } from '../routes/chat.ts';
 
 /** 已连接的 WS 客户端集合（v1 单用户，全量广播） */
@@ -43,6 +44,10 @@ export function handleWsClientMessage(raw: unknown): void {
   const to = msg.chatKind === 'group' ? '全体' : msg.to;
   const message: Message = sendChatMessage(msg.chatKind, USER_NAME, to, body);
   broadcast({ type: 'chat:message', message });
+  // 异步触发 Agent 回复（不 await，避免阻塞 WS；setTimeout 保证回复落在同步流之后）
+  setTimeout(() => {
+    void handleAgentReply(msg.chatKind, to, body).catch((err) => console.warn(`[chat-reply] 触发失败: ${err instanceof Error ? err.message : err}`));
+  }, 0);
 }
 
 /** 订阅引擎总线 → WS 广播 */

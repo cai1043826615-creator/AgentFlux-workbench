@@ -46,7 +46,7 @@ export class WorkflowService {
 
   // ===== 任务生命周期 =====
 
-  createTask(input: { title: string; description: string; platform: string }): Task {
+  createTask(input: { title: string; description: string; platforms: string[]; referenceImage?: string; workflowId?: string }): Task {
     return this.executor.createTask(input);
   }
 
@@ -195,9 +195,11 @@ export class WorkflowService {
   /** 文案/图片决策；图片逐张决策，全部处理完联动状态机（有打回→返工、全采纳→推进） */
   async decideDeliverable(input: DeliverableDecisionInput): Promise<Task> {
     const { taskId, kind, decision, note } = input;
+    const task0 = this.executor.getTask(taskId)!;
+    const stage = task0?.stage ?? '';
 
     if (kind === 'copy') {
-      delivery.updateDeliverableStatus(taskId, 'copy', undefined, decision === 'approve' ? 'approved' : 'rejected');
+      delivery.updateDeliverableStatus(taskId, stage, 'copy', undefined, decision === 'approve' ? 'approved' : 'rejected');
       const task = this.executor.getTask(taskId)!;
       if (!APPROVAL_POINT_STAGES.includes(task.stage) || task.column !== 'awaiting') return task;
       if (decision === 'approve') {
@@ -209,13 +211,13 @@ export class WorkflowService {
       return this.advance(taskId);
     }
 
-    // image：逐张决策
-    delivery.updateDeliverableStatus(taskId, 'image', input.imageId, decision === 'approve' ? 'approved' : 'rejected');
+    // image：逐张决策（按当前阶段定位：main-image / detail-image）
+    delivery.updateDeliverableStatus(taskId, stage, 'image', input.imageId, decision === 'approve' ? 'approved' : 'rejected');
     const task = this.executor.getTask(taskId)!;
     if (task.column !== 'awaiting' || !APPROVAL_POINT_STAGES.includes(task.stage)) return task;
-    if (!delivery.allImagesDecided(taskId)) return task; // 尚有未决策图片，等待
+    if (!delivery.allImagesDecided(taskId, task.stage)) return task; // 尚有未决策图片，等待
 
-    if (delivery.anyImageRejected(taskId)) {
+    if (delivery.anyImageRejected(taskId, task.stage)) {
       this.executor.reject(taskId, note ?? '图片被打回，请返工');
     } else {
       this.executor.approve(taskId);
