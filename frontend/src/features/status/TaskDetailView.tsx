@@ -134,7 +134,7 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
             <span className="absolute -left-[21.5px] top-1 h-[9px] w-[9px] rounded-full" style={{ background: 'var(--color-line-strong)' }} />
             <div className="flex items-center justify-between gap-2">
               {foldable ? (
-                <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setExpanded(open ? null : g.key)}>
+                <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left" onClick={() => setExpanded(open ? null : g.key)}>
                   <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-bold" style={{ background: ms.bg, color: ms.fg }}>
                     {mark.ch}
                   </span>
@@ -175,33 +175,45 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
   );
 }
 
-/** 6 阶段条（意见11 重构：横向节点带数字 + 箭头 + 拍板小标记） */
+/**
+ * 6 阶段条（意见5 重构：横向等分 + 圆形指示器 + 弹簧进度线 + 数字→✓ 形态 + 拍板标记）
+ * 颜色语义：完成=绿✓ / 当前=黑底白字 / 未到=灰；标签同色；进度线已完成段填充绿（300ms 过渡）
+ * 动效遵循 QS：节点 220ms（--dur-standard）、进度线 300ms（--dur-deliberate）；
+ * reduced-motion 由 index.css 全局规则自动关闭，无需组件内判断。
+ */
 function StageStepper({ task }: { task: TaskWithMeta }) {
   const done = task.column === 'done';
   const curIdx = WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]);
+  const count = WORKFLOW_STAGE_KEYS.length;
   return (
-    <div className="select-none overflow-x-auto py-1">
-      <div className="flex min-w-max items-center">
+    <div className="select-none overflow-x-auto py-1" role="group" aria-label="工作流阶段">
+      <div className="flex min-w-[600px] items-start">
         {WORKFLOW_STAGE_KEYS.map((k, i) => {
           const state = done || i < curIdx ? 'done' : i === curIdx ? 'current' : 'todo';
           const isApproval = (APPROVAL_POINT_STAGES as string[]).includes(k);
+          // 本节点已完成 → 它向右的进度线填充（弹簧：宽度 0→100%，300ms）
+          const filled = done || i < curIdx;
           return (
-            <div key={k} className="flex items-center">
-              <div className="relative flex w-[76px] flex-col items-center gap-1.5">
+            <div key={k} className="flex min-w-0 flex-1 items-start">
+              {/* 节点主体：圆形指示器 + 下方标签 */}
+              <div className="flex flex-col items-center gap-1.5">
                 <div className="relative">
                   <div
                     className="flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-semibold tabular"
+                    aria-current={state === 'current' ? 'step' : undefined}
                     style={{
                       background: state === 'done' ? 'var(--color-ok)' : state === 'current' ? 'var(--color-ink)' : 'var(--color-surface)',
                       border: `1px solid ${state === 'todo' ? 'var(--color-line-strong)' : 'transparent'}`,
                       color: state === 'done' || state === 'current' ? '#fff' : 'var(--color-ink-faint)',
+                      transition:
+                        'background var(--dur-standard) var(--ease-standard), color var(--dur-standard) var(--ease-standard), border-color var(--dur-standard) var(--ease-standard)',
                     }}
                   >
-                    {i + 1}
+                    {state === 'done' ? '✓' : i + 1}
                   </div>
                   {isApproval ? (
                     <span
-                      className="absolute -right-1.5 -top-1 flex h-[15px] items-center rounded-[3px] px-1 text-[9px] font-bold text-white"
+                      className="absolute -bottom-1 -right-2 flex h-[15px] items-center rounded-[3px] px-1 text-[9px] font-bold text-white"
                       style={{ background: 'var(--color-signal)' }}
                     >
                       拍板
@@ -209,16 +221,30 @@ function StageStepper({ task }: { task: TaskWithMeta }) {
                   ) : null}
                 </div>
                 <span
-                  className="qs-meta text-[10px] text-center leading-tight"
-                  style={{ color: state === 'todo' ? 'var(--color-ink-faint)' : 'var(--color-ink)' }}
+                  className="qs-meta w-[64px] text-center text-[10px] leading-tight"
+                  style={{
+                    color: state === 'done' ? 'var(--color-ok)' : state === 'current' ? 'var(--color-ink)' : 'var(--color-ink-faint)',
+                    transition: 'color var(--dur-standard) var(--ease-standard)',
+                  }}
                 >
                   {WORKFLOW_STAGE_LABELS[k]}
                 </span>
               </div>
-              {i < WORKFLOW_STAGE_KEYS.length - 1 ? (
-                <span className="mb-5 px-0.5 text-[13px] leading-none" style={{ color: i < curIdx || done ? 'var(--color-ok)' : 'var(--color-line-strong)' }}>
-                  →
-                </span>
+              {/* 弹簧进度线（self-start + mt 17px 对齐指示器圆心，h-9=36px → 中心 18px） */}
+              {i < count - 1 ? (
+                <div
+                  className="relative mx-1.5 h-[2px] min-w-4 flex-1 self-start"
+                  style={{ marginTop: 17, background: 'var(--color-line)' }}
+                >
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full"
+                    style={{
+                      width: filled ? '100%' : '0%',
+                      background: 'var(--color-ok)',
+                      transition: 'width var(--dur-deliberate) var(--ease-standard)',
+                    }}
+                  />
+                </div>
               ) : null}
             </div>
           );
@@ -240,11 +266,11 @@ export function TaskDetailView({
 }) {
   const { tasks, eventsByTask, deliverablesByTask, openTask, taskTab, setTaskTab } = useWorkbench();
 
-  // 新打开任务时默认落在「任务详情」tab（key=taskId 重挂载时执行一次）
+  // 新打开任务时默认落在「内容交付」tab（意见11；key=taskId 重挂载时执行一次；用户可手动切「任务详情」）
   const firstTabRef = useRef(true);
   useEffect(() => {
     if (firstTabRef.current) {
-      setTaskTab('detail');
+      setTaskTab('deliver');
       firstTabRef.current = false;
     }
     openTask(taskId);
@@ -282,21 +308,26 @@ export function TaskDetailView({
     <div className="space-y-4">
       {/* 面包屑（意见2：看板 / 任务 #id，点「看板」回列表） */}
       <nav className="qs-meta flex items-center gap-1.5" aria-label="面包屑">
-        <button type="button" style={{ color: 'var(--color-ink-soft)' }} className="hover:underline hover:text-[var(--color-ink)]" onClick={onBack}>
+        <button type="button" className="cursor-pointer hover:underline hover:text-[var(--color-ink)]" style={{ color: 'var(--color-ink-soft)' }} onClick={onBack}>
           看板
         </button>
         <span style={{ color: 'var(--color-ink-faint)' }}>/</span>
         <span style={{ color: 'var(--color-ink)' }}>任务 #{task.id}</span>
       </nav>
 
-      {/* task-head（对齐线框 th-1/2/3，QS 编辑性大标题） */}
+      {/* task-head（对齐线框 th-1/2/3，QS 编辑性大标题；意见11：标题行右侧显眼返回按钮，无 emoji） */}
       <div>
         <div className="qs-meta mb-1" style={{ color: 'var(--color-ink-faint)' }}>
           #{task.id} {task.title} · 电商新品上架 · 由你创建
         </div>
-        <h2 className="font-display w-full text-[24px] font-bold leading-[1.15] md:text-[28px]" style={{ fontFamily: 'var(--font-display)' }}>
-          {task.title}
-        </h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="font-display min-w-0 flex-1 text-[24px] font-bold leading-[1.15] md:text-[28px]" style={{ fontFamily: 'var(--font-display)' }}>
+            {task.title}
+          </h2>
+          <button type="button" className="qs-btn sm shrink-0" onClick={onBack}>
+            ← 返回任务看板
+          </button>
+        </div>
         <div className="qs-meta mt-1.5" style={{ color: 'var(--color-ink-soft)' }}>
           {task.description || '新品上架全套物料'} · 目标平台：{task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
         </div>
@@ -311,7 +342,7 @@ export function TaskDetailView({
       <div className="flex gap-1 border-b" style={{ borderColor: 'var(--color-line)' }}>
         <button
           type="button"
-          className={`px-3 py-2 text-[13px] transition-colors ${taskTab === 'deliver' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
+          className={`cursor-pointer px-3 py-2 text-[13px] transition-colors ${taskTab === 'deliver' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
           style={{ borderBottom: taskTab === 'deliver' ? '2px solid var(--color-signal)' : '2px solid transparent', color: taskTab === 'deliver' ? 'var(--color-ink)' : 'var(--color-ink-soft)' }}
           onClick={() => setTaskTab('deliver')}
         >
@@ -319,7 +350,7 @@ export function TaskDetailView({
         </button>
         <button
           type="button"
-          className={`px-3 py-2 text-[13px] transition-colors ${taskTab === 'detail' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
+          className={`cursor-pointer px-3 py-2 text-[13px] transition-colors ${taskTab === 'detail' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
           style={{ borderBottom: taskTab === 'detail' ? '2px solid var(--color-signal)' : '2px solid transparent', color: taskTab === 'detail' ? 'var(--color-ink)' : 'var(--color-ink-soft)' }}
           onClick={() => setTaskTab('detail')}
         >

@@ -3,7 +3,7 @@ import type { Agent, AgentExecution, ExecutionStats } from '@workbench/shared';
 import { Avatar, Badge, Btn, Card, Empty, Field, SectionTitle, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
-import { dotClass } from '../workstation/WorkstationBar.tsx';
+import { dotLabel } from '../workstation/WorkstationBar.tsx';
 
 /** Agent 状态视图（意见18：工位在线状态 + 执行统计 + 执行日志） */
 
@@ -26,6 +26,13 @@ function StatusBadge({ status }: { status: Agent['onlineStatus'] }) {
   if (status === 'busy') return <Badge tone="signal">忙碌</Badge>;
   if (status === 'unconfigured') return <Badge tone="warn">未配置</Badge>;
   return <Badge>待命</Badge>;
+}
+
+/** 头像右下角状态点颜色（与工位栏 dotClass 语义一致：busy=紫 / online·idle=绿 / unconfigured=灰） */
+function dotColor(s: Agent['onlineStatus']): string {
+  if (s === 'busy') return 'var(--color-signal)';
+  if (s === 'online' || s === 'idle') return 'var(--color-ok)';
+  return '#a1a1aa';
 }
 
 function fmtNum(n: number): string {
@@ -168,29 +175,37 @@ export function ObservabilityView() {
         <span className="qs-meta">AGENT STATUS · 在线 / 统计 / 日志</span>
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-4 items-start">
+      {/* 意见10：两个区域容器等高、底部对齐（网格 items-stretch；各自 h-full flex flex-col） */}
+      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[1fr_300px]">
         {/* 工位在线状态 */}
-        <div className="flex-1 min-w-0">
+        <div className="flex min-w-0 flex-col">
           <SectionTitle meta="AGENTS / ONLINE">Agent 在线状态</SectionTitle>
           {agents.length === 0 ? (
             <Card>
               <Empty text="暂无工位（Agent）" />
             </Card>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3 grid-flow-dense">
+            <div className="grid flex-1 content-start gap-3 sm:grid-cols-2 2xl:grid-cols-3 grid-flow-dense">
               {agents.map((a) => (
                 <Card key={a.id} className="flex flex-col">
-                  {/* 头部：头像 + 名字 + 角色 + 状态 + 编辑 */}
+                  {/* 头部（意见10 去重：头像右下状态点 + 名字/角色/状态/最近活跃 单行） */}
                   <div className="flex items-center gap-2.5">
-                    <Avatar name={a.name} size={36} />
+                    <div className="relative shrink-0 self-start">
+                      <Avatar name={a.name} id={a.id} size={36} />
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 h-[10px] w-[10px] rounded-full"
+                        style={{ background: dotColor(a.onlineStatus), boxShadow: '0 0 0 2px var(--color-surface)' }}
+                        title={dotLabel(a.onlineStatus)}
+                      />
+                    </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[14px] font-semibold truncate">{a.name}</span>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate text-[14px] font-semibold">{a.name}</span>
                         <Badge>{a.role}</Badge>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-1">
                         <StatusBadge status={a.onlineStatus} />
-                        <span className="qs-meta tabular">最近活跃 {relTime(a.lastActiveAt)}</span>
+                        <span className="qs-meta tabular truncate" style={{ color: 'var(--color-ink-faint)' }}>
+                          最近活跃 {relTime(a.lastActiveAt)}
+                        </span>
                       </div>
                     </div>
                     <Btn variant="ghost" size="sm" onClick={() => (editId === a.id ? setEditId(null) : startEdit(a))}>
@@ -198,11 +213,10 @@ export function ObservabilityView() {
                     </Btn>
                   </div>
 
-                  {/* 当前活动（状态点与 WorkstationBar 一致） */}
-                  {a.activity ? (
-                    <div className="mt-2.5 flex items-center gap-1.5 text-[12px] min-w-0" style={{ color: 'var(--color-ink-soft)' }}>
-                      <span className={dotClass(a.onlineStatus)} />
-                      <span className="truncate">{a.activity}</span>
+                  {/* 当前活动（意见10：单行，不再重复状态点；activity 与状态文字相同（如「待命」）时不重复显示） */}
+                  {a.activity && a.activity.trim() !== dotLabel(a.onlineStatus) ? (
+                    <div className="mt-2.5 truncate text-[12px]" style={{ color: 'var(--color-ink-soft)' }} title={a.activity}>
+                      {a.activity}
                     </div>
                   ) : null}
 
@@ -260,13 +274,16 @@ export function ObservabilityView() {
           )}
         </div>
 
-        {/* 执行统计汇总 */}
-        <div className="w-full xl:w-[300px] shrink-0">
-          <Card title="执行统计">
+        {/* 执行统计汇总（意见10：卡撑满，与在线状态卡底部对齐；内部分区弹性布局） */}
+        <div className="flex flex-col">
+          <Card
+            title="执行统计"
+            className="h-full flex flex-col [&>div]:flex-1 [&>div]:flex [&>div]:flex-col"
+          >
             {statsLoading ? (
               <Spinner label="统计加载中…" />
             ) : (
-              <>
+              <div className="flex h-full flex-col">
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <div className="qs-meta">总执行</div>
@@ -281,9 +298,11 @@ export function ObservabilityView() {
                     <div className="font-display text-[20px] leading-tight tabular">{fmtDuration(totals.avgDurationMs)}</div>
                   </div>
                 </div>
-                <div className="mt-4 pt-3 border-t space-y-2.5" style={{ borderColor: 'var(--color-line)' }}>
+                <div className="mt-4 flex-1 border-t pt-3 space-y-2.5" style={{ borderColor: 'var(--color-line)' }}>
                   {agents.length === 0 ? (
-                    <Empty text="暂无 Agent" />
+                    <div className="flex h-full items-center">
+                      <Empty text="暂无 Agent" />
+                    </div>
                   ) : (
                     agents.map((a) => {
                       const s = statsByAgent[a.id];
@@ -301,7 +320,7 @@ export function ObservabilityView() {
                     })
                   )}
                 </div>
-              </>
+              </div>
             )}
           </Card>
         </div>

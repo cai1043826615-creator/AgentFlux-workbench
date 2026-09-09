@@ -22,7 +22,7 @@ export const WORKFLOW_STAGE_KEYS = [
 ] as const;
 
 export const WORKFLOW_STAGE_LABELS: Record<string, string> = {
-  [STAGE_REQUIREMENT]: '需求对齐',
+  [STAGE_REQUIREMENT]: '需求对接',
   [STAGE_COPY]: '卖点文案',
   [STAGE_MAIN_IMAGE]: '主图设计',
   [STAGE_DETAIL_IMAGE]: '详情图设计',
@@ -60,7 +60,7 @@ export const ECOM_WORKFLOW: WorkflowDefinition = {
   nodes: [
     {
       id: STAGE_REQUIREMENT,
-      label: '需求对齐',
+      label: '需求对接',
       ownerRole: '文案',
       autoNext: true,
     },

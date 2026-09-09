@@ -121,7 +121,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
             setMessages(msg.messages);
             break;
           case 'approval:prompt': {
-            setApprovalQueue((prev) => (prev.some((x) => x.taskId === msg.taskId) ? prev : [...prev, { taskId: msg.taskId, stage: msg.stage, title: `任务 #${msg.taskId}` }]));
+            setApprovalQueue((prev) => (prev.some((x) => x.taskId === msg.taskId && x.stage === msg.stage) ? prev : [...prev, { taskId: msg.taskId, stage: msg.stage, title: `任务 #${msg.taskId}` }]));
             break;
           }
           case 'error':
@@ -167,7 +167,10 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       const { task, deliverables } = await api.decideDeliverable(taskId, kind, decision, imageId, note);
       upsertTask(task);
       setDeliverablesByTask((prev) => ({ ...prev, [taskId]: deliverables }));
-      setApprovalQueue((prev) => prev.filter((x) => x.taskId !== taskId || x.stage !== task.stage));
+      // 决策后移除该任务对应阶段的待拍板条目（copy 决策移除 copy；image 决策移除图片拍板阶段）
+      setApprovalQueue((prev) =>
+        prev.filter((x) => x.taskId !== taskId || (kind === 'copy' ? x.stage !== 'copy' : x.stage !== 'main-image' && x.stage !== 'detail-image')),
+      );
     },
     [upsertTask],
   );

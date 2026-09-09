@@ -3,7 +3,7 @@ import { runParallelGroups } from '../engine/parallel.ts';
 import { createPlaceholderImage } from '../utils/placeholder.ts';
 import { get } from '../db/client.ts';
 import type { AgentRow } from '../db/schema.ts';
-import { generateImage } from './imagegen.ts';
+import { generateImage, ImageChannelUnavailableError } from './imagegen.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
 import { MockProducer, type ReviewReport, type StageProducer, setProducer } from './producer.ts';
 import { readFileContent, readSkillContent } from './skills.ts';
@@ -140,11 +140,17 @@ export class SmartProducer implements StageProducer {
       groups.map((g) => ({ channel: g.channel, items: g.items })),
       async (itemId) => {
         try {
-          // 真实生图（img-api.apinebula.ai / gpt-image-2）；失败由外层降级
+          // 真实生图（img-api.apinebula.ai / gpt-image-2）
           const dataUrl = await generateImage(`${basePrompt} —— 分区/子图：${itemId}`);
           return { dataUrl };
-        } catch {
-          return { dataUrl: createPlaceholderImage(itemId, '#7C3AED') };
+        } catch (err) {
+          // 仅「无渠道配置」属于 mock 降级：返回 svg 占位图（前端识别 dataURL 标注「模拟占位」）
+          if (err instanceof ImageChannelUnavailableError) {
+            return { dataUrl: createPlaceholderImage(itemId, '#7C3AED') };
+          }
+          // 真实渠道报错：抛给 runParallelGroups 记为失败（ok=false）→ 上层落 status='failed'，
+          // 绝不把 svg 占位图当作成品图入库
+          throw err;
         }
       },
       (itemId, ok, value) => {

@@ -132,8 +132,10 @@ export class WorkflowService {
       name: r.itemId,
       kind: stageId === 'main-image' ? (r.itemId.includes('主图1') ? 'main' : 'sub') : 'detail',
       url: r.dataUrl ?? '',
-      status: r.ok ? 'pending' : 'rejected',
+      // 生图异常（真实渠道失败）标记 failed，与用户打回 rejected 区分；不存 svg 占位图当成品
+      status: r.ok ? 'pending' : 'failed',
       note: r.error,
+      error: r.ok ? undefined : r.error,
     }));
     delivery.saveDeliverable(task.id, stageId, 'image', images);
     return results.length;

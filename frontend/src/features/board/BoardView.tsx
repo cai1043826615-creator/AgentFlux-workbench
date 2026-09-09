@@ -63,7 +63,7 @@ function TaskCard({
 
       <Tag task={task} />
 
-      {/* 6 段 flowbar（对齐线框 flowbar） */}
+      {/* 6 段 flowbar（对齐线框 flowbar；意见5 视觉降级版，颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰） */}
       <div className="mt-2 flex gap-[3px]">
         {WORKFLOW_STAGE_KEYS.map((k, i) => (
           <span
@@ -74,7 +74,7 @@ function TaskCard({
                 i < stageIdxOf(task) || task.column === 'done'
                   ? 'var(--color-ok)'
                   : i === stageIdxOf(task)
-                    ? 'var(--color-signal)'
+                    ? 'var(--color-ink)'
                     : 'var(--color-line)',
             }}
           />

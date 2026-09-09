@@ -3,10 +3,31 @@ import type { AgentOnlineStatus, AgentUpdateInput, ExecutionStats, StageStat } f
 import { all, get, run } from '../db/client.ts';
 import type { AgentExecutionRow, AgentRow } from '../db/schema.ts';
 import { toAgent } from '../agents/runtime.ts';
-import { listSkills } from '../agents/skills.ts';
+import { listFiles, listSkills, saveFileContent } from '../agents/skills.ts';
 
 /** PUT 请求体：AgentUpdateInput 基础上扩展工位在线状态字段（shared 冻结，本地扩展） */
 type AgentUpdateBody = AgentUpdateInput & { onlineStatus?: AgentOnlineStatus; activity?: string };
+
+/** POST /api/agents/files 请求体：content 直接文本；或 dataUrl（data:[mediatype][;base64],<data>，上传接口兼容） */
+type FileUploadBody = { name?: string; content?: string; dataUrl?: string };
+
+/** 解析 data URL 为文本内容与推导扩展名；仅接受 text/* 或 application/json 文本型，无法解析返回 null */
+function parseDataUrl(dataUrl: string): { content: string; ext: string } | null {
+  const m = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(dataUrl);
+  if (!m) return null;
+  const mediaType = m[1].toLowerCase();
+  if (mediaType && !mediaType.startsWith('text/') && mediaType !== 'application/json') return null;
+  const isBase64 = Boolean(m[2]);
+  const data = m[3];
+  let content: string;
+  try {
+    content = isBase64 ? Buffer.from(data, 'base64').toString('utf8') : decodeURIComponent(data);
+  } catch {
+    return null;
+  }
+  const ext = mediaType.includes('json') ? '.json' : mediaType.includes('markdown') || mediaType.includes('md') ? '.md' : '.txt';
+  return { content, ext };
+}
 
 /** 计算单个 Agent 的执行统计（无记录时 runs=0 / successRate=100 / avgDurationMs=0） */
 export function executionStats(agentId: string): ExecutionStats {
@@ -47,6 +68,31 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   // 可挂载技能列表（扫描本地技能目录 backend/skills/*.md）
   app.get('/api/agents/skills', async () => {
     return { skills: await listSkills() };
+  });
+
+  // 可挂载文件列表（扫描 backend/files/*.{md,txt,json}，供前端目录选择）
+  app.get('/api/agents/files', async () => {
+    return { files: await listFiles() };
+  });
+
+  // 上传挂载文件：body { name, content } 或 { name, dataUrl }（dataUrl 无 name 时按媒体类型生成默认名）
+  app.post<{ Body: FileUploadBody }>('/api/agents/files', async (req, reply) => {
+    const body = req.body ?? {};
+    let name = (body.name ?? '').trim();
+    let content = body.content;
+    if (content === undefined && body.dataUrl) {
+      const parsed = parseDataUrl(body.dataUrl);
+      if (!parsed) return reply.code(400).send({ error: 'dataUrl 解析失败或媒体类型不受支持' });
+      content = parsed.content;
+      if (!name) name = `上传文件_${Date.now()}${parsed.ext}`;
+    }
+    if (typeof content !== 'string') return reply.code(400).send({ error: '缺少 content 或 dataUrl' });
+    try {
+      const id = await saveFileContent(name, content);
+      return { file: { id, name: id.replace(/\.(md|txt|json)$/i, '') } };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : '写入文件失败' });
+    }
   });
 
   // 更新工位（persona/model/skills/files/onlineStatus/activity），id 不存在返回 404

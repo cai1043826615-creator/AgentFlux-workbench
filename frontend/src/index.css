@@ -266,6 +266,7 @@ body {
   text-align: left;
   font-size: 13px;
   color: var(--color-ink-soft);
+  cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-standard),
     color var(--dur-fast) var(--ease-standard);
@@ -289,6 +290,37 @@ body {
 .qs-nav-item.disabled:hover {
   background: transparent;
   color: var(--color-ink-soft);
+}
+
+/* ===== 可点击光标修复（意见2：Tailwind v4 预置 button 为非 pointer，仅对明确可点类恢复） ===== */
+.qs-clickable {
+  cursor: pointer;
+}
+
+/* ===== Toast 通知（意见12：右下角队列浮层，QS 风：surface 底 / 细边框 / 4px 圆角 / 轻微阴影 / fade+slide） ===== */
+.qs-toast {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  animation: qs-toast-in var(--dur-standard) var(--ease-standard);
+  transition:
+    opacity var(--dur-standard) var(--ease-standard),
+    transform var(--dur-standard) var(--ease-standard);
+}
+.qs-toast.leaving {
+  opacity: 0;
+  transform: translateY(8px);
+}
+@keyframes qs-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ===== 滚动条（克制） ===== */

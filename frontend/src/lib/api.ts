@@ -36,6 +36,12 @@ export const api = {
   updateAgent: (id: string, input: AgentUpdateInput) => j<{ agent: Agent }>(fetch(`/api/agents/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })),
   agentStats: (id: string) => j<{ stats: ExecutionStats }>(fetch(`/api/agents/${id}/stats`)),
   executions: (limit = 50) => j<{ executions: AgentExecution[] }>(fetch(`/api/executions?limit=${limit}`)),
+  /** Agent 文件目录：GET /api/agents/files；后端未实现（404）时由调用方降级提示 */
+  listFiles: () => j<{ files: { id: string; name: string }[] }>(fetch('/api/agents/files')),
+  /** 上传 Agent 文件：POST /api/agents/files（JSON { name, content }）；后端未实现时由调用方降级提示 */
+  uploadFile: (input: { name: string; content: string }) => j<{ file: { id: string; name: string } }>(
+    fetch('/api/agents/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }),
+  ),
 
   // ===== 工作流 / 设置 =====
   listWorkflows: () => j<{ workflows: WorkflowDefinition[] }>(fetch('/api/workflows')),

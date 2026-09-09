@@ -12,13 +12,16 @@ const STATUS_META: Record<AgentOnlineStatus, { label: string; dot: string; color
   unconfigured: { label: '未连接API', dot: 'no', color: 'var(--color-danger)' },
 };
 
-/** receipt：Agent 已收到用户消息的居中分隔总结（微信式“已收到”回执） */
+/** receipt：Agent 已收到用户消息的居中分隔总结（微信式“已收到”回执）
+ *  视觉：两侧分隔线 + 小字 + agent 头像小图（from 查不到 agents 时 Avatar 回退字母头像）
+ *  群聊与私聊共用同一渲染分支，两种会话均显示 */
 function ReceiptLine({ m }: { m: Message }) {
   return (
     <div className="flex items-center gap-2 px-1 py-1.5 select-none">
       <span className="h-px flex-1" style={{ background: 'var(--color-line-strong)' }} />
-      <span className="qs-meta text-center" style={{ color: 'var(--color-ink-faint)' }}>
-        —— {m.from} · 已收到你的消息 ——
+      <span className="qs-meta flex items-center gap-1.5 text-center whitespace-nowrap" style={{ color: 'var(--color-ink-faint)' }}>
+        <Avatar name={m.from} size={16} />
+        {m.from} · 已收到你的消息
       </span>
       <span className="h-px flex-1" style={{ background: 'var(--color-line-strong)' }} />
     </div>
@@ -39,6 +42,7 @@ function ChatHeader() {
           type="button"
           className="flex shrink-0 flex-col items-center gap-1"
           title="工作群 · 事件与协作播报汇集于此"
+          style={{ cursor: 'pointer' }}
           onClick={() => selectChat({ kind: 'group', to: '全体' })}
         >
           <span
@@ -55,7 +59,7 @@ function ChatHeader() {
           const active = !isGroup && chatTarget.to === a.id;
           const meta = STATUS_META[a.onlineStatus];
           return (
-            <button key={a.id} type="button" className="flex shrink-0 flex-col items-center gap-1" title={`${a.name} · ${meta.label}`} onClick={() => selectChat({ kind: 'private', to: a.id })}>
+            <button key={a.id} type="button" className="flex shrink-0 flex-col items-center gap-1" title={`${a.name} · ${meta.label}`} style={{ cursor: 'pointer' }} onClick={() => selectChat({ kind: 'private', to: a.id })}>
               <span className="relative" style={{ outline: active ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2, borderRadius: 999 }}>
                 <Avatar name={a.name} size={40} />
                 <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${meta.dot}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)' }} />
@@ -107,7 +111,7 @@ function ApprovalReminder() {
             key={x.taskId}
             type="button"
             className="block w-full text-left text-[12px] leading-snug transition-colors hover:underline"
-            style={{ color: 'var(--color-ink-soft)' }}
+            style={{ color: 'var(--color-ink-soft)', cursor: 'pointer' }}
             onClick={() => openTask(x.taskId)}
           >
             #{x.taskId} · {WORKFLOW_STAGE_LABELS[x.stage] ?? x.stage} 进入待确认 → 点击跳转
@@ -152,7 +156,7 @@ export function ChatPanel() {
               return (
                 <div key={m.id} className="qs-meta px-2 py-1 text-center" style={{ color: 'var(--color-ink-faint)' }}>
                   {m.taskId ? (
-                    <button type="button" className="transition-colors hover:underline" style={{ color: 'inherit' }} onClick={() => openTask(m.taskId as number)}>
+                    <button type="button" className="transition-colors hover:underline" style={{ color: 'inherit', cursor: 'pointer' }} onClick={() => openTask(m.taskId as number)}>
                       ── {m.body} ──
                     </button>
                   ) : (

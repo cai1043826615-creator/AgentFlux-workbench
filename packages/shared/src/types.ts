@@ -99,7 +99,8 @@ export interface TaskEvent {
 
 // ===== 交付物 =====
 export type DeliverableKind = 'copy' | 'image';
-export type DeliverableStatus = 'pending' | 'approved' | 'rejected';
+/** pending 待决策 / approved 已采纳 / rejected 已打回 / failed 生成失败（生图异常，非用户决策） */
+export type DeliverableStatus = 'pending' | 'approved' | 'rejected' | 'failed';
 
 /** 文案包结构（阶段2 输出） */
 export interface CopyPackage {
@@ -114,10 +115,12 @@ export interface ImageItem {
   id: string;
   name: string;
   kind: 'main' | 'sub' | 'detail';
-  /** dataURL 或 /api/... 预览地址 */
+  /** dataURL 或 /api/... 预览地址；生成失败（status='failed'）时为空字符串，不使用占位图充当成品 */
   url: string;
   status: DeliverableStatus;
   note?: string;
+  /** 生成失败原因（status='failed' 时写入，供前端展示失败提示） */
+  error?: string;
 }
 
 export interface Deliverable {

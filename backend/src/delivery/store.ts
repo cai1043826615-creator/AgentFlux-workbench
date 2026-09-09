@@ -105,7 +105,8 @@ export function updateDeliverableStatus(
     } else {
       for (const img of images) img.status = status;
     }
-    const allDecided = images.every((i) => i.status !== 'pending');
+    // 全部决策仅指 approved/rejected；failed（生成失败）视为未决策：不推进状态机，等待打回/重试
+    const allDecided = images.every((i) => i.status === 'approved' || i.status === 'rejected');
     run('UPDATE deliverables SET content = ?, status = ? WHERE id = ?', [JSON.stringify(images), allDecided ? status : 'pending', existing.id]);
   }
   const row = get<DeliverableRow>('SELECT * FROM deliverables WHERE id = ?', [existing.id])!;
@@ -114,13 +115,13 @@ export function updateDeliverableStatus(
   return updated;
 }
 
-/** 某阶段图片集是否全部决策完成 */
+/** 某阶段图片集是否全部决策完成（仅 approved/rejected；failed 生成失败视为未决策，等待打回/重试） */
 export function allImagesDecided(taskId: number, stage: string): boolean {
   const existing = getRow(taskId, stage, 'image');
   if (!existing) return false;
   try {
     const images = JSON.parse(existing.content) as ImageItem[];
-    return images.length > 0 && images.every((i) => i.status !== 'pending');
+    return images.length > 0 && images.every((i) => i.status === 'approved' || i.status === 'rejected');
   } catch {
     return false;
   }

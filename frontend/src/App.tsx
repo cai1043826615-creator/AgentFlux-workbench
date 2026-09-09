@@ -8,6 +8,7 @@ import { WorkstationBar } from './features/workstation/WorkstationBar.tsx';
 import { BoardView } from './features/board/BoardView.tsx';
 import { TaskDetailView } from './features/status/TaskDetailView.tsx';
 import { ObservabilityView } from './features/observability/ObservabilityView.tsx';
+import { ToastHost } from './components/Toast.tsx';
 
 /** 顶栏（对齐线框 topbar：logo + 任务信号点 + 在岗 + 连接） */
 function TopBar() {
@@ -210,33 +211,35 @@ function Shell() {
   const [newOpen, setNewOpen] = useState(false);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       <TopBar />
       <div className="flex flex-1 min-h-0">
-        {/* 左栏（线框式：工作流 + 通用） */}
+        {/* 左栏（线框式：工作流 + 通用）；内容区内部滚动，折叠按钮常驻底部 */}
         {showLeft ? (
-          <aside className="w-[220px] shrink-0 border-r overflow-y-auto" style={{ borderColor: 'var(--color-line)' }}>
-            <LeftPanel onNew={() => setNewOpen(true)} onBack={backToBoard} />
+          <aside className="flex w-[220px] shrink-0 flex-col border-r" style={{ borderColor: 'var(--color-line)' }}>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <LeftPanel onNew={() => setNewOpen(true)} onBack={backToBoard} />
+            </div>
             <button
               type="button"
-              className="block w-full border-t py-2 qs-meta text-center"
+              className="block w-full shrink-0 border-t py-2 qs-meta text-center cursor-pointer"
               style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-soft)' }}
               onClick={() => setShowLeft(false)}
             >
-              ◀ 折叠左栏
+              ◀ 折叠
             </button>
           </aside>
         ) : (
-          <div className="w-12 shrink-0 border-r flex items-start justify-center pt-3" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="flex w-12 shrink-0 flex-col items-center justify-end border-r pb-3" style={{ borderColor: 'var(--color-line)' }}>
             <button
               type="button"
-              className="qs-meta flex flex-col items-center gap-1 transition-colors"
+              className="qs-meta qs-clickable flex flex-col items-center gap-1 transition-colors"
               style={{ color: 'var(--color-ink-soft)' }}
               title="展开左栏"
               onClick={() => setShowLeft(true)}
             >
               <span aria-hidden="true" className="text-[12px] leading-none">▶</span>
-              <span>展开左栏</span>
+              <span>展开</span>
             </button>
           </div>
         )}
@@ -253,35 +256,38 @@ function Shell() {
           </div>
         </main>
 
-        {/* 右栏聊天（可折叠） */}
+        {/* 右栏聊天（可折叠）；消息区内部滚动，折叠按钮常驻底部 */}
         {showRight ? (
-          <aside className="w-[280px] shrink-0 border-l min-h-0" style={{ borderColor: 'var(--color-line)' }}>
-            <ChatPanel />
+          <aside className="flex w-[280px] shrink-0 flex-col border-l min-h-0" style={{ borderColor: 'var(--color-line)' }}>
+            <div className="min-h-0 flex-1">
+              <ChatPanel />
+            </div>
             <button
               type="button"
-              className="block w-full border-t py-1.5 qs-meta text-center"
+              className="block w-full shrink-0 border-t py-2 qs-meta text-center cursor-pointer"
               style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-soft)' }}
               onClick={() => setShowRight(false)}
             >
-              ▶ 折叠聊天栏
+              ▶ 折叠
             </button>
           </aside>
         ) : (
-          <div className="w-12 shrink-0 border-l flex items-start justify-center pt-3" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="flex w-12 shrink-0 flex-col items-center justify-end border-l pb-3" style={{ borderColor: 'var(--color-line)' }}>
             <button
               type="button"
-              className="qs-meta flex flex-col items-center gap-1 transition-colors"
+              className="qs-meta qs-clickable flex flex-col items-center gap-1 transition-colors"
               style={{ color: 'var(--color-ink-soft)' }}
               title="展开聊天栏"
               onClick={() => setShowRight(true)}
             >
               <span aria-hidden="true" className="text-[12px] leading-none">◀</span>
-              <span>展开聊天栏</span>
+              <span>展开</span>
             </button>
           </div>
         )}
       </div>
       <NewTaskModal open={newOpen} onClose={() => setNewOpen(false)} />
+      <ToastHost />
     </div>
   );
 }

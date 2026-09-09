@@ -18,6 +18,13 @@ export function dotLabel(s: string): string {
   return '未配置';
 }
 
+/** 状态文字颜色（配合 dotClass；busy→紫 / online·idle→绿 / 其余→灰） */
+function statusColor(s: string): string {
+  if (s === 'busy') return 'var(--color-signal)';
+  if (s === 'online' || s === 'idle') return 'var(--color-ok)';
+  return 'var(--color-ink-faint)';
+}
+
 /** 工位栏（对齐线框 ws-bar）：主视区顶部常驻，Agent 实时状态卡 + 设置入口 */
 export function WorkstationBar() {
   const { agents } = useWorkbench();
@@ -34,29 +41,35 @@ export function WorkstationBar() {
             {agents.length} 个工位
           </span>
         </div>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2.5 sm:grid-cols-3">
           {agents.map((a) => (
             <div
               key={a.id}
-              className="group flex items-center gap-2.5 rounded-[4px] border px-2.5 py-2 transition-colors"
+              className="group flex items-center gap-3.5 rounded-[4px] border px-3 py-4 transition-colors"
               style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)', transitionDuration: 'var(--dur-fast)' }}
             >
-              <Avatar name={a.name} id={a.id} size={26} />
-              <span className={dotClass(a.onlineStatus)} title={dotLabel(a.onlineStatus)} />
+              {/* 头像（放大）+ 状态点右下（参照 ChatPanel：relative 包裹 + 白描边） */}
+              <span className="relative shrink-0" title={dotLabel(a.onlineStatus)}>
+                <Avatar name={a.name} id={a.id} size={56} />
+                <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${dotClass(a.onlineStatus)}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)', width: 10, height: 10 }} />
+              </span>
+              {/* 信息列：名字+角色一行、模型+活动一行、状态文字一行 */}
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-[13px] font-medium">{a.name}</span>
-                  <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{a.role}</span>
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-[15px] font-semibold">{a.name}</span>
+                  <span className="qs-meta shrink-0 text-[13px]" style={{ color: 'var(--color-ink-faint)' }}>{a.role}</span>
                 </div>
-                <div className="qs-meta truncate" style={{ color: 'var(--color-ink-faint)' }}>
+                <div className="qs-meta truncate text-[13px]" style={{ color: 'var(--color-ink-faint)' }}>
                   {a.model ? `模型 ${a.model}` : '未配置模型'}
                   {a.activity ? ` · ${a.activity}` : ''}
+                </div>
+                <div className="qs-meta text-[13px]" style={{ color: statusColor(a.onlineStatus) }}>
+                  {dotLabel(a.onlineStatus)}
                 </div>
               </div>
               <button
                 type="button"
-                className="qs-meta shrink-0 rounded-[4px] border px-1.5 py-0.5 opacity-70 transition-opacity group-hover:opacity-100"
-                style={{ borderColor: 'var(--color-line-strong)' }}
+                className="qs-btn sm shrink-0 opacity-80 transition-opacity group-hover:opacity-100 cursor-pointer"
                 title="Agent 设置"
                 onClick={() => setSettingsAgent(a)}
               >

@@ -78,9 +78,26 @@ function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] {
   return out;
 }
 
-/** 缩略图：dataURL 加载完成前显示 Spinner；hover 出现「放大」按钮（几何符号 + 文字） */
+/** 缩略图：dataURL 加载完成前显示 Spinner；hover 出现「放大」按钮（几何符号 + 文字）
+ *  data:image/svg 开头 = mock 模式的「模拟占位」图（非成品）→ 灰底虚线框 + 「模拟占位」，不渲染放大 */
 function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () => void }) {
   const [loaded, setLoaded] = useState(false);
+  if (src.startsWith('data:image/svg')) {
+    return (
+      <div
+        className="relative aspect-square overflow-hidden border"
+        style={{ borderColor: 'var(--color-line)', borderStyle: 'dashed', background: 'var(--color-canvas)' }}
+        title={`${name} · 模拟占位（非成品图）`}
+      >
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-1">
+          <span className="text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+            模拟占位
+          </span>
+          <span className="qs-meta max-w-full truncate text-[10px]">{name}</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="group relative aspect-square overflow-hidden border" style={{ borderColor: 'var(--color-line)' }}>
       {!loaded ? (
@@ -100,7 +117,7 @@ function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () =
           type="button"
           onClick={onZoom}
           className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-1 text-[11px] text-white opacity-0 transition-opacity duration-160 group-hover:opacity-100 focus-visible:opacity-100"
-          style={{ background: 'rgba(0,0,0,0.55)' }}
+          style={{ background: 'rgba(0,0,0,0.55)', cursor: 'pointer' }}
         >
           <span aria-hidden="true" className="text-[12px] leading-none">⊕</span>
           放大
@@ -317,52 +334,64 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     if (imgs.length === 0) return <Empty text="该板块图片尚未产出" />;
     return (
       <div className="grid grid-cols-3 gap-2">
-        {imgs.map((img) => (
-          <div key={img.id} className="border p-1.5" style={{ borderColor: 'var(--color-line)' }}>
-            <Thumb src={img.url} name={img.name} onZoom={() => setPreview({ url: img.url, name: img.name, status: img.status })} />
-            <div className="mt-1.5 flex items-center justify-between gap-1">
-              <span className="truncate text-[11px]" title={img.name}>
-                {img.name}
-              </span>
-              <Badge tone={img.status === 'approved' ? 'ok' : img.status === 'rejected' ? 'no' : canDecide ? 'signal' : 'default'}>
-                {img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回' : canDecide ? '待拍板' : '未决'}
-              </Badge>
-            </div>
-            {img.status === 'rejected' && img.note ? <div className="qs-meta mt-1">原因 · {img.note}</div> : null}
-            {canDecide && img.status === 'pending' ? (
-              <div className="mt-1.5">
-                {rejectingImg === img.id ? (
-                  <div className="space-y-1.5">
-                    <input
-                      className="qs-input"
-                      autoFocus
-                      placeholder="打回原因（将发给设计师重新输出）…"
-                      value={imgNotes[img.id] ?? ''}
-                      onChange={(e) => setImgNotes((p) => ({ ...p, [img.id]: e.target.value }))}
-                    />
+        {imgs.map((img) => {
+          const failed = img.status === 'failed';
+          return (
+            <div key={img.id} className="border p-1.5" style={{ borderColor: failed ? 'var(--color-danger)' : 'var(--color-line)' }}>
+              {/* failed 图不可放大；svg 模拟占位由 Thumb 内部识别为占位样式 */}
+              <Thumb src={img.url} name={img.name} onZoom={failed ? undefined : () => setPreview({ url: img.url, name: img.name, status: img.status })} />
+              <div className="mt-1.5 flex items-center justify-between gap-1">
+                <span className="truncate text-[11px]" title={img.name}>
+                  {img.name}
+                </span>
+                <Badge tone={failed ? 'no' : img.status === 'approved' ? 'ok' : img.status === 'rejected' ? 'no' : canDecide ? 'signal' : 'default'}>
+                  {failed ? '生成失败' : img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回' : canDecide ? '待拍板' : '未决'}
+                </Badge>
+              </div>
+              {failed ? (
+                <div className="qs-meta mt-1" style={{ color: 'var(--color-danger)' }}>
+                  渠道生成失败 · 可打回让设计师重新产出
+                </div>
+              ) : null}
+              {img.status === 'rejected' && img.note ? <div className="qs-meta mt-1">原因 · {img.note}</div> : null}
+              {/* failed 图允许打回（触发返工重产出），不提供采纳；不阻塞其他图决策 */}
+              {canDecide && (img.status === 'pending' || failed) ? (
+                <div className="mt-1.5">
+                  {rejectingImg === img.id ? (
+                    <div className="space-y-1.5">
+                      <input
+                        className="qs-input"
+                        autoFocus
+                        placeholder="打回原因（将发给设计师重新输出）…"
+                        value={imgNotes[img.id] ?? ''}
+                        onChange={(e) => setImgNotes((p) => ({ ...p, [img.id]: e.target.value }))}
+                      />
+                      <div className="flex gap-1.5">
+                        <Btn variant="ghost" size="sm" onClick={() => setRejectingImg(null)}>
+                          取消
+                        </Btn>
+                        <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('image', 'reject', img.id, imgNotes[img.id])}>
+                          确认打回
+                        </Btn>
+                      </div>
+                    </div>
+                  ) : (
                     <div className="flex gap-1.5">
-                      <Btn variant="ghost" size="sm" onClick={() => setRejectingImg(null)}>
-                        取消
-                      </Btn>
-                      <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('image', 'reject', img.id, imgNotes[img.id])}>
-                        确认打回
+                      {!failed ? (
+                        <Btn size="sm" variant="primary" disabled={busy} onClick={() => void doDecide('image', 'approve', img.id)}>
+                          采纳
+                        </Btn>
+                      ) : null}
+                      <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejectingImg(img.id)}>
+                        打回
                       </Btn>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex gap-1.5">
-                    <Btn size="sm" variant="primary" disabled={busy} onClick={() => void doDecide('image', 'approve', img.id)}>
-                      采纳
-                    </Btn>
-                    <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejectingImg(img.id)}>
-                      打回
-                    </Btn>
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </div>
-        ))}
+                  )}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -398,6 +427,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                 borderColor: imageTab === key ? 'var(--color-signal)' : 'transparent',
                 color: imageTab === key ? 'var(--color-ink)' : 'var(--color-ink-soft)',
                 fontWeight: imageTab === key ? 500 : 400,
+                cursor: 'pointer',
               }}
             >
               {label}
@@ -479,7 +509,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
               <button
                 type="button"
                 className="h-14 w-14 shrink-0 overflow-hidden border transition-colors hover:border-[var(--color-signal)]"
-                style={{ borderColor: 'var(--color-line-strong)' }}
+                style={{ borderColor: 'var(--color-line-strong)', cursor: 'pointer' }}
                 title="点击放大参考图"
                 onClick={() => setPreview({ url: task.referenceImage as string, name: '参考图', status: 'ref' })}
               >
