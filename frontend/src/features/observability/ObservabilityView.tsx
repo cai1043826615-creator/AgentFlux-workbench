@@ -5,6 +5,7 @@ import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { AgentSettingsModal } from '../workstation/AgentSettingsModal.tsx';
 import { dotLabel } from '../workstation/WorkstationBar.tsx';
+import { agentBadgeTone, agentColor, agentLabel } from '../../lib/agentStatus.ts';
 
 /** Agent 状态视图（意见18：工位在线状态 + 执行统计 + 执行日志） */
 
@@ -22,18 +23,9 @@ function relTime(iso?: string): string {
   return `${Math.floor(diff / 86_400_000)} 天前`;
 }
 
+/** 状态徽章：统一映射自 lib/agentStatus.ts（online=ok / 忙碌=signal / 未配置=warn / 待命=default，与工位栏一致） */
 function StatusBadge({ status }: { status: Agent['onlineStatus'] }) {
-  if (status === 'online') return <Badge tone="ok">在线</Badge>;
-  if (status === 'busy') return <Badge tone="signal">忙碌</Badge>;
-  if (status === 'unconfigured') return <Badge tone="warn">未配置</Badge>;
-  return <Badge>待命</Badge>;
-}
-
-/** 头像右下角状态点颜色（与工位栏 dotClass 语义一致：busy=紫 / online·idle=绿 / unconfigured=灰） */
-function dotColor(s: Agent['onlineStatus']): string {
-  if (s === 'busy') return 'var(--color-signal)';
-  if (s === 'online' || s === 'idle') return 'var(--color-ok)';
-  return '#a1a1aa';
+  return <Badge tone={agentBadgeTone(status)}>{agentLabel(status)}</Badge>;
 }
 
 function fmtNum(n: number): string {
@@ -165,7 +157,7 @@ export function ObservabilityView() {
                       <Avatar name={a.name} id={a.id} size={36} />
                       <span
                         className="absolute -bottom-0.5 -right-0.5 h-[10px] w-[10px] rounded-full"
-                        style={{ background: dotColor(a.onlineStatus), boxShadow: '0 0 0 2px var(--color-surface)' }}
+                        style={{ background: agentColor(a.onlineStatus), boxShadow: '0 0 0 2px var(--color-surface)' }}
                         title={dotLabel(a.onlineStatus)}
                       />
                     </div>

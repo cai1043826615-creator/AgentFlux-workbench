@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { APPROVAL_POINT_STAGES, STAGE_OWNER_ROLE, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Agent, type TaskEvent, type TaskEventType } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
-import { Avatar, Spinner } from '../../components/ui.tsx';
+import { Avatar, Spinner, Tabs } from '../../components/ui.tsx';
 import { parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 
@@ -135,14 +135,14 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
             <div className="flex items-center justify-between gap-2">
               {foldable ? (
                 <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left" onClick={() => setExpanded(open ? null : g.key)}>
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-bold" style={{ background: ms.bg, color: ms.fg }}>
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[10px] font-bold" style={{ background: ms.bg, color: ms.fg }}>
                     {mark.ch}
                   </span>
                   {head}
                 </button>
               ) : (
                 <span className="flex min-w-0 flex-1 items-center gap-2">
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-bold" style={{ background: ms.bg, color: ms.fg }}>
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[10px] font-bold" style={{ background: ms.bg, color: ms.fg }}>
                     {mark.ch}
                   </span>
                   {head}
@@ -242,7 +242,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                   ) : null}
                   {isApproval ? (
                     <span
-                      className="absolute -bottom-1 -right-2 flex h-[15px] items-center rounded-[3px] px-1 text-[9px] font-bold text-white"
+                      className="absolute -bottom-1 -right-2 flex h-[15px] items-center rounded-[4px] px-1 text-[9px] font-bold text-white"
                       style={{ background: 'var(--color-signal)' }}
                     >
                       拍板
@@ -355,7 +355,7 @@ export function TaskDetailView({
           </h2>
           <button
             type="button"
-            className="shrink-0 cursor-pointer rounded-[6px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-line-strong)]"
+            className="shrink-0 cursor-pointer rounded-[4px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-line-strong)]"
             onClick={onBack}
           >
             ← 返回任务看板
@@ -372,24 +372,14 @@ export function TaskDetailView({
       </div>
 
       {/* tabs（对齐线框 tabs；QS 焦点信号；意见12：内容交付在前，去掉「· 审批」） */}
-      <div className="flex gap-1 border-b" style={{ borderColor: 'var(--color-line)' }}>
-        <button
-          type="button"
-          className={`cursor-pointer px-3 py-2 text-[13px] transition-colors ${taskTab === 'deliver' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
-          style={{ borderBottom: taskTab === 'deliver' ? '2px solid var(--color-signal)' : '2px solid transparent', color: taskTab === 'deliver' ? 'var(--color-ink)' : 'var(--color-ink-soft)' }}
-          onClick={() => setTaskTab('deliver')}
-        >
-          内容交付
-        </button>
-        <button
-          type="button"
-          className={`cursor-pointer px-3 py-2 text-[13px] transition-colors ${taskTab === 'detail' ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
-          style={{ borderBottom: taskTab === 'detail' ? '2px solid var(--color-signal)' : '2px solid transparent', color: taskTab === 'detail' ? 'var(--color-ink)' : 'var(--color-ink-soft)' }}
-          onClick={() => setTaskTab('detail')}
-        >
-          任务详情
-        </button>
-      </div>
+      <Tabs
+        items={[
+          { key: 'deliver', label: '内容交付' },
+          { key: 'detail', label: '任务详情' },
+        ]}
+        activeKey={taskTab}
+        onChange={setTaskTab}
+      />
 
       {taskTab === 'deliver' ? (
         <ContentDeliveryView taskId={taskId} />

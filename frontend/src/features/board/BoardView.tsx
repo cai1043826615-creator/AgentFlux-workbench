@@ -45,7 +45,7 @@ function TaskCard({
 }) {
   return (
     <article
-      className="qs-card relative cursor-pointer p-3 transition-colors hover:border-[var(--color-line-strong)]"
+      className="qs-card qs-interactive relative p-3"
       style={task.column === 'awaiting' ? { borderColor: 'var(--color-warn)' } : undefined}
       onClick={() => onOpen(task)}
       title="查看详情"
@@ -95,7 +95,7 @@ function TaskCard({
       {/* 负责人 */}
       <span
         className="qs-meta mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
-        style={{ background: 'rgba(0,0,0,0.04)', border: '1px solid var(--color-line)' }}
+        style={{ background: 'var(--color-sunken)', border: '1px solid var(--color-line)' }}
       >
         <Avatar name={task.ownerName || '待'} size={14} /> {task.ownerName || '待分配'}
       </span>

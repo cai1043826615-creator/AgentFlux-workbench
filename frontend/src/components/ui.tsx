@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 /* ===== Quiet Signal 风格轻量 UI 基座（design.md D6.1：大结构直角、4px 小控件、无阴影、衬线标题） ===== */
 
-export function Btn({ children, onClick, variant = 'default', size, disabled, title }: { children: ReactNode; onClick?: () => void; variant?: 'default' | 'primary' | 'ghost' | 'danger'; size?: 'sm'; disabled?: boolean; title?: string }) {
-  const cls = ['qs-btn', variant === 'primary' ? 'primary' : variant === 'ghost' ? 'ghost' : '', variant === 'danger' ? 'danger' : '', size === 'sm' ? 'sm' : ''].filter(Boolean).join(' ');
+export function Btn({ children, onClick, variant = 'default', size, disabled, title }: { children: ReactNode; onClick?: () => void; variant?: 'default' | 'primary' | 'ghost' | 'danger' | 'signal'; size?: 'sm'; disabled?: boolean; title?: string }) {
+  const cls = ['qs-btn', variant === 'primary' ? 'primary' : variant === 'ghost' ? 'ghost' : variant === 'signal' ? 'signal' : '', variant === 'danger' ? 'danger' : '', size === 'sm' ? 'sm' : ''].filter(Boolean).join(' ');
   return (
     <button type="button" className={cls} onClick={onClick} disabled={disabled} title={title}>
       {children}
@@ -224,4 +224,38 @@ export function Empty({ text = '暂无数据' }: { text?: string }) {
 /** 通用弹层按钮组（底部右对齐） */
 export function ModalFooter({ children }: { children: ReactNode }) {
   return <div className="flex justify-end gap-2 mt-4">{children}</div>;
+}
+
+/* ===== 下划线式标签页 Tabs（QS：焦点信号为 2px 紫下划线；支持可选角标计数） ===== */
+
+export interface TabItem<K extends string> {
+  key: K;
+  label: ReactNode;
+  /** 可选角标计数，如 (3) */
+  count?: number;
+}
+
+export function Tabs<K extends string>({ items, activeKey, onChange, className = '' }: { items: TabItem<K>[]; activeKey: K; onChange: (key: K) => void; className?: string }) {
+  return (
+    <div className={`flex gap-1 border-b ${className}`} style={{ borderColor: 'var(--color-line)' }}>
+      {items.map((it) => {
+        const active = activeKey === it.key;
+        return (
+          <button
+            key={it.key}
+            type="button"
+            className={`-mb-px cursor-pointer px-3 py-2 text-[13px] transition-colors ${active ? 'font-semibold' : 'opacity-55 hover:opacity-100'}`}
+            style={{
+              borderBottom: active ? '2px solid var(--color-signal)' : '2px solid transparent',
+              color: active ? 'var(--color-ink)' : 'var(--color-ink-soft)',
+            }}
+            onClick={() => onChange(it.key)}
+          >
+            {it.label}
+            {it.count !== undefined ? <span className="qs-meta tabular ml-1">({it.count})</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
 }

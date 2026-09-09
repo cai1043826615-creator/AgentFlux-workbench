@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Deliverable, Task } from '@workbench/shared';
 import { BOARD_COLUMNS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
-import { Badge, Btn, Card, Empty, SectionTitle, Spinner } from '../../components/ui.tsx';
+import { Badge, Btn, Card, Empty, SectionTitle, Spinner, Tabs } from '../../components/ui.tsx';
 import { parseCopy, parseImages } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 
@@ -429,30 +429,15 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     const canDecide = imgState === 'pending' && (task?.stage === 'main-image' || task?.stage === 'detail-image');
     return (
       <>
-        <div className="mb-3 flex items-center gap-1 border-b" style={{ borderColor: 'var(--color-line)' }}>
-          {(
-            [
-              ['main', '主图', mainImages.length],
-              ['detail', '详情图', detailImages.length],
-            ] as const
-          ).map(([key, label, count]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setImageTab(key)}
-              className="-mb-px border-b-2 px-3 py-1.5 text-[13px]"
-              style={{
-                borderColor: imageTab === key ? 'var(--color-signal)' : 'transparent',
-                color: imageTab === key ? 'var(--color-ink)' : 'var(--color-ink-soft)',
-                fontWeight: imageTab === key ? 500 : 400,
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-              <span className="qs-meta tabular ml-1">({count})</span>
-            </button>
-          ))}
-        </div>
+        <Tabs
+          className="mb-3"
+          items={[
+            { key: 'main', label: '主图', count: mainImages.length },
+            { key: 'detail', label: '详情图', count: detailImages.length },
+          ]}
+          activeKey={imageTab}
+          onChange={(k) => setImageTab(k)}
+        />
         {imageTab === 'main' ? renderGrid(mainImages, canDecide) : renderGrid(detailImages, canDecide)}
       </>
     );

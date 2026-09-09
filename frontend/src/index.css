@@ -29,6 +29,14 @@
   --dur-standard: 220ms;
   --dur-deliberate: 300ms;
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* P6 间距 token（4px 基数单位体系；供新组件与后续工作流页面使用，现有内联值保持不动） */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
 }
 
 html,
@@ -204,7 +212,7 @@ body {
 }
 /* unconfigured：渠道未配置（灰 #A1A1AA，意见19） */
 .qs-dot.unconfigured {
-  background: #a1a1aa;
+  background: var(--color-ink-faint);
 }
 .qs-dot.signal {
   background: var(--color-signal);
@@ -272,7 +280,7 @@ body {
     color var(--dur-fast) var(--ease-standard);
 }
 .qs-nav-item:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--color-sunken);
   color: var(--color-ink);
 }
 .qs-nav-item.active {
@@ -372,10 +380,59 @@ body {
     color var(--dur-fast) var(--ease-standard);
 }
 .qs-rail-icon:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--color-sunken);
   color: var(--color-ink);
 }
 .qs-rail-icon.active {
   background: var(--color-signal-soft);
   color: var(--color-signal-strong);
+}
+
+/* ===== P7 视效升级（gpt-taste 克制动效 + Aceternity/21st.dev 微交互适度借鉴；不改功能、不动图片头像） ===== */
+
+/* 可交互表面（看板卡/可点击卡）：hover 微抬升 + 边框加深 + 极轻阴影（QS 无阴影默认的克制度量，仅真实抬升时出现） */
+.qs-interactive {
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.qs-interactive:hover {
+  border-color: var(--color-line-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+.qs-interactive:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .qs-interactive {
+    transition: none;
+  }
+  .qs-interactive:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+/* 紫色信号主按钮（规划表：主 CTA 才用紫；可选变体，不替换现有黑色 primary） */
+.qs-btn.signal {
+  background: var(--color-signal);
+  border-color: var(--color-signal);
+  color: #fff;
+}
+.qs-btn.signal:hover:not(:disabled) {
+  background: var(--color-signal-strong);
+  border-color: var(--color-signal-strong);
+  box-shadow: 0 0 0 3px var(--color-signal-soft);
+}
+
+/* 输入禁用态（补充既有 qs-input 的视觉；不改功能） */
+.qs-input:disabled {
+  background: var(--color-sunken);
+  color: var(--color-ink-faint);
+  cursor: not-allowed;
 }

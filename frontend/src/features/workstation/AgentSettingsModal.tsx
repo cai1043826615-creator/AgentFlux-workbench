@@ -175,7 +175,7 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
   /** 勾选方块：已挂载 → 紫色填充 + ✓（可见勾选态） */
   const checkBox = (mounted: boolean) => (
     <span
-      className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border text-[10px] leading-none"
+      className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border text-[10px] leading-none"
       style={{
         borderColor: mounted ? 'var(--color-signal)' : 'var(--color-line-strong)',
         background: mounted ? 'var(--color-signal)' : 'transparent',

@@ -223,7 +223,7 @@ export function ChatPanel() {
                     <div className="qs-meta mb-0.5" style={{ color: agent?.onlineStatus === 'online' ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}>
                       {m.from} · {time}
                     </div>
-                    <div className="rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'rgba(0,0,0,0.045)', color: 'var(--color-ink)', borderRadius: 4 }}>
+                    <div className="rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'var(--color-sunken)', color: 'var(--color-ink)', borderRadius: 4 }}>
                       {m.body}
                     </div>
                   </div>

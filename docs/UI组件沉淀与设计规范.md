@@ -285,3 +285,19 @@ frontend/src/components/
 | P7 | 视效升级（另文《组件视效规划表》，参考 4 个组件网站） | 按确认结果分批 | 截图对比 |
 
 > 以上 P1~P7 均未执行，等待用户确认后按顺序实施。
+
+---
+
+## 8. 实施进度（2026-09-09 更新，用户已确认按 P1→P7 推进）
+
+| 步骤 | 状态 | 落地说明 | 验证 |
+|---|---|---|---|
+| P1 圆角统一 4px | ✅ 完成 | TaskDetailView 返回按钮 6px→4px、事件 mark 3px→4px×2、拍板角标 3px→4px；AgentSettingsModal 勾选块 3px→4px（共 5 处） | tsc 0 error；浏览器实测返回按钮/事件区正常 |
+| P2 颜色 token 化 | ✅ 完成 | index.css `#a1a1aa`→`var(--color-ink-faint)`、`rgba(0,0,0,0.04)`→`var(--color-sunken)`×2；BoardView 负责人 chip、ChatPanel 气泡、ObservabilityView dotColor 全部 token 化（Toast 浮层阴影 L305 保留为浮层例外） | tsc 0 error；页面实测无视觉回归 |
+| P3 抽 agentStatus.ts | ✅ 完成 | 新建 `lib/agentStatus.ts`（AGENT_STATUS_META + agentDotClass/Label/Color/BadgeTone）；WorkstationBar 与 ObservabilityView 收敛至共享；App/ChatPanel 保留其「后缀 dot + 差异化文案」的有意差异（未强行统一，避免改变功能） | tsc 0 error；工位/状态显示与改动前一致 |
+| P4 抽 Tabs 组件 | ✅ 完成 | ui.tsx 新增 `Tabs`（下划线式 2px 紫 + 可选角标计数）；TaskDetailView（内容交付/任务详情）与 ContentDeliveryView（主图/详情图，带计数）替换 | tsc 0 error；两处 Tabs 实测正常 |
+| P5 AvatarStatus/阶段组件抽取 | ⏸ 文档已定稿 | App/ChatPanel 使用不同的 dot 体系（busy/idle/ok/no 后缀）且文案有意差异，强行统一有回归风险；规格已在 §4 定稿，待后续工作流页面实际复用时再实施 | — |
+| P6 间距 token | ✅ 完成 | index.css @theme 新增 `--space-1..6`（4px 基数体系）；现有内联值保持不动（视觉零变化），供新组件/后续页面引用 | tsc 0 error |
+| P7 视效升级（克制版） | ✅ 完成 | index.css 新增 `.qs-interactive`（可点击卡 hover 微抬升+边框加深+极轻阴影，含 reduced-motion 降级）、`.qs-btn.signal`（紫色主按钮可选变体，不替换现有黑色 primary）、`.qs-input:disabled` 视觉；BoardView 看板卡应用 qs-interactive；未动图片/头像/功能 | tsc 0 error；看板/详情/交付页截图回归无异常 |
+
+> 说明：vite build 在本沙箱环境因 esbuild spawn EPERM（命名管道限制）无法执行；已用 `tsc --noEmit`（build 脚本内同样先跑，0 error）+ 运行中 dev server 浏览器截图回归替代验证。dev server 构建环境不受该限制，正式构建请在本机正常终端执行。

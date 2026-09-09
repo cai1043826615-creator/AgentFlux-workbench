@@ -4,26 +4,14 @@ import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge } from '../../components/ui.tsx';
 import { AgentSettingsModal } from './AgentSettingsModal.tsx';
 
-/** 状态点：unconfigured=灰 / online·idle=绿 / busy=紫闪（意见5/19） */
-export function dotClass(s: string): string {
-  if (s === 'busy') return 'qs-dot signal busy';
-  if (s === 'online' || s === 'idle') return 'qs-dot ok';
-  return 'qs-dot unconfigured';
-}
+import { agentColor, agentDotClass, agentLabel } from '../../lib/agentStatus.ts';
 
-export function dotLabel(s: string): string {
-  if (s === 'busy') return '忙碌';
-  if (s === 'online') return '在线';
-  if (s === 'idle') return '待命';
-  return '未配置';
-}
-
-/** 状态文字颜色（配合 dotClass；busy→紫 / online·idle→绿 / 其余→灰） */
-function statusColor(s: string): string {
-  if (s === 'busy') return 'var(--color-signal)';
-  if (s === 'online' || s === 'idle') return 'var(--color-ok)';
-  return 'var(--color-ink-faint)';
-}
+/**
+ * 状态点/文案/颜色 统一收敛至 lib/agentStatus.ts（默认值 = 工位栏语义，行为不变）。
+ * dotClass / dotLabel 以别名导出，兼容 ObservabilityView 的既有 import。
+ */
+export const dotClass = agentDotClass;
+export const dotLabel = agentLabel;
 
 /** 工位栏（对齐线框 ws-bar）：主视区顶部常驻，Agent 实时状态卡 + 设置入口 */
 export function WorkstationBar() {
@@ -63,7 +51,7 @@ export function WorkstationBar() {
                   {a.model ? `模型 ${a.model}` : '未配置模型'}
                   {a.activity ? ` · ${a.activity}` : ''}
                 </div>
-                <div className="qs-meta text-[13px]" style={{ color: statusColor(a.onlineStatus) }}>
+                <div className="qs-meta text-[13px]" style={{ color: agentColor(a.onlineStatus) }}>
                   {dotLabel(a.onlineStatus)}
                 </div>
               </div>
