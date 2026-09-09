@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Agent, AgentExecution, ExecutionStats } from '@workbench/shared';
-import { Avatar, Badge, Btn, Card, Empty, Field, SectionTitle, Spinner } from '../../components/ui.tsx';
+import { Avatar, Badge, Btn, Card, Empty, SectionTitle, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
+import { AgentSettingsModal } from '../workstation/AgentSettingsModal.tsx';
 import { dotLabel } from '../workstation/WorkstationBar.tsx';
 
 /** Agent 状态视图（意见18：工位在线状态 + 执行统计 + 执行日志） */
@@ -53,7 +54,7 @@ function fmtDuration(ms: number): string {
 /* ===== 主视图 ===== */
 
 export function ObservabilityView() {
-  const { agents, connected, refresh } = useWorkbench();
+  const { agents, connected } = useWorkbench();
 
   // —— 执行统计：逐个 Agent 拉取并汇总 ——
   const [statsByAgent, setStatsByAgent] = useState<Record<string, ExecutionStats | null>>({});
@@ -129,39 +130,8 @@ export function ObservabilityView() {
     };
   }, []);
 
-  // —— 工位就地编辑（persona / model / skills） ——
-  const [editId, setEditId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ persona: '', model: '', skills: '' });
-  const [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState('');
-
-  const startEdit = (a: Agent) => {
-    setEditId(a.id);
-    setDraft({ persona: a.persona, model: a.model, skills: a.skills.join(', ') });
-    setEditError('');
-  };
-
-  const saveEdit = async () => {
-    if (!editId || saving) return;
-    setSaving(true);
-    setEditError('');
-    try {
-      await api.updateAgent(editId, {
-        persona: draft.persona.trim(),
-        model: draft.model.trim(),
-        skills: draft.skills
-          .split(/[,，]/)
-          .map((s) => s.trim())
-          .filter(Boolean),
-      });
-      setEditId(null);
-      await refresh();
-    } catch (e) {
-      setEditError(e instanceof Error ? e.message : '保存失败，请重试');
-    } finally {
-      setSaving(false);
-    }
-  };
+  // —— Agent 设置弹窗（意见9：复用 AgentSettingsModal，不再卡内就地编辑） ——
+  const [settingsAgent, setSettingsAgent] = useState<Agent | null>(null);
 
   const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
   const timeFmt = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -188,7 +158,8 @@ export function ObservabilityView() {
             <div className="grid flex-1 content-start gap-3 sm:grid-cols-2 2xl:grid-cols-3 grid-flow-dense">
               {agents.map((a) => (
                 <Card key={a.id} className="flex flex-col">
-                  {/* 头部（意见10 去重：头像右下状态点 + 名字/角色/状态/最近活跃 单行） */}
+                  {/* 头部（意见10 去重：头像右下状态点 + 名字/角色/状态 Badge + Agent 设置按钮；
+                      意见5：「最近活跃」从本行拆出独立一行，避免元素过多被截断） */}
                   <div className="flex items-center gap-2.5">
                     <div className="relative shrink-0 self-start">
                       <Avatar name={a.name} id={a.id} size={36} />
@@ -203,14 +174,16 @@ export function ObservabilityView() {
                         <span className="truncate text-[14px] font-semibold">{a.name}</span>
                         <Badge>{a.role}</Badge>
                         <StatusBadge status={a.onlineStatus} />
-                        <span className="qs-meta tabular truncate" style={{ color: 'var(--color-ink-faint)' }}>
-                          最近活跃 {relTime(a.lastActiveAt)}
-                        </span>
                       </div>
                     </div>
-                    <Btn variant="ghost" size="sm" onClick={() => (editId === a.id ? setEditId(null) : startEdit(a))}>
-                      {editId === a.id ? '收起' : '编辑'}
+                    <Btn variant="ghost" size="sm" onClick={() => setSettingsAgent(a)}>
+                      Agent 设置
                     </Btn>
+                  </div>
+
+                  {/* 最近活跃（意见5：独立一行完整显示，不再被头部元素截断） */}
+                  <div className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
+                    最近活跃 {relTime(a.lastActiveAt)}
                   </div>
 
                   {/* 当前活动（意见10：单行，不再重复状态点；activity 与状态文字相同（如「待命」）时不重复显示） */}
@@ -242,30 +215,6 @@ export function ObservabilityView() {
                       {a.skills.map((s) => (
                         <Badge key={s}>{s}</Badge>
                       ))}
-                    </div>
-                  ) : null}
-
-                  {/* 就地展开编辑 */}
-                  {editId === a.id ? (
-                    <div className="mt-3 pt-3 border-t space-y-2" style={{ borderColor: 'var(--color-line)' }}>
-                      <Field label="人设 persona（一行）">
-                        <input className="qs-input" value={draft.persona} onChange={(e) => setDraft((d) => ({ ...d, persona: e.target.value }))} placeholder="例：资深电商文案，擅长卖点提炼" />
-                      </Field>
-                      <Field label="模型 model">
-                        <input className="qs-input" value={draft.model} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))} placeholder="例：gpt-4o" />
-                      </Field>
-                      <Field label="技能 skills（逗号分隔）">
-                        <input className="qs-input" value={draft.skills} onChange={(e) => setDraft((d) => ({ ...d, skills: e.target.value }))} placeholder="文案, 卖点提炼, 关键词" />
-                      </Field>
-                      {editError ? <div className="qs-meta" style={{ color: 'var(--color-danger)' }}>{editError}</div> : null}
-                      <div className="flex justify-end gap-2">
-                        <Btn size="sm" onClick={() => setEditId(null)}>
-                          取消
-                        </Btn>
-                        <Btn size="sm" variant="primary" onClick={() => void saveEdit()} disabled={saving}>
-                          {saving ? '保存中…' : '保存'}
-                        </Btn>
-                      </div>
                     </div>
                   ) : null}
                 </Card>
@@ -396,6 +345,10 @@ export function ObservabilityView() {
           </table>
         )}
       </Card>
+
+      {settingsAgent ? (
+        <AgentSettingsModal agent={settingsAgent} open onClose={() => setSettingsAgent(null)} />
+      ) : null}
     </div>
   );
 }

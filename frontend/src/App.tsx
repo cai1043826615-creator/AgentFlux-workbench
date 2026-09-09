@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import type { AgentOnlineStatus } from '@workbench/shared';
 import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
-import { Badge, Btn, Field, Modal, ModalFooter } from './components/ui.tsx';
+import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter } from './components/ui.tsx';
 import { api } from './lib/api.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
 import { ChatPanel } from './features/chat/ChatPanel.tsx';
@@ -9,6 +10,24 @@ import { BoardView } from './features/board/BoardView.tsx';
 import { TaskDetailView } from './features/status/TaskDetailView.tsx';
 import { ObservabilityView } from './features/observability/ObservabilityView.tsx';
 import { ToastHost } from './components/Toast.tsx';
+
+/** 折叠态头像列：状态点/文案映射（与 ChatPanel 顶部头像一致） */
+const AGENT_DOT: Record<AgentOnlineStatus, string> = {
+  busy: 'busy',
+  idle: 'idle',
+  online: 'ok',
+  unconfigured: 'no',
+};
+const AGENT_STATUS: Record<AgentOnlineStatus, string> = {
+  busy: '忙碌中',
+  idle: '待命',
+  online: '在线',
+  unconfigured: '未连接API',
+};
+
+/** 栏宽拖拽约束（意见4：最小 120 / 最大 420） */
+const PANEL_MIN = 120;
+const PANEL_MAX = 420;
 
 /** 顶栏（对齐线框 topbar：logo + 任务信号点 + 在岗 + 连接） */
 function TopBar() {
@@ -205,20 +224,73 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 function Shell() {
-  const { view, selectedTaskId, backToBoard, openTask } = useWorkbench();
+  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView } = useWorkbench();
   const [showLeft, setShowLeft] = useState(true);
   const [showRight, setShowRight] = useState(true);
+  const [leftWidth, setLeftWidth] = useState(220);
+  const [rightWidth, setRightWidth] = useState(280);
+  const [settingsSignal, setSettingsSignal] = useState(0);
   const [newOpen, setNewOpen] = useState(false);
+
+  /** 拖拽改栏宽（pointerdown 后挂 document 级 move/up，主区自适应，夹 120~420） */
+  const startResize = (side: 'left' | 'right') => (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = side === 'left' ? leftWidth : rightWidth;
+    const onMove = (ev: PointerEvent) => {
+      const delta = ev.clientX - startX;
+      const next = Math.max(PANEL_MIN, Math.min(PANEL_MAX, side === 'left' ? startWidth + delta : startWidth - delta));
+      if (side === 'left') setLeftWidth(next);
+      else setRightWidth(next);
+    };
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const workflowActive = view === 'board' || view === 'task';
+  const isGroupChat = chatTarget.kind === 'group';
+
+  /** 左栏折叠态图标：跳转/行为 + 同时展开左栏 */
+  const openLeftFlow = () => {
+    backToBoard();
+    setShowLeft(true);
+  };
+  const openLeftObservability = () => {
+    setView('observability');
+    setShowLeft(true);
+  };
+  const openLeftSettings = () => {
+    setShowLeft(true);
+    setSettingsSignal((n) => n + 1);
+  };
+
+  /** 右栏折叠态头像：展开右栏 + 切换会话 */
+  const openGroup = () => {
+    selectChat({ kind: 'group', to: '全体' });
+    setShowRight(true);
+  };
+  const openPrivate = (id: string) => {
+    selectChat({ kind: 'private', to: id });
+    setShowRight(true);
+  };
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <TopBar />
       <div className="flex flex-1 min-h-0">
-        {/* 左栏（线框式：工作流 + 通用）；内容区内部滚动，折叠按钮常驻底部 */}
+        {/* 左栏（工作流 + 通用）；展开态可拖宽，折叠态为图标列（保持分组） */}
         {showLeft ? (
-          <aside className="flex w-[220px] shrink-0 flex-col border-r" style={{ borderColor: 'var(--color-line)' }}>
+          <aside className="relative flex shrink-0 flex-col border-r" style={{ borderColor: 'var(--color-line)', width: leftWidth }}>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <LeftPanel onNew={() => setNewOpen(true)} onBack={backToBoard} />
+              <LeftPanel onNew={() => setNewOpen(true)} onBack={backToBoard} openSettingsSignal={settingsSignal} />
             </div>
             <button
               type="button"
@@ -228,12 +300,27 @@ function Shell() {
             >
               ◀ 折叠
             </button>
+            <div className="qs-resize-handle" style={{ right: -3 }} title="拖动调整左栏宽度" onPointerDown={startResize('left')} />
           </aside>
         ) : (
-          <div className="flex w-12 shrink-0 flex-col items-center justify-end border-r pb-3" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="flex w-12 shrink-0 flex-col items-center border-r py-3" style={{ borderColor: 'var(--color-line)' }}>
+            <div className="flex flex-col items-center gap-1">
+              <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>工作流</span>
+              <button type="button" className={`qs-rail-icon ${workflowActive ? 'active' : ''}`} title="电商工作流 · 看板" onClick={openLeftFlow}>
+                <Glyph name="flow" size={18} />
+              </button>
+              <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
+              <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>通用</span>
+              <button type="button" className={`qs-rail-icon ${view === 'observability' ? 'active' : ''}`} title="Agent 状态" onClick={openLeftObservability}>
+                <Glyph name="pulse" size={18} />
+              </button>
+              <button type="button" className="qs-rail-icon" title="设置 · 编排模式" onClick={openLeftSettings}>
+                <Glyph name="gear" size={18} />
+              </button>
+            </div>
             <button
               type="button"
-              className="qs-meta qs-clickable flex flex-col items-center gap-1 transition-colors"
+              className="qs-meta qs-clickable mt-auto flex flex-col items-center gap-1 transition-colors"
               style={{ color: 'var(--color-ink-soft)' }}
               title="展开左栏"
               onClick={() => setShowLeft(true)}
@@ -244,9 +331,9 @@ function Shell() {
           </div>
         )}
 
-        {/* 中栏：工位栏（固定）+ 主视图 */}
+        {/* 中栏：工位栏（仅看板页常驻，意见2）+ 主视图 */}
         <main className="flex flex-1 min-w-0 flex-col p-4">
-          <WorkstationBar />
+          {view === 'board' && <WorkstationBar />}
           <div className="flex-1 min-h-0 overflow-auto">
             {view === 'board' && <BoardView onOpen={openTask} onNew={() => setNewOpen(true)} />}
             {view === 'task' && selectedTaskId != null && (
@@ -256,9 +343,9 @@ function Shell() {
           </div>
         </main>
 
-        {/* 右栏聊天（可折叠）；消息区内部滚动，折叠按钮常驻底部 */}
+        {/* 右栏聊天（可折叠）；展开态可拖宽，折叠态为头像列 */}
         {showRight ? (
-          <aside className="flex w-[280px] shrink-0 flex-col border-l min-h-0" style={{ borderColor: 'var(--color-line)' }}>
+          <aside className="relative flex shrink-0 flex-col border-l min-h-0" style={{ borderColor: 'var(--color-line)', width: rightWidth }}>
             <div className="min-h-0 flex-1">
               <ChatPanel />
             </div>
@@ -270,12 +357,46 @@ function Shell() {
             >
               ▶ 折叠
             </button>
+            <div className="qs-resize-handle" style={{ left: -3 }} title="拖动调整右栏宽度" onPointerDown={startResize('right')} />
           </aside>
         ) : (
-          <div className="flex w-12 shrink-0 flex-col items-center justify-end border-l pb-3" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="flex w-12 shrink-0 flex-col items-center border-l py-3" style={{ borderColor: 'var(--color-line)' }}>
+            <div className="flex flex-col items-center gap-3">
+              {/* 电商工作群头像（h-8 w-8 圆头像；当前群聊用紫 outline 选中态；hover 浅紫/缩放/阴影） */}
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-full transition-all duration-150 hover:scale-105 hover:bg-[var(--color-signal-soft)] hover:shadow-md"
+                title="电商工作群 · 事件与协作播报汇集于此"
+                onClick={openGroup}
+              >
+                <span
+                  className="block h-8 w-8 overflow-hidden rounded-full"
+                  style={{ outline: isGroupChat ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2 }}
+                >
+                  <img src="/groups/ecom.png" alt="电商工作群" className="h-full w-full object-cover" />
+                </span>
+              </button>
+              {agents.map((a) => {
+                const active = !isGroupChat && chatTarget.to === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="flex h-9 w-9 items-center justify-center rounded-full transition-all duration-150 hover:scale-105 hover:bg-[var(--color-signal-soft)] hover:shadow-md"
+                    title={`${a.name} · ${AGENT_STATUS[a.onlineStatus]}`}
+                    onClick={() => openPrivate(a.id)}
+                  >
+                    <span className="relative" style={{ outline: active ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2, borderRadius: 999 }}>
+                      <Avatar name={a.name} id={a.id} size={32} />
+                      <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${AGENT_DOT[a.onlineStatus]}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)' }} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             <button
               type="button"
-              className="qs-meta qs-clickable flex flex-col items-center gap-1 transition-colors"
+              className="qs-meta qs-clickable mt-auto flex flex-col items-center gap-1 transition-colors"
               style={{ color: 'var(--color-ink-soft)' }}
               title="展开聊天栏"
               onClick={() => setShowRight(true)}

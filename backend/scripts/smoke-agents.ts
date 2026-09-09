@@ -15,7 +15,7 @@ process.env.WORKBENCH_DB = join(dir, 'smoke.db');
 
 const { ensureSchema } = await import('../src/db/ensure.ts');
 const { seed } = await import('../src/db/seed.ts');
-const { all, get } = await import('../src/db/client.ts');
+const { all, get, run } = await import('../src/db/client.ts');
 const { markBusy, markIdle, markOnline, toAgent } = await import('../src/agents/runtime.ts');
 const { logExecution } = await import('../src/agents/execution-logger.ts');
 const { executionStats } = await import('../src/routes/agents.ts');
@@ -143,8 +143,11 @@ await check('advance 全流程 6 阶段日志齐全（mock 标注）', async () 
   assert.equal(after.column, 'awaiting'); // graph 模式：copy 拍板点停
 
   await service.decideDeliverable({ taskId: created.id, kind: 'copy', decision: 'approve' });
+  const main = await service.decideDeliverable({ taskId: created.id, kind: 'image', decision: 'approve' });
+  assert.equal(main.column, 'awaiting'); // graph 模式：detail-image 拍板点停（意见7）
+  assert.equal(main.stage, 'detail-image');
   const final = await service.decideDeliverable({ taskId: created.id, kind: 'image', decision: 'approve' });
-  assert.equal(final.column, 'done'); // 全链走通
+  assert.equal(final.column, 'done'); // 全链走通（detail 拍板通过后直达交付归档）
 
   const rows = all(
     'SELECT stage, status, output_summary, agent_id FROM agent_executions WHERE task_id = ? ORDER BY id ASC',
@@ -165,6 +168,33 @@ await check('advance 全流程 6 阶段日志齐全（mock 标注）', async () 
   const copyAgent = get('SELECT online_status, activity FROM agents WHERE id = ?', ['agent-copy'])!;
   assert.equal(copyAgent.online_status, 'idle');
   assert.equal(copyAgent.activity, '待命');
+});
+
+// 9. 意见7：详情图设计成为拍板点（图定义断言）
+await check('detail-image 为拍板点：approvalPoint + approved/rejected 边 + 常量为拍板点', async () => {
+  const { ECOM_WORKFLOW, APPROVAL_POINT_STAGES, STAGE_DETAIL_IMAGE, STAGE_REVIEW } = await import('@workbench/shared');
+  const node = ECOM_WORKFLOW.nodes.find((n) => n.id === STAGE_DETAIL_IMAGE)!;
+  assert.equal(node.approvalPoint, true);
+  assert.equal(node.autoNext, undefined, 'detail-image 应移除 autoNext');
+  const approved = ECOM_WORKFLOW.edges.find((e) => e.from === STAGE_DETAIL_IMAGE && e.condition === 'approved')!;
+  assert.equal(approved.to, STAGE_REVIEW, 'detail approved 边应指向 review');
+  const rejected = ECOM_WORKFLOW.edges.find((e) => e.from === STAGE_DETAIL_IMAGE && e.condition === 'rejected')!;
+  assert.equal(rejected.to, STAGE_DETAIL_IMAGE, 'detail rejected 边应回自身返工');
+  assert.ok(APPROVAL_POINT_STAGES.includes(STAGE_DETAIL_IMAGE), 'APPROVAL_POINT_STAGES 应含 detail-image');
+});
+
+// 10. linear 降级模式：detail-image 拍板自动通过直达交付归档
+await check('linear 模式：detail-image 拍板自动通过直达交付归档', async () => {
+  run("UPDATE settings SET value = ? WHERE key = 'orchestrationMode'", [JSON.stringify({ mode: 'linear' })]);
+  try {
+    const { service } = await import('../src/engine/service.ts');
+    const created = service.createTask({ title: '线性冒烟品', description: 'linear', platform: '测试平台' });
+    const final = await service.confirmAndRun(created.id);
+    assert.equal(final.column, 'done', 'linear 下三个拍板点（copy/main-image/detail-image）均自动通过');
+    assert.equal(final.stage, 'deliver');
+  } finally {
+    run("UPDATE settings SET value = ? WHERE key = 'orchestrationMode'", [JSON.stringify({ mode: 'graph' })]);
+  }
 });
 
 // 清理临时 DB（删不掉也无妨：系统临时目录）

@@ -3,10 +3,12 @@ import { WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../store/useWorkbench.tsx';
 
 /**
- * 右下角 Toast 通知（意见12）：
+ * 右下角 Toast 通知（意见12 + 意见1 重构）：
  * - 触发：任务进入待拍板（approvalQueue 新增）/ 任务完成归档（tasks 中 column 变为 done）
- * - 队列依次显示，最多同时 3 条；45s 自动淡出，可手动 × 关闭
- * - 点击 Toast 跳转对应任务详情（openTask）
+ * - 不自动关闭（移除 45s 淡出）；手动 × 关闭，或点击主卡 / action 按钮跳转对应任务并关闭
+ * - Aceternity 风卡片：宽 280、padding/字号/图标等比微调；底部右侧 action 按钮
+ *   （待拍板「去处理」紫 primary / 任务完成「查看」绿）
+ * - 常驻上限约 5 条：容器 max-height + overflow-y-auto，超出滚动，按时间顺序排列
  */
 
 export interface ToastItem {
@@ -17,15 +19,17 @@ export interface ToastItem {
   stage: string;
 }
 
-const MAX_VISIBLE = 3;
-const AUTO_DISMISS_MS = 45_000;
-const FADE_MS = 220;
+const FADE_MS = 220; // 手动关闭淡出时长
+const TOAST_W = 280; // 单卡宽度（缩窄 50%，原 560）
+const TOAST_H = 140; // 单卡估算高度（含 padding + 按钮行），用于容器 max-height
+const TOAST_GAP = 8; // 卡片间距
+const MAX_VISIBLE = 5; // 常驻上限（容器高度近似 5 条）
 
 function stageText(stage: string): string {
   return WORKFLOW_STAGE_LABELS[stage] ?? stage;
 }
 
-/** 单条 Toast 卡片：进入动画 + 45s 自动淡出 + 手动关闭 + 点击跳转 */
+/** 单条 Toast 卡片：进入动画 + 手动 × 淡出关闭 + 主卡/action 按钮点击跳转 */
 function ToastCard({
   item,
   onDismiss,
@@ -37,13 +41,7 @@ function ToastCard({
 }) {
   const [leaving, setLeaving] = useState(false);
 
-  // 45s 后进入淡出
-  useEffect(() => {
-    const t = setTimeout(() => setLeaving(true), AUTO_DISMISS_MS);
-    return () => clearTimeout(t);
-  }, []);
-
-  // 淡出动画结束后真正移除
+  // 手动关闭：淡出动画结束后真正移除（不自动关闭，无定时器）
   useEffect(() => {
     if (!leaving) return;
     const t = setTimeout(() => onDismiss(item.id), FADE_MS);
@@ -51,37 +49,35 @@ function ToastCard({
   }, [leaving, item.id, onDismiss]);
 
   const isApproval = item.kind === 'approval';
+  const accent = isApproval ? 'var(--color-signal)' : 'var(--color-ok)';
 
   return (
     <div
       role="status"
-      className={`qs-toast qs-clickable ${leaving ? 'leaving' : ''}`}
-      style={{ width: 300 }}
+      className={`qs-toast qs-clickable shrink-0 ${leaving ? 'leaving' : ''}`}
+      style={{ width: TOAST_W }}
       title={`点击跳转任务 #${item.taskId}`}
       onClick={() => onOpen(item)}
     >
-      <div className="flex items-start gap-2 px-3 py-2.5">
-        <span
-          aria-hidden="true"
-          className="mt-[3px] shrink-0 text-[12px] leading-none"
-          style={{ color: isApproval ? 'var(--color-signal)' : 'var(--color-ok)' }}
-        >
+      {/* 主体：图标 + 标题 / 正文 / 阶段 */}
+      <div className="flex items-start gap-2 px-4 pt-4 pb-2.5">
+        <span aria-hidden="true" className="mt-1 shrink-0 text-[13px] leading-none" style={{ color: accent }}>
           {isApproval ? '●' : '✓'}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-bold leading-tight" style={{ color: isApproval ? 'var(--color-signal-strong)' : 'var(--color-ok)' }}>
+          <div className="text-[13px] font-bold leading-tight" style={{ color: isApproval ? 'var(--color-signal-strong)' : 'var(--color-ok)' }}>
             {isApproval ? '待你拍板' : '任务完成'}
           </div>
-          <div className="qs-meta mt-1 truncate leading-snug" style={{ color: 'var(--color-ink-soft)' }}>
+          <div className="qs-meta mt-1.5 truncate text-[12px] leading-snug" style={{ color: 'var(--color-ink-soft)' }}>
             #{item.taskId} {item.title}
           </div>
-          <div className="qs-meta mt-0.5 leading-snug" style={{ color: 'var(--color-ink-faint)' }}>
+          <div className="qs-meta mt-0.5 text-[12px] leading-snug" style={{ color: 'var(--color-ink-faint)' }}>
             {stageText(item.stage)}
           </div>
         </div>
         <button
           type="button"
-          className="qs-clickable shrink-0 px-0.5 py-0 text-[13px] leading-none opacity-50 transition-opacity hover:opacity-100"
+          className="qs-clickable shrink-0 px-1 py-0 text-[15px] leading-none opacity-50 transition-opacity hover:opacity-100"
           style={{ color: 'var(--color-ink-soft)' }}
           title="关闭"
           aria-label="关闭通知"
@@ -91,6 +87,20 @@ function ToastCard({
           }}
         >
           ×
+        </button>
+      </div>
+      {/* Aceternity 风 action 按钮行：底部分隔线 + 右侧按钮（点击 = 跳转 + 关闭该条） */}
+      <div className="flex justify-end border-t px-4 py-2.5" style={{ borderColor: 'var(--color-line)' }}>
+        <button
+          type="button"
+          className="qs-clickable shrink-0 rounded-[4px] px-4 py-2 text-[12px] font-semibold leading-none transition hover:brightness-95 active:translate-y-px"
+          style={{ background: accent, color: '#fff' }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(item);
+          }}
+        >
+          {isApproval ? '去处理' : '查看'}
         </button>
       </div>
     </div>
@@ -104,6 +114,7 @@ export function ToastHost() {
   const seenApproval = useRef<Set<string>>(new Set());
   const seenDone = useRef<Set<number>>(new Set());
   const tasksRef = useRef<TaskWithMeta[] | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const dismiss = useCallback((id: string) => {
     setQueue((prev) => prev.filter((x) => x.id !== id));
@@ -140,7 +151,12 @@ export function ToastHost() {
     }
   }, [tasks, enqueue]);
 
-  // 点击 Toast：跳转任务详情并关闭该条
+  // 超出滚动：新条目追加到底部时自动滚到底部，保证最新通知可见
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [queue.length]);
+
+  // 点击 Toast / action 按钮：跳转任务详情并关闭该条
   const open = useCallback(
     (item: ToastItem) => {
       openTask(item.taskId);
@@ -152,8 +168,13 @@ export function ToastHost() {
   if (queue.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[70] flex flex-col items-end gap-2" aria-live="polite">
-      {queue.slice(0, MAX_VISIBLE).map((it) => (
+    <div
+      ref={scrollRef}
+      className="fixed bottom-4 right-4 z-[70] flex flex-col items-end gap-2 overflow-y-auto pr-1"
+      style={{ maxHeight: MAX_VISIBLE * TOAST_H + (MAX_VISIBLE - 1) * TOAST_GAP }}
+      aria-live="polite"
+    >
+      {queue.map((it) => (
         <ToastCard key={it.id} item={it} onDismiss={dismiss} onOpen={open} />
       ))}
     </div>

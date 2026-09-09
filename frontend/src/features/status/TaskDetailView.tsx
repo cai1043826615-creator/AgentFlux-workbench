@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type TaskEvent, type TaskEventType } from '@workbench/shared';
+import { APPROVAL_POINT_STAGES, STAGE_OWNER_ROLE, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Agent, type TaskEvent, type TaskEventType } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
-import { Spinner } from '../../components/ui.tsx';
+import { Avatar, Spinner } from '../../components/ui.tsx';
 import { parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 
@@ -175,13 +175,23 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
   );
 }
 
+/** 阶段负责角色 → Agent 名（意见3：requirement/copy→美美、main-image/detail-image→平平、review/deliver→波波；与工位/播报映射一致） */
+const ROLE_TO_AGENT_NAME: Record<string, string> = {
+  文案: '美美',
+  设计师: '平平',
+  主管: '波波',
+};
+
 /**
  * 6 阶段条（意见5 重构：横向等分 + 圆形指示器 + 弹簧进度线 + 数字→✓ 形态 + 拍板标记）
- * 颜色语义：完成=绿✓ / 当前=黑底白字 / 未到=灰；标签同色；进度线已完成段填充绿（300ms 过渡）
- * 动效遵循 QS：节点 220ms（--dur-standard）、进度线 300ms（--dur-deliberate）；
+ * 意见3：指示器圆内显示负责 Agent 头像（按名从 agents 查；查不到回退数字/✓）
+ * 意见4：仅「已流转到」的阶段（已完成/当前）显示头像；未到阶段不显示头像，回退为灰描边圆内数字序号
+ * 状态语义：完成=绿底+右上对勾角标 / 当前=黑底+紫描边 / 未到=灰描边数字；标签同色
+ * 拍板点保留右下紫「拍板」角标（引用 APPROVAL_POINT_STAGES，detail-image 加入后自动生效）
+ * 进度线已完成段填充绿（300ms 过渡）；动效遵循 QS（--dur-standard / --dur-deliberate），
  * reduced-motion 由 index.css 全局规则自动关闭，无需组件内判断。
  */
-function StageStepper({ task }: { task: TaskWithMeta }) {
+function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] }) {
   const done = task.column === 'done';
   const curIdx = WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]);
   const count = WORKFLOW_STAGE_KEYS.length;
@@ -193,9 +203,12 @@ function StageStepper({ task }: { task: TaskWithMeta }) {
           const isApproval = (APPROVAL_POINT_STAGES as string[]).includes(k);
           // 本节点已完成 → 它向右的进度线填充（弹簧：宽度 0→100%，300ms）
           const filled = done || i < curIdx;
+          // 负责 Agent（意见3）：角色 → 名 → agents 按名查头像；查不到回退数字/✓
+          const ownerName = ROLE_TO_AGENT_NAME[STAGE_OWNER_ROLE[k] ?? ''];
+          const owner = ownerName ? agents.find((a) => a.name === ownerName) : undefined;
           return (
             <div key={k} className="flex min-w-0 flex-1 items-start">
-              {/* 节点主体：圆形指示器 + 下方标签 */}
+              {/* 节点主体：圆形指示器（内嵌负责 Agent 头像）+ 下方标签 */}
               <div className="flex flex-col items-center gap-1.5">
                 <div className="relative">
                   <div
@@ -205,12 +218,28 @@ function StageStepper({ task }: { task: TaskWithMeta }) {
                       background: state === 'done' ? 'var(--color-ok)' : state === 'current' ? 'var(--color-ink)' : 'var(--color-surface)',
                       border: `1px solid ${state === 'todo' ? 'var(--color-line-strong)' : 'transparent'}`,
                       color: state === 'done' || state === 'current' ? '#fff' : 'var(--color-ink-faint)',
+                      boxShadow: state === 'current' ? '0 0 0 2px var(--color-signal)' : undefined,
                       transition:
-                        'background var(--dur-standard) var(--ease-standard), color var(--dur-standard) var(--ease-standard), border-color var(--dur-standard) var(--ease-standard)',
+                        'background var(--dur-standard) var(--ease-standard), color var(--dur-standard) var(--ease-standard), border-color var(--dur-standard) var(--ease-standard), box-shadow var(--dur-standard) var(--ease-standard)',
                     }}
                   >
-                    {state === 'done' ? '✓' : i + 1}
+                    {state !== 'todo' && owner ? (
+                      <Avatar name={owner.name} id={owner.id} size={24} />
+                    ) : state === 'done' ? (
+                      '✓'
+                    ) : (
+                      i + 1
+                    )}
                   </div>
+                  {/* 完成对勾角标（右上；与右下拍板角标并存不冲突） */}
+                  {state === 'done' ? (
+                    <span
+                      className="absolute -top-0.5 -right-0.5 flex h-[14px] w-[14px] items-center justify-center rounded-full text-[9px] font-bold"
+                      style={{ background: '#fff', color: 'var(--color-ok)', boxShadow: '0 0 0 2px var(--color-surface)' }}
+                    >
+                      ✓
+                    </span>
+                  ) : null}
                   {isApproval ? (
                     <span
                       className="absolute -bottom-1 -right-2 flex h-[15px] items-center rounded-[3px] px-1 text-[9px] font-bold text-white"
@@ -264,7 +293,7 @@ export function TaskDetailView({
   onBack: () => void;
   onNotFound: () => void;
 }) {
-  const { tasks, eventsByTask, deliverablesByTask, openTask, taskTab, setTaskTab } = useWorkbench();
+  const { tasks, agents, eventsByTask, deliverablesByTask, openTask, taskTab, setTaskTab } = useWorkbench();
 
   // 新打开任务时默认落在「内容交付」tab（意见11；key=taskId 重挂载时执行一次；用户可手动切「任务详情」）
   const firstTabRef = useRef(true);
@@ -315,16 +344,20 @@ export function TaskDetailView({
         <span style={{ color: 'var(--color-ink)' }}>任务 #{task.id}</span>
       </nav>
 
-      {/* task-head（对齐线框 th-1/2/3，QS 编辑性大标题；意见11：标题行右侧显眼返回按钮，无 emoji） */}
+      {/* task-head（对齐线框 th-1/2/3，QS 编辑性大标题；意见11：返回按钮与标题垂直居中、加大尺寸并带边框强调，无 emoji） */}
       <div>
         <div className="qs-meta mb-1" style={{ color: 'var(--color-ink-faint)' }}>
           #{task.id} {task.title} · 电商新品上架 · 由你创建
         </div>
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <h2 className="font-display min-w-0 flex-1 text-[24px] font-bold leading-[1.15] md:text-[28px]" style={{ fontFamily: 'var(--font-display)' }}>
             {task.title}
           </h2>
-          <button type="button" className="qs-btn sm shrink-0" onClick={onBack}>
+          <button
+            type="button"
+            className="shrink-0 cursor-pointer rounded-[6px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-line-strong)]"
+            onClick={onBack}
+          >
             ← 返回任务看板
           </button>
         </div>
@@ -333,9 +366,9 @@ export function TaskDetailView({
         </div>
       </div>
 
-      {/* stages（意见11：6 节点 + 拍板标记 + 箭头） */}
+      {/* stages（意见11：6 节点 + 拍板标记 + 箭头；意见3：节点内嵌负责 Agent 头像） */}
       <div className="qs-card p-3">
-        <StageStepper task={task} />
+        <StageStepper task={task} agents={agents} />
       </div>
 
       {/* tabs（对齐线框 tabs；QS 焦点信号；意见12：内容交付在前，去掉「· 审批」） */}

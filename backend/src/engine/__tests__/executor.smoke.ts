@@ -76,7 +76,7 @@ test('打回沿 rejected 边返工再入待确认（deliverables 重置 pending�
   assert.ok(service.listEvents(rejected.id).some((e) => e.type === 'REJECTED'));
 });
 
-test('逐张图片采纳联动：全采纳后自动推进（详情图→校对→交付→归档）', async () => {
+test('逐张图片采纳联动：主图全采纳后进入详情图拍板点待拍板', async () => {
   const t = service.createTask({ title: '图片决策测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   const approvedCopy = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
@@ -87,10 +87,9 @@ test('逐张图片采纳联动：全采纳后自动推进（详情图→校对�
   for (const img of list) {
     cur = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
   }
-  // 自动推进（review 自动放行）：不再待确认，且已离开主图拍板点
-  assert.notEqual(cur.column, 'awaiting');
-  assert.notEqual(cur.stage, STAGE_MAIN_IMAGE);
-  assert.ok([STAGE_DETAIL_IMAGE, STAGE_REVIEW, STAGE_DELIVER].includes(cur.stage) || cur.column === 'done');
+  // 意见7：主图全采纳 → 详情图拍板点待拍板（不再自动推进）
+  assert.equal(cur.column, 'awaiting');
+  assert.equal(cur.stage, STAGE_DETAIL_IMAGE);
 });
 
 test('逐张图片打回联动：任一打回 → 返工重产出', async () => {
@@ -120,7 +119,15 @@ test('主管校对发现问题自动沿 rollback 边回退已完成→进行中'
     for (const img of list) {
       task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
     }
-    // 主图全采纳后进入校对 → 发现问题 → 回退主图返工重产出 → 重新待拍板
+    // 意见7：主图全采纳 → 详情图拍板点待拍板
+    assert.equal(task.column, 'awaiting');
+    assert.equal(task.stage, STAGE_DETAIL_IMAGE);
+    // 详情图全采纳 → 进入校对 → 发现问题 → 回退主图返工重产出 → 重新待拍板
+    const detail = getDeliverable(task.id, 'detail-image', 'image')!;
+    const dlist = JSON.parse(detail.content) as { id: string }[];
+    for (const img of dlist) {
+      task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
+    }
     assert.equal(task.column, 'awaiting');
     assert.equal(task.stage, STAGE_MAIN_IMAGE);
     const events = service.listEvents(task.id);
@@ -144,7 +151,15 @@ test('全链路：6 阶段自动走完并归档', async () => {
   for (const img of list) {
     task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
   }
-  // 主图全采纳后自动跑完详情图→校对→交付→归档
+  // 主图全采纳 → 详情图拍板点待拍板
+  assert.equal(task.column, 'awaiting');
+  assert.equal(task.stage, STAGE_DETAIL_IMAGE);
+  // 详情图全采纳 → 校对自动放行 → 交付归档
+  const detail = getDeliverable(task.id, 'detail-image', 'image')!;
+  const dlist = JSON.parse(detail.content) as { id: string }[];
+  for (const img of dlist) {
+    task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
+  }
   assert.equal(task.column, 'done');
   assert.equal(task.stage, STAGE_DELIVER);
   assert.equal(task.progress, 100);

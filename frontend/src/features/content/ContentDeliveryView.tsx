@@ -48,12 +48,12 @@ function copyBlockState(task: Task | null, copyDel: Deliverable | undefined): Bl
 
 function imgBlockState(task: Task | null): BlockState {
   if (!task) return 'none';
-  if (task.stage === 'main-image') {
+  if (task.stage === 'main-image' || task.stage === 'detail-image') {
     if (task.column === 'awaiting') return 'pending';
     if (task.column === 'progress') return 'working';
     return 'none';
   }
-  if (stageIndex(task.stage) > stageIndex('main-image')) return 'done'; // 拍板点2 已过 → 主图必已采纳
+  if (stageIndex(task.stage) > stageIndex('detail-image')) return 'done'; // 详情图拍板已过 → 主图与详情图必已采纳
   return 'none';
 }
 
@@ -127,6 +127,29 @@ function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () =
   );
 }
 
+/** 参考图缩略（任务信息条）：加载失败显示灰底「图片失效」占位，不破版；key=src 保证换图后失败状态复位 */
+function RefThumb({ src, name, onZoom }: { src: string; name: string; onZoom: () => void }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="qs-meta flex h-14 w-14 shrink-0 items-center justify-center border" style={{ borderColor: 'var(--color-line-strong)' }}>
+        图片失效
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="h-14 w-14 shrink-0 overflow-hidden border transition-colors hover:border-[var(--color-signal)]"
+      style={{ borderColor: 'var(--color-line-strong)', cursor: 'pointer' }}
+      title="点击放大参考图"
+      onClick={onZoom}
+    >
+      <img src={src} alt={name} onLoad={() => setFailed(false)} onError={() => setFailed(true)} className="h-full w-full object-cover" />
+    </button>
+  );
+}
+
 export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const { tasks, deliverablesByTask, openTask, decide, review } = useWorkbench();
   const [imageTab, setImageTab] = useState<'main' | 'detail'>('main');
@@ -158,6 +181,13 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const detailImages = useMemo(() => imagesForStage(deliverables, 'detail-image'), [deliverables]);
   const imgState = imgBlockState(task);
 
+  /** 无用户上传参考图时，参考图位回退显示 AI 生成主图：main-image 阶段第一张已生成(pending)/已采纳(approved) 的图片（failed 的 url 为空自动排除；mock svg 占位保留，与图片卡既有展示一致） */
+  const refFallbackImg = useMemo<ParsedImg | null>(() => {
+    if (task?.referenceImage) return null;
+    return mainImages.find((img) => (img.status === 'pending' || img.status === 'approved') && !!img.url) ?? null;
+  }, [task?.referenceImage, mainImages]);
+  const refSrc = task?.referenceImage ?? refFallbackImg?.url ?? null;
+
   const reviewDeliverables = useMemo(() => deliverables.filter((d) => d.stage === 'review' && d.kind === 'copy'), [deliverables]);
   const reviewOutline = parseCopy(reviewDeliverables[reviewDeliverables.length - 1])?.outline;
 
@@ -188,7 +218,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   };
 
   /* ---------- 审批条（对齐线框 approve-box；QS 焦点信号） ----------
-     审批重构：卡片内「采纳」点击即推进；审批条仅保留说明 + 打回意见输入 + 打回按钮，不再重复「采纳并推进」 */
+     审批重构：卡片内「采纳」点击即推进；审批条仅保留说明，打回在卡片内填写打回原因，不再重复「采纳并推进」 */
   const approveBox =
     task && task.column === 'awaiting' ? (
       <div className="rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
@@ -197,22 +227,9 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
         </div>
         <div className="mb-2 text-[13px]" style={{ color: 'var(--color-ink-soft)' }}>
           {task.stage === 'copy'
-            ? `采纳按钮在下方文案卡内，点击即推进下一阶段；打回需填写修改意见，将发给 ${task.ownerName || '文案 Agent'} 重新输出。`
+            ? `采纳按钮在下方文案卡内，点击即推进下一阶段；打回需在卡片内填写打回原因，将发给 ${task.ownerName || '文案 Agent'} 重新输出。`
             : '采纳按钮在下方图片卡内逐张点击，全部采纳后自动推进；打回需在对应图片卡内操作。'}
         </div>
-        {task.stage === 'copy' ? (
-          <div className="flex items-center gap-2">
-            <input
-              className="qs-input flex-1"
-              placeholder="修改意见（打回时填写）…"
-              value={copyNote}
-              onChange={(e) => setCopyNote(e.target.value)}
-            />
-            <Btn variant="danger" onClick={() => void doDecide('copy', 'reject', undefined, copyNote || '请按修改意见调整')}>
-              打回并发送意见
-            </Btn>
-          </div>
-        ) : null}
       </div>
     ) : null;
 
@@ -298,7 +315,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
               <div className="mt-2 space-y-2">
                 <input
                   className="qs-input"
-                  placeholder="修改意见（将发给文案 Agent 重新输出）…"
+                  placeholder="打回原因（将发给文案 Agent 重新输出）…"
                   value={copyNote}
                   onChange={(e) => setCopyNote(e.target.value)}
                 />
@@ -403,12 +420,13 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     if (imgState === 'working') {
       return (
         <div className="py-6 text-center">
-          <Spinner label="设计师正在生成主图…" />
+          <Spinner label={task?.stage === 'detail-image' ? '设计师正在生成详情图…' : '设计师正在生成主图…'} />
           <div className="qs-meta mt-2">生成完成后将在此展示，供你逐张拍板</div>
         </div>
       );
     }
-    const canDecide = imgState === 'pending' && task?.stage === 'main-image';
+    // 图片拍板点：main-image 与 detail-image 均为拍板点（详情图审批，意见7）；awaiting 待拍板时图卡可采纳/打回
+    const canDecide = imgState === 'pending' && (task?.stage === 'main-image' || task?.stage === 'detail-image');
     return (
       <>
         <div className="mb-3 flex items-center gap-1 border-b" style={{ borderColor: 'var(--color-line)' }}>
@@ -435,7 +453,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             </button>
           ))}
         </div>
-        {imageTab === 'main' ? renderGrid(mainImages, canDecide) : renderGrid(detailImages, false)}
+        {imageTab === 'main' ? renderGrid(mainImages, canDecide) : renderGrid(detailImages, canDecide)}
       </>
     );
   })();
@@ -503,29 +521,40 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     <div className="space-y-4">
       {task ? (
         <>
-          {/* 任务信息条：参考图（可点击放大）+ 目标平台（platforms 多选；兼容单数 platform） */}
+          {/* 任务信息条：参考图（可点击放大）+ 目标平台（platforms 多选；兼容单数 platform）
+              参考图优先级：用户上传图 → AI 生成主图（main-image 第一张已生成/已采纳）→ 暂无参考图空态；加载失败灰底「图片失效」 */}
           <div className="flex items-center gap-3 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
-            {task.referenceImage ? (
-              <button
-                type="button"
-                className="h-14 w-14 shrink-0 overflow-hidden border transition-colors hover:border-[var(--color-signal)]"
-                style={{ borderColor: 'var(--color-line-strong)', cursor: 'pointer' }}
-                title="点击放大参考图"
-                onClick={() => setPreview({ url: task.referenceImage as string, name: '参考图', status: 'ref' })}
-              >
-                <img src={task.referenceImage} alt="参考图" className="h-full w-full object-cover" />
-              </button>
-            ) : (
-              <span className="qs-meta flex h-14 w-14 shrink-0 items-center justify-center border" style={{ borderColor: 'var(--color-line-strong)' }}>
-                无参考图
-              </span>
-            )}
+            <div className="flex shrink-0 flex-col items-center gap-1">
+              {refSrc ? (
+                <RefThumb
+                  key={refSrc}
+                  src={refSrc}
+                  name={task.referenceImage ? '参考图' : refFallbackImg?.name ?? '参考图'}
+                  onZoom={() =>
+                    setPreview({
+                      url: refSrc,
+                      name: task.referenceImage ? '参考图' : refFallbackImg?.name ?? '参考图',
+                      status: task.referenceImage ? 'ref' : refFallbackImg?.status ?? 'ref',
+                    })
+                  }
+                />
+              ) : (
+                <span className="qs-meta flex h-14 w-14 shrink-0 items-center justify-center border" style={{ borderColor: 'var(--color-line-strong)' }}>
+                  暂无参考图
+                </span>
+              )}
+              {!task.referenceImage && refFallbackImg ? <span className="qs-meta text-[10px] leading-none">AI 生成主图</span> : null}
+            </div>
             <div className="min-w-0">
               <div className="text-[12px] font-medium">
                 目标平台 · {task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
               </div>
               <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
-                {task.referenceImage ? 'AI 产出将基于参考图生成' : '未提供参考图，产出由 Agent 按产品资料生成'}
+                {task.referenceImage
+                  ? 'AI 产出将基于参考图生成'
+                  : refFallbackImg
+                    ? '未提供参考图，产出由 Agent 按产品资料生成'
+                    : '暂无参考图 · 产出由 Agent 生成'}
               </div>
             </div>
           </div>

@@ -340,3 +340,42 @@ body {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* ===== 栏宽拖拽手柄（意见4：分隔线 hover col-resize，拖拽改宽） ===== */
+.qs-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 10;
+  cursor: col-resize;
+  touch-action: none;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.qs-resize-handle:hover,
+.qs-resize-handle:active {
+  background: var(--color-signal-soft);
+}
+
+/* ===== 折叠态图标列（意见4：左栏折叠图标，保持工作流/通用分组） ===== */
+.qs-rail-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+.qs-rail-icon:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-ink);
+}
+.qs-rail-icon.active {
+  background: var(--color-signal-soft);
+  color: var(--color-signal-strong);
+}

@@ -1,5 +1,5 @@
 import type { BoardColumn } from '@workbench/shared';
-import { WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
+import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
 
@@ -12,7 +12,9 @@ const COLUMNS: { key: BoardColumn; label: string }[] = [
 ];
 
 function stageText(task: TaskWithMeta): string {
-  return task.stageLabel || WORKFLOW_STAGE_LABELS[task.stage] || task.stage;
+  // 中文映射优先：WS 推送路径可能把 stageLabel 覆盖为英文 stage key（如 detail-image），
+  // 故仅当 WORKFLOW_STAGE_LABELS 无映射时才兜底 stageLabel / stage
+  return WORKFLOW_STAGE_LABELS[task.stage] || task.stageLabel || task.stage;
 }
 
 /** 阶段序号（0 基），供 flowbar 用 */
@@ -63,22 +65,31 @@ function TaskCard({
 
       <Tag task={task} />
 
-      {/* 6 段 flowbar（对齐线框 flowbar；意见5 视觉降级版，颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰） */}
+      {/* 6 段 flowbar（对齐线框 flowbar；意见5 视觉降级版，颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰；
+          拍板点（APPROVAL_POINT_STAGES，含 detail-image）仅在 hover title 标注「拍板点」，不再渲染微标 */}
       <div className="mt-2 flex gap-[3px]">
-        {WORKFLOW_STAGE_KEYS.map((k, i) => (
-          <span
-            key={k}
-            className="h-[3px] flex-1 rounded-full"
-            style={{
-              background:
-                i < stageIdxOf(task) || task.column === 'done'
-                  ? 'var(--color-ok)'
-                  : i === stageIdxOf(task)
-                    ? 'var(--color-ink)'
-                    : 'var(--color-line)',
-            }}
-          />
-        ))}
+        {WORKFLOW_STAGE_KEYS.map((k, i) => {
+          const isApproval = (APPROVAL_POINT_STAGES as string[]).includes(k);
+          return (
+            <div
+              key={k}
+              className="flex min-w-0 flex-1 flex-col items-center"
+              title={isApproval ? `${WORKFLOW_STAGE_LABELS[k]} · 拍板点` : WORKFLOW_STAGE_LABELS[k]}
+            >
+              <span
+                className="block h-[3px] w-full rounded-full"
+                style={{
+                  background:
+                    i < stageIdxOf(task) || task.column === 'done'
+                      ? 'var(--color-ok)'
+                      : i === stageIdxOf(task)
+                        ? 'var(--color-ink)'
+                        : 'var(--color-line)',
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
 
       {/* 负责人 */}
@@ -100,12 +111,6 @@ function TaskCard({
           <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
             <span className="qs-dot signal busy" />
             {stageText(task)} 推进中
-          </span>
-        ) : null}
-        {task.column === 'awaiting' ? (
-          <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-warn)' }}>
-            <span className="qs-dot signal" />
-            审批已并入「内容交付」页
           </span>
         ) : null}
         {task.column === 'done' ? (

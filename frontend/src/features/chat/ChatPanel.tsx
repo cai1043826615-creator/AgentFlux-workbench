@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { AgentOnlineStatus, Message } from '@workbench/shared';
-import { WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { Avatar } from '../../components/ui.tsx';
+
+/** 工作群头像命名规则（群头像统一放 frontend/public/groups/，直接引用路径、不落盘生成）：
+ *  当前电商新品上架工作流 → 电商工作群 ecom.png（紫色购物袋）
+ *  直播带货 → live.png（橙紫摄像机，暂未生成时回退 general.png 兜底）
+ *  跨境选品 → cross.png（蓝绿地球包裹） · 其他 → general.png（彩色对话气泡）
+ *  群头像使用：<img src="/groups/ecom.png" className="h-10 w-10 rounded-full object-cover" alt="电商工作群" />
+ */
 
 /** 工位状态 → 文案 + 状态点 tone（未连接API = 红色 no，忙碌 = 紫脉冲 busy） */
 const STATUS_META: Record<AgentOnlineStatus, { label: string; dot: string; color: string }> = {
@@ -41,18 +47,18 @@ function ChatHeader() {
         <button
           type="button"
           className="flex shrink-0 flex-col items-center gap-1"
-          title="工作群 · 事件与协作播报汇集于此"
+          title="电商工作群 · 事件与协作播报汇集于此"
           style={{ cursor: 'pointer' }}
           onClick={() => selectChat({ kind: 'group', to: '全体' })}
         >
           <span
-            className="flex h-10 w-10 items-center justify-center rounded-full font-display text-[15px] font-bold text-white transition-colors"
-            style={{ background: isGroup ? 'var(--color-signal)' : 'var(--color-ink)', outline: isGroup ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2 }}
+            className="block h-10 w-10 overflow-hidden rounded-full transition-colors"
+            style={{ outline: isGroup ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2 }}
           >
-            群
+            <img src="/groups/ecom.png" alt="电商工作群" className="h-full w-full object-cover" />
           </span>
           <span className="qs-meta text-[10px]" style={{ color: isGroup ? 'var(--color-ink)' : 'var(--color-ink-faint)' }}>
-            工作群
+            电商工作群
           </span>
         </button>
         {agents.map((a) => {
@@ -85,48 +91,46 @@ function ChatHeader() {
             ) : null}
           </>
         ) : (
-          <>
-            <span className="text-[12px] font-medium">工作群</span>
-            <span className="qs-meta truncate" style={{ color: 'var(--color-ink-faint)' }}>全体 Agent 协作 · 事件与回执在此汇集</span>
-          </>
+          <span className="text-[12px] font-medium">电商工作群</span>
         )}
       </div>
     </div>
   );
 }
 
-/** 待拍板提醒条（原参考图黄铃铛 → 文字 + ● 符号；点击跳转任务） */
-function ApprovalReminder() {
-  const { approvalQueue, openTask } = useWorkbench();
-  if (approvalQueue.length === 0) return null;
-  return (
-    <div className="mx-3 mt-2.5 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-warn)', background: 'var(--color-warn-soft)' }}>
-      <div className="flex items-center gap-1.5 text-[12px] font-bold" style={{ color: 'var(--color-warn)' }}>
-        <span aria-hidden="true">●</span>
-        待拍板提醒
-      </div>
-      <div className="mt-1 space-y-0.5">
-        {approvalQueue.map((x) => (
-          <button
-            key={x.taskId}
-            type="button"
-            className="block w-full text-left text-[12px] leading-snug transition-colors hover:underline"
-            style={{ color: 'var(--color-ink-soft)', cursor: 'pointer' }}
-            onClick={() => openTask(x.taskId)}
-          >
-            #{x.taskId} · {WORKFLOW_STAGE_LABELS[x.stage] ?? x.stage} 进入待确认 → 点击跳转
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+/** 聊天侧栏：电商工作群 / 私聊（含 Agent 事件播报 + receipt 回执）
+ *  事件筛选：全部 / 消息 / 事件（本地过滤渲染，不改数据源）；
+ *  「全部」下事件默认折叠为一行「n 条系统事件 ▾」，点击展开/收起 */
+type EventFilter = 'all' | 'msg' | 'evt';
+const EVENT_FILTERS: { key: EventFilter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'msg', label: '消息' },
+  { key: 'evt', label: '事件' },
+];
 
-/** 聊天侧栏：工作群 / 私聊（含 Agent 事件播报 + receipt 回执） */
 export function ChatPanel() {
   const { agents, messages, chatTarget, sendChat, connected, openTask } = useWorkbench();
   const [draft, setDraft] = useState('');
+  const [showEvents, setShowEvents] = useState(false); // 「全部」下事件折叠态（默认收起）
+  const [filter, setFilter] = useState<EventFilter>('all'); // 筛选：默认「全部」
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 事件消息（kind==='evt'）数量与首个位置：折叠行显示在首个 evt 原位
+  const evtCount = messages.filter((m) => m.kind === 'evt').length;
+  const firstEvtIndex = messages.findIndex((m) => m.kind === 'evt');
+
+  /** evt 行渲染（── body ── 分隔行；带 taskId 时可点击跳任务详情） */
+  const renderEvt = (m: Message) => (
+    <div key={m.id} className="qs-meta px-2 py-1 text-center" style={{ color: 'var(--color-ink-faint)' }}>
+      {m.taskId ? (
+        <button type="button" className="transition-colors hover:underline" style={{ color: 'inherit', cursor: 'pointer' }} onClick={() => openTask(m.taskId as number)}>
+          ── {m.body} ──
+        </button>
+      ) : (
+        <span>── {m.body} ──</span>
+      )}
+    </div>
+  );
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -141,58 +145,95 @@ export function ChatPanel() {
   return (
     <div className="flex h-full flex-col">
       <ChatHeader />
-      <ApprovalReminder />
 
       {/* 消息流 */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
         {messages.length === 0 ? (
           <div className="qs-meta text-center py-8" style={{ color: 'var(--color-ink-faint)' }}>
-            {chatTarget.kind === 'group' ? '工作群 · 事件与协作播报汇集于此' : `与 ${agents.find((a) => a.id === chatTarget.to)?.name ?? chatTarget.to} 的私聊`}
+            {chatTarget.kind === 'group' ? '电商工作群 · 事件与协作播报汇集于此' : `与 ${agents.find((a) => a.id === chatTarget.to)?.name ?? chatTarget.to} 的私聊`}
           </div>
         ) : (
-          messages.map((m) => {
-            if (m.kind === 'receipt') return <ReceiptLine key={m.id} m={m} />;
-            if (m.kind === 'evt') {
+          <>
+            {/* 事件筛选按钮组（本地过滤渲染） */}
+            <div className="flex items-center gap-1 pb-1">
+              {EVENT_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  className="qs-meta rounded px-2 py-0.5 transition-colors"
+                  style={{
+                    cursor: 'pointer',
+                    color: filter === f.key ? 'var(--color-ink)' : 'var(--color-ink-faint)',
+                    background: filter === f.key ? 'var(--color-signal-soft)' : 'transparent',
+                  }}
+                  onClick={() => setFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            {messages.map((m, idx) => {
+              if (m.kind === 'receipt') {
+                // 回执属于非 evt 内容：「事件」筛选时隐藏
+                if (filter === 'evt') return null;
+                return <ReceiptLine key={m.id} m={m} />;
+              }
+              if (m.kind === 'evt') {
+                // 「消息」筛选：只显示非 evt，事件行全部隐藏
+                if (filter === 'msg') return null;
+                // 「事件」筛选：直接展开显示全部 evt 行
+                if (filter === 'evt') return renderEvt(m);
+                // 「全部」筛选：事件默认折叠为一行「n 条系统事件 ▾」，点击展开/收起
+                const isFirstEvt = idx === firstEvtIndex;
+                if (isFirstEvt) {
+                  return (
+                    <Fragment key={m.id}>
+                      <button
+                        type="button"
+                        className="qs-meta block w-full px-2 py-1 text-center transition-colors hover:opacity-70"
+                        style={{ color: 'var(--color-ink-faint)', cursor: 'pointer' }}
+                        onClick={() => setShowEvents((v) => !v)}
+                      >
+                        {evtCount} 条系统事件 {showEvents ? '▴' : '▾'}
+                      </button>
+                      {showEvents ? renderEvt(m) : null}
+                    </Fragment>
+                  );
+                }
+                // 非首个 evt：仅展开态下原位显示
+                return showEvents ? renderEvt(m) : null;
+              }
+              // 署名消息 / 用户消息：非 evt，「事件」筛选时隐藏
+              if (filter === 'evt') return null;
+              const isMe = m.from === '你';
+              const agent = agents.find((a) => a.name === m.from || a.id === m.from);
+              const time = new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+              if (isMe) {
+                // 右侧：用户消息 = 黑底白字气泡（无头像）
+                return (
+                  <div key={m.id} className="flex justify-end">
+                    <div className="max-w-[78%] rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'var(--color-ink)', color: '#fff', borderRadius: 4 }}>
+                      {m.body}
+                    </div>
+                  </div>
+                );
+              }
+              // 左侧：Agent 消息 = 圆头像 + 名字 + 时间 + 灰底气泡
               return (
-                <div key={m.id} className="qs-meta px-2 py-1 text-center" style={{ color: 'var(--color-ink-faint)' }}>
-                  {m.taskId ? (
-                    <button type="button" className="transition-colors hover:underline" style={{ color: 'inherit', cursor: 'pointer' }} onClick={() => openTask(m.taskId as number)}>
-                      ── {m.body} ──
-                    </button>
-                  ) : (
-                    <span>── {m.body} ──</span>
-                  )}
+                <div key={m.id} className="flex gap-2">
+                  <Avatar name={m.from} size={28} />
+                  <div className="max-w-[78%]">
+                    <div className="qs-meta mb-0.5" style={{ color: agent?.onlineStatus === 'online' ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}>
+                      {m.from} · {time}
+                    </div>
+                    <div className="rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'rgba(0,0,0,0.045)', color: 'var(--color-ink)', borderRadius: 4 }}>
+                      {m.body}
+                    </div>
+                  </div>
                 </div>
               );
-            }
-            const isMe = m.from === '你';
-            const agent = agents.find((a) => a.name === m.from || a.id === m.from);
-            const time = new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-            if (isMe) {
-              // 右侧：用户消息 = 黑底白字气泡（无头像）
-              return (
-                <div key={m.id} className="flex justify-end">
-                  <div className="max-w-[78%] rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'var(--color-ink)', color: '#fff', borderRadius: 4 }}>
-                    {m.body}
-                  </div>
-                </div>
-              );
-            }
-            // 左侧：Agent 消息 = 圆头像 + 名字 + 时间 + 灰底气泡
-            return (
-              <div key={m.id} className="flex gap-2">
-                <Avatar name={m.from} size={28} />
-                <div className="max-w-[78%]">
-                  <div className="qs-meta mb-0.5" style={{ color: agent?.onlineStatus === 'online' ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}>
-                    {m.from} · {time}
-                  </div>
-                  <div className="rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'rgba(0,0,0,0.045)', color: 'var(--color-ink)', borderRadius: 4 }}>
-                    {m.body}
-                  </div>
-                </div>
-              </div>
-            );
-          })
+            })}
+          </>
         )}
       </div>
 

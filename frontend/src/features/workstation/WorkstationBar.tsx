@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Agent } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
-import { Avatar } from '../../components/ui.tsx';
+import { Avatar, Badge } from '../../components/ui.tsx';
 import { AgentSettingsModal } from './AgentSettingsModal.tsx';
 
 /** 状态点：unconfigured=灰 / online·idle=绿 / busy=紫闪（意见5/19） */
@@ -57,7 +57,7 @@ export function WorkstationBar() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-[15px] font-semibold">{a.name}</span>
-                  <span className="qs-meta shrink-0 text-[13px]" style={{ color: 'var(--color-ink-faint)' }}>{a.role}</span>
+                  <Badge>{a.role}</Badge>
                 </div>
                 <div className="qs-meta truncate text-[13px]" style={{ color: 'var(--color-ink-faint)' }}>
                   {a.model ? `模型 ${a.model}` : '未配置模型'}

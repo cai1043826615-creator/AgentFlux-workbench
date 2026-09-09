@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useWorkbench } from '../store/useWorkbench.tsx';
 import { api } from '../lib/api.ts';
 import { Glyph } from '../components/ui.tsx';
+
+type OrchestrationMode = 'graph' | 'linear';
 
 /** 工作流菜单项（参考图2：图标+文字，选中浅紫圆角高亮；右侧任务总数） */
 function WorkflowItem({ active, count, onClick }: { active: boolean; count: number; onClick: () => void }) {
@@ -27,19 +29,27 @@ function PlaceholderItem({ label }: { label: string }) {
   );
 }
 
-/** 左侧栏（对齐线框 left）：工作流卡 + 通用（Agent 状态/设置） */
-export function LeftPanel({ onNew, onBack }: { onNew: () => void; onBack: () => void }) {
+/** 左侧栏（对齐线框 left）：工作流卡 + 通用（Agent 状态/设置）
+ *  openSettingsSignal：折叠态图标列触发的设置弹窗打开信号（>0 时打开，展示当前编排模式） */
+export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: () => void; onBack: () => void; openSettingsSignal?: number }) {
   const { settings, refresh, tasks, view, setView } = useWorkbench();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [mode, setMode] = useState('');
+  const [mode, setMode] = useState<OrchestrationMode>('graph');
 
-  const orchestrationMode = (settings.orchestrationMode as { mode?: string } | undefined)?.mode ?? 'graph';
+  const rawMode = (settings.orchestrationMode as { mode?: string } | undefined)?.mode;
+  const orchestrationMode: OrchestrationMode = rawMode === 'linear' ? 'linear' : 'graph';
   const workflowActive = view === 'board' || view === 'task';
 
   const openSettings = () => {
-    setMode(orchestrationMode === 'graph' ? 'linear' : 'graph');
+    setMode(orchestrationMode); // 意见6：打开时预置为当前模式（而非相反值）
     setSettingsOpen(true);
   };
+
+  // 折叠态图标列「设置」：信号变化 → 打开弹窗（此时左栏已同时展开）
+  useEffect(() => {
+    if (openSettingsSignal > 0) openSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSettingsSignal]);
 
   const saveSettings = async () => {
     try {
@@ -77,10 +87,47 @@ export function LeftPanel({ onNew, onBack }: { onNew: () => void; onBack: () => 
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 pt-[12vh]" onClick={() => setSettingsOpen(false)}>
           <div className="qs-card w-full p-5" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
             <div className="font-display mb-3 text-[15px] font-semibold">设置</div>
-            <p className="qs-meta mb-1" style={{ color: 'var(--color-ink-faint)' }}>编排模式</p>
-            <p className="mb-3 text-[13px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
-              {mode === 'graph' ? '图编排：拍板点等待人工确认，逐级推进' : '线性降级：拍板点自动通过，全自动跑完'}
-            </p>
+            <p className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>任务推进方式</p>
+            <div className="mb-4 space-y-2">
+              <label
+                className="flex cursor-pointer items-start gap-2 rounded-[4px] border px-3 py-2.5 transition-colors"
+                style={{
+                  borderColor: mode === 'graph' ? 'var(--color-signal)' : 'var(--color-line-strong)',
+                  background: mode === 'graph' ? 'var(--color-signal-soft)' : 'var(--color-surface)',
+                }}
+              >
+                <input
+                  type="radio"
+                  name="orchestration-mode"
+                  className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-signal)]"
+                  checked={mode === 'graph'}
+                  onChange={() => setMode('graph')}
+                />
+                <span className="text-[13px] leading-snug">
+                  <span className="block font-medium">手动确认</span>
+                  <span className="qs-meta block" style={{ color: 'var(--color-ink-faint)' }}>每个环节产出由你确认后再继续</span>
+                </span>
+              </label>
+              <label
+                className="flex cursor-pointer items-start gap-2 rounded-[4px] border px-3 py-2.5 transition-colors"
+                style={{
+                  borderColor: mode === 'linear' ? 'var(--color-signal)' : 'var(--color-line-strong)',
+                  background: mode === 'linear' ? 'var(--color-signal-soft)' : 'var(--color-surface)',
+                }}
+              >
+                <input
+                  type="radio"
+                  name="orchestration-mode"
+                  className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-signal)]"
+                  checked={mode === 'linear'}
+                  onChange={() => setMode('linear')}
+                />
+                <span className="text-[13px] leading-snug">
+                  <span className="block font-medium">全自动</span>
+                  <span className="qs-meta block" style={{ color: 'var(--color-ink-faint)' }}>所有环节自动推进，无需人工确认</span>
+                </span>
+              </label>
+            </div>
             <div className="flex justify-end gap-2">
               <button type="button" className="qs-btn sm" onClick={() => setSettingsOpen(false)}>取消</button>
               <button type="button" className="qs-btn sm primary" onClick={saveSettings}>保存</button>

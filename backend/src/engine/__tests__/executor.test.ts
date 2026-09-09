@@ -16,7 +16,6 @@ const { getDeliverable } = await import('../../delivery/store.ts');
 const {
   STAGE_COPY,
   STAGE_MAIN_IMAGE,
-  STAGE_REVIEW,
   STAGE_DETAIL_IMAGE,
   STAGE_REQUIREMENT,
   STAGE_DELIVER,
@@ -84,7 +83,7 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     expect(events.some((e) => e.type === 'REJECTED')).toBe(true);
   });
 
-  it('逐张图片采纳联动：全采纳后推进到详情图/主管校对', async () => {
+  it('逐张图片采纳联动：主图全采纳后进入详情图拍板点待拍板', async () => {
     const t = service.createTask({ title: '图片决策测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     const approvedCopy = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
@@ -95,8 +94,9 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     for (const img of list) {
       cur = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
     }
-    expect([STAGE_DETAIL_IMAGE, STAGE_REVIEW]).toContain(cur.stage);
-    expect(cur.column).not.toBe('awaiting');
+    // 意见7：主图全采纳 → 详情图拍板点待拍板（不再自动推进）
+    expect(cur.stage).toBe(STAGE_DETAIL_IMAGE);
+    expect(cur.column).toBe('awaiting');
   });
 
   it('逐张图片打回联动：任一打回 → 返工重产出', async () => {
@@ -117,18 +117,34 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
   });
 
   it('终审沿 rollback 边回退已完成→进行中', async () => {
-    const t = service.createTask({ title: '回退测试', description: '', platforms: [] });
-    let task = await service.confirmAndRun(t.id);
-    task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
-    const images = getDeliverable(task.id, 'main-image', 'image')!;
-    const list = JSON.parse(images.content) as { id: string }[];
-    for (const img of list) {
-      task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
+    // 注入校对问题（模拟 LLM 主管发现主图文案不一致），走自动回退路径
+    process.env.WORKBENCH_REVIEW_ISSUE = STAGE_MAIN_IMAGE;
+    try {
+      const t = service.createTask({ title: '回退测试', description: '', platforms: [] });
+      let task = await service.confirmAndRun(t.id);
+      task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
+      const images = getDeliverable(task.id, 'main-image', 'image')!;
+      const list = JSON.parse(images.content) as { id: string }[];
+      for (const img of list) {
+        task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
+      }
+      // 意见7：主图全采纳 → 详情图拍板点待拍板
+      expect(task.stage).toBe(STAGE_DETAIL_IMAGE);
+      // 详情图全采纳 → 校对发现主图问题 → 自动沿 rollback 回退主图返工重产出 → 重新待拍板
+      const detail = getDeliverable(task.id, 'detail-image', 'image')!;
+      const dlist = JSON.parse(detail.content) as { id: string }[];
+      for (const img of dlist) {
+        task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
+      }
+      expect(task.column).toBe('awaiting');
+      expect(task.stage).toBe(STAGE_MAIN_IMAGE);
+      expect(service.listEvents(task.id).some((e) => e.type === 'REVIEW_ROLLBACK')).toBe(true);
+      const regen = getDeliverable(task.id, 'main-image', 'image')!;
+      expect(regen).toBeDefined();
+      expect(regen.version).toBeGreaterThanOrEqual(2);
+    } finally {
+      delete process.env.WORKBENCH_REVIEW_ISSUE;
     }
-    expect(task.stage).toBe(STAGE_REVIEW);
-    const rolled = await service.reviewDecision(task.id, 'rollback', STAGE_MAIN_IMAGE, '主图与文案信息不一致');
-    expect(rolled.column).toBe('progress');
-    expect(rolled.stage).toBe(STAGE_MAIN_IMAGE);
   });
 
   it('全链路：6 阶段走完并归档', async () => {
@@ -140,7 +156,15 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     for (const img of list) {
       task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
     }
-    task = await service.reviewDecision(task.id, 'pass', undefined, '全部通过');
+    // 意见7：主图全采纳 → 详情图拍板点待拍板
+    expect(task.stage).toBe(STAGE_DETAIL_IMAGE);
+    expect(task.column).toBe('awaiting');
+    // 详情图全采纳 → 校对自动放行 → 交付归档
+    const detail = getDeliverable(task.id, 'detail-image', 'image')!;
+    const dlist = JSON.parse(detail.content) as { id: string }[];
+    for (const img of dlist) {
+      task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
+    }
     expect(task.column).toBe('done');
     expect(task.stage).toBe(STAGE_DELIVER);
     expect(task.progress).toBe(100);
@@ -156,7 +180,8 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
 
   it('并行子任务逐张完成事件', async () => {
     const t = service.createTask({ title: '并行测试', description: '', platforms: [] });
-    const task = await service.confirmAndRun(t.id);
+    let task = await service.confirmAndRun(t.id);
+    task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
     const events = service.listEvents(task.id);
     const subEvents = events.filter((e) => e.type === 'SUB_TASK_COMPLETE');
     expect(subEvents.length).toBeGreaterThanOrEqual(2);
