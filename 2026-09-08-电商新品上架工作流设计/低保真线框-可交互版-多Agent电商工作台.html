@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多 Agent 电商工作台 · 可交互原型（3列布局 · 审批合一 · 任务流转）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; background: #eef0f2; color: #222; font-size: 15px; line-height: 1.5; }
+  button { font-family: inherit; cursor: pointer; }
+  input, textarea { font-family: inherit; }
+
+  /* ===== 布局 ===== */
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: #fff; border-bottom: 1px solid #e2e5e9; flex-shrink: 0; }
+  .topbar .logo { width: 36px; height: 36px; border-radius: 9px; background: linear-gradient(135deg,#c2410c,#ff6b3d); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; }
+  .topbar .title { font-size: 18px; font-weight: 700; }
+  .topbar .spacer { flex: 1; }
+  .tb-item { font-size: 14px; border: 1px solid #d5d9de; border-radius: 7px; padding: 6px 16px; color: #444; background: #fff; position: relative; }
+  .tb-item .dot { color: #c2410c; font-weight: 700; }
+  .tb-item .bdg { position: absolute; top: -7px; right: -7px; background: #dc2626; color: #fff; font-size: 11px; border-radius: 9px; min-width: 18px; height: 18px; line-height: 18px; text-align: center; padding: 0 4px; }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* 左列 */
+  .left { width: 220px; background: #fff; border-right: 1px solid #e2e5e9; display: flex; flex-direction: column; padding: 14px; gap: 8px; overflow-y: auto; }
+  .l-group { font-size: 13px; font-weight: 700; color: #888; padding: 2px 4px; margin-top: 6px; }
+  .l-card { font-size: 14px; border: 1px solid #d5d9de; border-radius: 9px; padding: 11px 12px; background: #fff; cursor: pointer; position: relative; }
+  .l-card:hover { border-color: #c2410c; }
+  .l-card.sel { border-color: #c2410c; background: #fff4ee; }
+  .l-card .cnt { position: absolute; right: 8px; top: 8px; font-size: 12px; color: #c2410c; font-weight: 700; background: #ffe8dd; border-radius: 9px; padding: 0 8px; }
+  .l-hr { border-top: 1px dashed #e2e5e9; margin: 8px 0; }
+  .l-fold { margin-top: auto; font-size: 13px; color: #777; text-align: center; border: 1px dashed #d5d9de; border-radius: 7px; padding: 7px; cursor: pointer; }
+
+  /* 中间 */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* 工位栏 */
+  .ws-bar { background: #fff; border-bottom: 1px solid #e2e5e9; padding: 12px 18px; flex-shrink: 0; }
+  .ws-head { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
+  .ws-head .l-group { margin: 0; }
+  .ws-add { margin-left: auto; font-size: 13px; border: 1.5px dashed #c2410c; color: #c2410c; border-radius: 7px; padding: 6px 16px; background: #fff4ee; cursor: pointer; }
+  .ws-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .ws-card { border: 1px solid #d5d9de; border-radius: 9px; padding: 11px 13px; background: #fff; position: relative; }
+  .ws-set { position: absolute; top: 7px; right: 8px; font-size: 12px; border: 1px solid #d5d9de; border-radius: 6px; padding: 2px 11px; color: #666; background: #fff; cursor: pointer; }
+  .ws-set:hover { border-color: #c2410c; color: #c2410c; }
+  .ws-name { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .ws-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .ws-dot.on { background: #22c55e; }
+  .ws-dot.idle { background: #9ca3af; }
+  .ws-meta { font-size: 13px; color: #666; margin-top: 3px; }
+  .ws-task { font-size: 12px; color: #c2410c; background: #fff4ee; border: 1px dashed #f0c4ad; border-radius: 5px; padding: 2px 9px; display: inline-block; margin-top: 6px; }
+
+  .main-body { flex: 1; padding: 18px; overflow-y: auto; background: #f6f7f9; }
+
+  /* 看板 */
+  .board-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .board-title { font-size: 20px; font-weight: 700; }
+  .board-sub { font-size: 13px; color: #888; }
+  .btn-new { margin-left: auto; font-size: 14px; font-weight: 700; border: 1px solid #c2410c; color: #c2410c; background: #fff; border-radius: 8px; padding: 7px 18px; }
+  .btn-new:hover { background: #fff4ee; }
+  .columns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .col { background: #eef0f2; border: 1px solid #e2e5e9; border-radius: 11px; padding: 11px; min-height: 420px; }
+  .col-h { font-size: 14px; font-weight: 700; color: #555; margin-bottom: 9px; display: flex; justify-content: space-between; align-items: center; }
+  .col-h .n { font-size: 13px; color: #999; background: #fff; border-radius: 9px; padding: 0 8px; }
+  .tcard { border: 1px solid #d5d9de; border-radius: 9px; background: #fff; padding: 12px; margin-bottom: 11px; cursor: pointer; position: relative; }
+  .tcard:hover { border-color: #c2410c; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  .tcard .t { font-size: 15px; font-weight: 700; }
+  .tcard .s { font-size: 13px; color: #777; margin-top: 4px; }
+  .tcard .who { position: absolute; right: 8px; bottom: 8px; font-size: 11px; color: #666; background: #f0f0f0; border: 1px solid #e2e5e9; border-radius: 9px; padding: 2px 8px; }
+  .tcard .tag { display: inline-block; font-size: 12px; border: 1px solid #d5d9de; border-radius: 5px; padding: 2px 8px; margin-top: 5px; color: #555; }
+  .tcard .tag.warn { border-color: #d97706; color: #b45309; background: #fff8e6; }
+  .tcard .tag.ok { border-color: #15803d; color: #15803d; background: #ecfdf3; }
+  .tcard .tag.work { border-color: #c2410c; color: #c2410c; background: #fff4ee; }
+  .tcard .flowbar { margin-top: 9px; display: flex; gap: 4px; }
+  .tcard .flowbar i { flex: 1; height: 4px; border-radius: 2px; background: #e5e7eb; }
+  .tcard .flowbar i.done { background: #15803d; }
+  .tcard .flowbar i.cur { background: #c2410c; }
+
+  /* 状态栏页 */
+  .back { font-size: 14px; color: #c2410c; margin-bottom: 10px; display: inline-block; cursor: pointer; }
+  .task-head { border: 1px solid #e2e5e9; border-radius: 11px; padding: 14px 16px; background: #fff; margin-bottom: 14px; }
+  .th-1 { font-size: 13px; color: #888; margin-bottom: 4px; }
+  .th-2 { font-size: 22px; font-weight: 700; }
+  .th-3 { font-size: 14px; color: #555; margin-top: 6px; line-height: 1.6; }
+  .stages { display: flex; align-items: center; gap: 5px; margin: 14px 0; }
+  .stage { flex: 1; text-align: center; font-size: 13px; border: 1px solid #e2e5e9; border-radius: 7px; padding: 9px 3px; color: #888; background: #f7f7f7; position: relative; }
+  .stage.cur { border-color: #c2410c; border-style: solid; color: #c2410c; font-weight: 700; background: #fff4ee; }
+  .stage.done { border-color: #15803d; color: #15803d; background: #ecfdf3; }
+  .stage .pt { position: absolute; top: -8px; right: 5px; font-size: 10px; color: #d97706; background: #fff; border: 1px solid #d97706; border-radius: 7px; padding: 0 4px; }
+  .stage-arrow { color: #ccc; font-size: 16px; }
+  .tabs { display: flex; gap: 5px; margin: 12px 0 0; border-bottom: 1px solid #d5d9de; }
+  .tab { font-size: 14px; padding: 9px 22px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; color: #666; background: #eee; cursor: pointer; }
+  .tab.cur { background: #fff; border-color: #d5d9de; font-weight: 700; color: #222; }
+  .status-grid { display: grid; grid-template-columns: 1fr 280px; gap: 16px; margin-top: 12px; }
+  .content-area { border: 1px solid #e2e5e9; border-radius: 11px; padding: 16px; background: #fff; min-height: 300px; }
+  .side-panel { border: 1px solid #e2e5e9; border-radius: 11px; padding: 16px; background: #fff; }
+  .kv { font-size: 13px; display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed #eef0f2; }
+  .kv .k { color: #888; } .kv .v { color: #333; font-weight: 600; }
+  .log { font-size: 13px; color: #555; }
+  .log .row { padding: 7px 0; border-bottom: 1px dashed #f0f1f3; }
+  .log .row b { color: #333; }
+
+  /* 审批（内容交付合一） */
+  .wf-card { border: 1px solid #d5d9de; border-radius: 11px; padding: 16px; background: #fff; display: flex; flex-direction: column; }
+  .wf-card h4 { font-size: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .wf-card .chip { font-size: 12px; border: 1px solid #d97706; color: #b45309; background: #fff8e6; border-radius: 5px; padding: 2px 9px; }
+  .wf-card .chip.ok { border-color: #15803d; color: #15803d; background: #ecfdf3; }
+  .copy-item { font-size: 13px; border: 1px dashed #e2e5e9; border-radius: 7px; padding: 8px 11px; margin-top: 7px; color: #555; background: #fafbfc; line-height: 1.6; }
+  .gallery { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+  .gimg { width: 118px; height: 118px; border: 1.5px solid #d5d9de; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 12px; color: #888; background: #f6f7f9; position: relative; cursor: zoom-in; }
+  .gimg .actions { font-size: 11px; color: #555; margin-top: 36px; display: flex; gap: 7px; }
+  .gimg .actions button { font-size: 10px; border: 1px solid #d5d9de; border-radius: 5px; background: #fff; padding: 2px 7px; }
+  .gimg.approved { border-color: #15803d; }
+  .gimg.rejected { border-color: #dc2626; }
+  .approve-box { border: 1px dashed #f0c4ad; border-radius: 9px; padding: 13px; background: #fff8f5; margin-top: 13px; }
+  .approve-box .al { font-size: 13px; color: #666; margin-bottom: 8px; }
+  .approve-box textarea { width: 100%; min-height: 56px; border: 1px solid #d5d9de; border-radius: 7px; padding: 8px 10px; font-size: 13px; resize: vertical; }
+  .approve-row { display: flex; gap: 10px; margin-top: 10px; }
+  .btn { font-size: 14px; border-radius: 7px; padding: 7px 18px; border: 1px solid #d5d9de; background: #fff; color: #444; }
+  .btn:hover { border-color: #999; }
+  .btn.primary { background: #c2410c; color: #fff; border-color: #c2410c; }
+  .btn.primary:hover { background: #a8380a; }
+  .btn.ghost { background: #fff; }
+  .btn.sm { font-size: 12px; padding: 4px 13px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* 右列聊天 */
+  .right { width: 280px; background: #fff; border-left: 1px solid #e2e5e9; display: flex; flex-direction: column; flex-shrink: 0; }
+  .chat-icons { display: flex; gap: 9px; padding: 12px; border-bottom: 1px solid #eef0f2; }
+  .cicon { width: 42px; height: 42px; border-radius: 50%; border: 1.5px solid #d5d9de; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #555; background: #f6f7f9; position: relative; cursor: pointer; }
+  .cicon.sel { border-color: #c2410c; background: #fff4ee; color: #c2410c; font-weight: 700; }
+  .cicon .bdg { position: absolute; top: -5px; right: -5px; min-width: 19px; height: 19px; border-radius: 10px; background: #dc2626; color: #fff; font-size: 11px; line-height: 19px; text-align: center; padding: 0 4px; }
+  .chat-head { font-size: 14px; font-weight: 700; color: #444; padding: 10px 12px; border-bottom: 1px solid #eef0f2; }
+  .chat-head .muted { font-weight: 400; color: #999; font-size: 11px; }
+  .chat-msgs { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 11px; overflow-y: auto; }
+  .cmsg { font-size: 12px; border: 1px solid #eef0f2; border-radius: 9px; padding: 8px 10px; background: #fafbfc; color: #555; line-height: 1.5; align-self: flex-start; max-width: 92%; }
+  .cmsg .who { color: #c2410c; font-weight: 700; }
+  .cmsg.mine { background: #fff4ee; border-color: #f0c4ad; align-self: flex-end; }
+  .cmsg.evt { background: #fdf6e3; border: 1px dashed #e6c34e; color: #8a6a00; cursor: pointer; align-self: stretch; }
+  .chat-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid #eef0f2; }
+  .chat-input input { flex: 1; border: 1px solid #d5d9de; border-radius: 7px; padding: 7px 10px; font-size: 13px; }
+  .chat-input button { border: none; background: #c2410c; color: #fff; border-radius: 7px; padding: 0 13px; font-size: 13px; }
+  .r-fold { font-size: 12px; color: #777; text-align: center; border-top: 1px dashed #eef0f2; padding: 7px; cursor: pointer; }
+
+  /* 弹窗 */
+  .modal-mask { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { width: 620px; max-width: 92vw; max-height: 88vh; overflow-y: auto; background: #fff; border-radius: 13px; box-shadow: 0 12px 32px rgba(0,0,0,.22); }
+  .modal-t { font-size: 17px; font-weight: 700; padding: 18px 22px; border-bottom: 1px solid #eef0f2; display: flex; justify-content: space-between; align-items: center; }
+  .modal-b { padding: 18px 22px; }
+  .modal-f { padding: 15px 22px; border-top: 1px solid #eef0f2; display: flex; justify-content: flex-end; gap: 10px; }
+  .field { margin-bottom: 14px; }
+  .field .fl { font-size: 13px; color: #666; margin-bottom: 5px; }
+  .field input, .field textarea, .field select { width: 100%; border: 1px solid #d5d9de; border-radius: 7px; padding: 9px 11px; font-size: 14px; }
+  .field textarea { min-height: 68px; resize: vertical; }
+  .hint { font-size: 13px; background: #fff8e6; color: #b45309; border: 1px dashed #d97706; border-radius: 7px; padding: 8px 11px; margin: 10px 0; }
+  .hint.ok { background: #ecfdf3; color: #15803d; border-color: #15803d; }
+  .chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .chip { font-size: 13px; border: 1px solid #d5d9de; border-radius: 14px; padding: 3px 13px; color: #555; background: #fff; }
+  .chip.x { cursor: pointer; } .chip.x:hover { border-color: #dc2626; color: #dc2626; }
+
+  .empty { font-size: 13px; color: #aaa; text-align: center; padding: 32px 0; }
+
+  /* 内容交付 · 板块占位与状态（低保真灰白风） */
+  .deliver-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; }
+  .deliver-col { display: flex; flex-direction: column; }
+  .deliver-col .section-title { flex-shrink: 0; }
+  .deliver-col .phc, .deliver-col .wf-card { flex: 1; min-height: 220px; }
+  .phc { border: 1.5px dashed #cfcfd3; border-radius: 9px; background: #fafbfc; min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #8a8a8f; font-size: 13px; text-align: center; padding: 16px; }
+  .phc .ph-title { font-weight: 700; color: #666; font-size: 14px; }
+  .phc .ph-sub { font-family: "Cascadia Mono", "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: #aaa; margin-top: 8px; letter-spacing: .06em; }
+  .phc .ph-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #c2410c; margin-right: 5px; animation: ph-pulse 1.2s ease-in-out infinite; }
+  @keyframes ph-pulse { 0%,100% { opacity:.35; } 50% { opacity:1; } }
+  .st-badge { position: absolute; top: 6px; right: 6px; font-size: 11px; border-radius: 9px; padding: 0 7px; line-height: 17px; }
+  .st-badge.ok { background: #ecfdf3; color: #15803d; border: 1px solid #15803d; }
+  .st-badge.no { background: #fef2f2; color: #b91c1c; border: 1px solid #b91c1c; }
+  .section-title { font-size: 13px; color: #777; border-bottom: 1px solid #e2e5e9; padding-bottom: 6px; margin-bottom: 10px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+
+<div class="modal-mask" id="modalMask" style="display:none;"></div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ================= 常量 ================= */
+  var STAGES = ['需求对齐','卖点文案','主图设计','详情图设计','主管校对','交付归档'];
+  var PTS = [1, 2]; // 拍板点所在阶段下标：卖点文案、主图设计
+
+  /* ================= 状态 ================= */
+  var state = {
+    view: 'board',          // board | task
+    currentTaskId: null,
+    taskTab: 'detail',      // detail | deliver
+    chat: 'group',          // group | 美 | 平 | 波
+    leftOpen: true,
+    rightOpen: true,
+    modal: null,            // {type:'new'|'workstation', agent?}
+    agents: [
+      { key:'美', name:'美美', role:'文案', model:'GPT-5.6', status:'正在写卖点文案 #13' },
+      { key:'平', name:'平平', role:'设计师', model:'MJ-6', status:'主图设计完成待拍板 #12' },
+      { key:'波', name:'波波', role:'主管', model:'Claude-4', status:'待命' }
+    ],
+    tasks: [
+      { id:15, title:'便携榨汁杯 上架', stage:0, col:'planned', owner:'待分配', desc:'便携榨汁杯新品上架全套物料', platform:'天猫+京东' },
+      { id:14, title:'车载香薰 上架', stage:0, col:'planned', owner:'你', desc:'车载香薰新品上架全套物料', platform:'天猫' },
+      { id:13, title:'无线蓝牙耳机 上架', stage:1, col:'progress', owner:'美美', stageNote:'卖点文案 · 美美 在写 20m', desc:'无线蓝牙耳机（降噪/长续航）上架全套物料', platform:'天猫+京东' },
+      { id:12, title:'智能手环 上架', stage:2, col:'awaiting', owner:'平平', stageNote:'主图设计完成 · 等你拍板', desc:'智能手环（运动监测/长续航/防水）上架全套物料', platform:'天猫+京东' },
+      { id:11, title:'智能手表 上架', stage:5, col:'done', owner:'波波', stageNote:'已交付 · 已归档', desc:'智能手表上架全套物料', platform:'天猫' },
+      { id:10, title:'保温杯 上架', stage:5, col:'done', owner:'波波', stageNote:'已交付 · 已归档', desc:'保温杯上架全套物料', platform:'天猫+京东' }
+    ],
+    nextId: 16,
+    chats: {
+      group: [
+        { from:'美美', text:'卖点文案完成 #13，已提交待确认', kind:'msg' },
+        { from:'平平', text:'主图初稿完成 #12，等待拍板', kind:'msg' },
+        { from:'波波', text:'校对意见已发 #11，请查收', kind:'msg' },
+        { from:'系统', text:'🔔 #12 进入「待确认」，请拍板 → 点击跳转', kind:'evt', taskId:12 }
+      ],
+      '美': [
+        { from:'美美', text:'#13 标题初稿：无线蓝牙耳机 降噪长续航', kind:'msg' },
+        { from:'我', text:'卖点第2条再突出「ENC 通话降噪」', kind:'msg' },
+        { from:'美美', text:'收到，已更新卖点列表，稍后提交待确认', kind:'msg' }
+      ],
+      '平': [
+        { from:'平平', text:'#12 主图组（1主图+3副图）已输出', kind:'msg' }
+      ],
+      '波': [
+        { from:'波波', text:'我是主管，负责校对审阅，有事随时找我', kind:'msg' }
+      ]
+    },
+    unread: { group: 1, '美': 0, '平': 0, '波': 0 },
+    // 内容交付产出（审批合一）
+    deliver: {
+      copy: { title:'智能手环 运动监测长续航', points:['24小时心率血氧监测','14天长续航','5ATM 防水','1.47 英寸 AMOLED 高清屏','蓝牙5.3 智能提醒'], status:'pending' },
+      images: [
+        { name:'主图1', status:'pending' },
+        { name:'副图2', status:'pending' },
+        { name:'副图3', status:'pending' },
+        { name:'详情图', status:'pending' }
+      ]
+    },
+    logs: [
+      '00:00 你 创建了任务 #12 · 立意：智能手环新品上架全套物料',
+      '12:10 美美 完成卖点文案 · 提交待确认',
+      '12:15 你 采纳卖点文案 ✓ · 进入主图设计',
+      '13:02 平平 完成主图设计 · 等待拍板'
+    ],
+    toast: null
+  };
+
+  /* ================= 工具 ================= */
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function stageCls(t, i){
+    if (i < t.stage) return 'done';
+    if (i === t.stage && t.col !== 'done') return 'cur';
+    return '';
+  }
+  function agentByKey(k){ for (var i=0;i<state.agents.length;i++){ if (state.agents[i].key===k) return state.agents[i]; } return null; }
+  function agentByOwner(name){
+    var n = name.replace(/^👤\s*/,'');
+    if (n==='美美') return state.agents[0];
+    if (n==='平平') return state.agents[1];
+    if (n==='波波') return state.agents[2];
+    return null;
+  }
+  function taskById(id){ for (var i=0;i<state.tasks.length;i++){ if (state.tasks[i].id===id) return state.tasks[i]; } return null; }
+  function awaitingCount(){ return state.tasks.filter(function(t){ return t.col==='awaiting'; }).length; }
+
+  /* ================= 聊天 ================= */
+  function pushChat(chatKey, from, text, kind, taskId){
+    var m = { from:from, text:text, kind:kind||'msg' };
+    if (taskId) m.taskId = taskId;
+    state.chats[chatKey].push(m);
+    if (state.chat !== chatKey){
+      state.unread[chatKey] = (state.unread[chatKey]||0) + 1;
+    }
+  }
+  function agentReply(chatKey){
+    // 模拟 agent 回复
+    var agent = agentByKey(chatKey);
+    if (!agent) return;
+    var replies = {
+      '美': ['好的，我记下了，稍后更新到文案里 👍', '明白，已按你的意见调整', '收到～'],
+      '平': ['收到，构图我再调整一下 🎨', '好的，副图会重新出', '了解，稍后提交新版'],
+      '波': ['收到，我会在校对时重点检查 👍', '明白，终审时一起把关']
+    };
+    var pool = replies[chatKey] || ['收到'];
+    var r = pool[Math.floor(Math.random()*pool.length)];
+    setTimeout(function(){
+      pushChat(chatKey, agent.name, r, 'msg');
+      render();
+    }, 500);
+  }
+  function sendChat(){
+    var inp = $('chatInp');
+    if (!inp) return;
+    var text = inp.value.trim();
+    if (!text) return;
+    inp.value = '';
+    pushChat(state.chat, '我', text, 'msg');
+    if (state.chat === 'group'){
+      // 群聊：随机一个 agent 回复
+      var agents = state.agents;
+      var a = agents[Math.floor(Math.random()*agents.length)];
+      setTimeout(function(){
+        pushChat('group', a.name, ['收到，我看到了 👍','好的～','了解，稍后处理'].slice(0,1)[0] + '', 'msg');
+        render();
+      }, 600);
+    } else {
+      agentReply(state.chat);
+    }
+    render();
+  }
+
+  /* ================= 任务流转 ================= */
+  function advanceTask(t){
+    // 推进一个阶段（模拟 agent 完成当前阶段）
+    if (t.col === 'done') return;
+    if (t.col === 'awaiting') return; // 待人工确认
+    t.stage++;
+    if (t.stage >= STAGES.length){
+      t.col = 'done';
+      t.stage = STAGES.length - 1;
+      t.stageNote = '已交付 · 已归档';
+      var o = agentByOwner(t.owner);
+      if (o) o.status = '待命';
+      pushChat('group','系统','🔔 #'+t.id+' 已完成全部阶段 → 交付归档', 'evt', t.id);
+      return;
+    }
+    // 是否拍板点？
+    if (PTS.indexOf(t.stage) >= 0){
+      t.col = 'awaiting';
+      t.stageNote = '待你拍板 · ' + STAGES[t.stage];
+      // 重入待确认：重置对应板块交付状态为待审批
+      if (t.stage===1) state.deliver.copy.status = 'pending';
+      if (t.stage===2) state.deliver.images.forEach(function(x){ x.status = 'pending'; });
+      var ao = agentByOwner(t.owner);
+      if (ao && t.stage===1) ao.status = '卖点文案完成待拍板 #'+t.id;
+      if (ao && t.stage===2) ao.status = '主图设计完成待拍板 #'+t.id;
+      pushChat('group','系统','🔔 #'+t.id+' 进入「待确认」· '+STAGES[t.stage]+'，请拍板 → 点击跳转', 'evt', t.id);
+    } else {
+      t.col = 'progress';
+      t.stageNote = STAGES[t.stage] + ' · 进行中';
+      if (t.stage===2 && t.owner==='平平') t.stageNote = '主图设计 · 平平 处理中';
+      if (t.stage===1 && t.owner==='美美') t.stageNote = '卖点文案 · 美美 在写 20m';
+      if (t.stage===0) t.stageNote = '需求对齐 · 进行中';
+      var o2 = agentByOwner(t.owner);
+      if (o2 && t.stage===1) o2.status = '正在写卖点文案 #'+t.id;
+      if (o2 && t.stage===2) o2.status = '正在设计主图 #'+t.id;
+      if (o2 && t.stage===3) o2.status = '正在设计详情图 #'+t.id;
+      if (o2 && t.stage===4) o2.status = '主管校对中 #'+t.id;
+      pushChat('group','系统','🔔 #'+t.id+' 进入「'+STAGES[t.stage]+'」自动推进', 'evt', t.id);
+    }
+    // 状态栏可能正打开该任务
+    if (state.currentTaskId===t.id) state.taskTab = 'detail';
+  }
+  function stepOne(id){
+    var t = taskById(id);
+    if (!t) return;
+    advanceTask(t);
+    render();
+  }
+  function approveTask(id){
+    var t = taskById(id);
+    if (!t || t.col!=='awaiting') return;
+    // 采纳 → 进入下一阶段
+    var owner = agentByOwner(t.owner);
+    t.col = 'progress';
+    t.stage++;
+    if (t.stage >= STAGES.length){
+      t.col='done'; t.stage=STAGES.length-1; t.stageNote='已交付 · 已归档';
+      if (owner) owner.status='待命';
+      pushChat('group','系统','🔔 #'+t.id+' 已通过审批 → 交付归档', 'evt', t.id);
+    } else {
+      t.stageNote = STAGES[t.stage] + ' · 进行中';
+      if (t.stage===1) { if(owner) owner.status='正在写卖点文案 #'+t.id; t.stageNote='卖点文案 · '+(t.owner==='美美'?'美美':'文案')+' 在写'; }
+      if (t.stage===2) { if(owner) owner.status='正在设计主图 #'+t.id; t.stageNote='主图设计 · '+(t.owner==='平平'?'平平':'设计师')+' 处理中'; }
+      if (t.stage===3) { if(owner) owner.status='正在设计详情图 #'+t.id; t.stageNote='详情图设计 · 进行中'; }
+      if (t.stage===4) { if(owner) owner.status='主管校对中 #'+t.id; t.stageNote='主管校对 · 波波 终审中'; }
+      pushChat('group','系统','🔔 你已采纳 #'+t.id+' '+STAGES[t.stage-1]+' → 进入「'+STAGES[t.stage]+'」', 'evt', t.id);
+    }
+    var approvedStage = t.stage - 1;
+    state.logs.unshift((new Date().toTimeString().slice(0,5)) + ' 你 采纳了「' + STAGES[approvedStage] + '」#' + t.id);
+    state.logs = state.logs.slice(0,12);
+    if (state.currentTaskId===t.id){ state.taskTab='detail'; }
+    render();
+  }
+  function rejectTask(id){
+    var t = taskById(id);
+    if (!t || t.col!=='awaiting') return;
+    var reason = ($('rejectInp') ? $('rejectInp').value.trim() : '') || '请按修改意见调整';
+    t.col = 'progress';
+    t.stageNote = STAGES[t.stage] + ' · 返工中';
+    var owner = agentByOwner(t.owner);
+    if (owner && t.stage===1) owner.status='卖点文案返工中 #'+t.id;
+    if (owner && t.stage===2) owner.status='主图设计返工中 #'+t.id;
+    pushChat('group','系统','🔔 #'+t.id+' 被打回：'+reason, 'evt', t.id);
+    var rk = t.owner==='美美'?'美':(t.owner==='平平'?'平':'波');
+    pushChat(rk, '系统', '你打回了 '+STAGES[t.stage]+' #'+t.id+'：'+reason, 'msg');
+    state.logs.unshift((new Date().toTimeString().slice(0,5)) + ' 你 打回了 '+STAGES[t.stage]+'（'+reason+'）');
+    state.logs = state.logs.slice(0,12);
+    render();
+  }
+
+  /* ================= 新建任务 ================= */
+  function openNew(){
+    state.modal = { type:'new', step:'form', data:{} };
+    render();
+  }
+  function newSubmit(){
+    var d = state.modal.data;
+    var title = ($('nt-title') ? $('nt-title').value.trim() : '') || '新品上架';
+    var desc = ($('nt-desc') ? $('nt-desc').value.trim() : '') || '新品上架全套物料';
+    var platform = ($('nt-platform') ? $('nt-platform').value.trim() : '') || '天猫+京东';
+    var task = { id: state.nextId++, title:title, stage:0, col:'planned', owner:'待分配', stageNote:'需求对齐 · 待领取', desc:desc, platform:platform };
+    state.tasks.unshift(task);
+    state.modal = null;
+    pushChat('group','系统','🔔 你创建了任务 #'+task.id+'「'+title+'」→ 规划中', 'evt', task.id);
+    state.logs.unshift((new Date().toTimeString().slice(0,5)) + ' 你 创建了任务 #'+task.id);
+    render();
+  }
+
+  /* ================= 渲染 ================= */
+  function renderBoard(){
+    var cols = [ {k:'planned', n:'规划中'}, {k:'progress', n:'进行中'}, {k:'awaiting', n:'待确认'}, {k:'done', n:'已完成'} ];
+    var h = '<div class="board-title-row"><div class="board-title">任务看板</div>' +
+      '<div class="board-sub">电商新品上架 · 6阶段 · 2拍板点 · '+state.tasks.length+'个任务</div>' +
+      '<button class="btn-new" onclick="W.openNew()">＋ 新建任务</button></div><div class="columns">';
+    cols.forEach(function(c){
+      var list = state.tasks.filter(function(t){ return t.col===c.k; });
+      h += '<div class="col"><div class="col-h">'+c.n+' <span class="n">'+list.length+'</span></div>';
+      list.forEach(function(t){
+        var tagCls = c.k==='awaiting' ? 'warn' : (c.k==='done' ? 'ok' : (c.k==='progress' ? 'work' : ''));
+        h += '<div class="tcard" onclick="W.openTask('+t.id+')">' +
+          '<div class="t">#'+t.id+' '+esc(t.title)+'</div>' +
+          '<div class="s">'+esc(t.stageNote)+'</div>' +
+          '<span class="tag '+(c.k==='awaiting'?'warn':c.k==='done'?'ok':c.k==='progress'?'work':'')+'">'+(c.k==='planned'?'需求对齐':c.k==='progress'?esc(STAGES[t.stage]):c.k==='awaiting'?'待你拍板 · '+esc(STAGES[t.stage]):'✓ 已归档')+'</span>' +
+          '<span class="who">👤 '+esc(t.owner)+'</span>' +
+          '<div class="flowbar">'+STAGES.map(function(s,i){ return '<i class="'+(i<t.stage?'done':i===t.stage&&c.k!=='done'?'cur':'')+'"></i>'; }).join('')+'</div>' +
+          (c.k==='progress' ? '<button class="btn sm" style="margin-top:6px;" onclick="event.stopPropagation();W.stepOne('+t.id+')">▶ 模拟完成本阶段</button>' : '') +
+          '</div>';
+      });
+      if (!list.length) h += '<div class="empty">（空）</div>';
+      h += '</div>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  function renderTask(t){
+    var h = '<div class="back" onclick="W.back()">← 返回任务列表</div>';
+    h += '<div class="task-head"><div class="th-1">#'+t.id+' '+esc(t.title)+' · 电商新品上架 · 由你创建</div>' +
+      '<div class="th-2">'+esc(t.title)+'</div>' +
+      '<div class="th-3">'+esc(t.desc)+' · 目标平台：'+esc(t.platform)+'</div></div>';
+    h += '<div class="stages">';
+    STAGES.forEach(function(s,i){
+      h += '<div class="stage '+stageCls(t,i)+'">'+s+(PTS.indexOf(i)>=0?'<span class="pt">拍板</span>':'')+'</div>';
+      if (i < STAGES.length-1) h += '<span class="stage-arrow">›</span>';
+    });
+    h += '</div>';
+    h += '<div class="tabs"><div class="tab '+(state.taskTab==='detail'?'cur':'')+'" onclick="W.setTab(\'detail\')">任务详情</div>' +
+      '<div class="tab '+(state.taskTab==='deliver'?'cur':'')+'" onclick="W.setTab(\'deliver\')">内容交付'+(t.col==='awaiting'?' · 审批':'')+'</div></div>';
+
+    if (state.taskTab==='deliver'){
+      h += renderDeliver(t);
+    } else {
+      h += '<div class="status-grid"><div class="content-area">';
+      if (t.col==='awaiting'){
+        h += '<div style="border:1px solid #f0c4ad; background:#fff8f5; border-radius:8px; padding:10px; margin-bottom:10px;">' +
+          '<div style="font-size:12px; font-weight:700; color:#c2410c;">待你拍板 · '+esc(STAGES[t.stage])+' #'+t.id+'</div>' +
+          '<div style="font-size:13px; color:#666; margin:7px 0;">'+esc(t.owner)+' 已完成输出，请到「内容交付」页看着成品直接处理（审批已并入该页）。</div>' +
+          '<button class="btn primary" onclick="W.setTab(\'deliver\')">去内容交付页审批 →</button></div>';
+      } else if (t.col==='progress'){
+        h += '<div style="border:1px dashed #e2e5e9; border-radius:8px; padding:10px; margin-bottom:10px; background:#fafbfc;">' +
+          '<div style="font-size:12px; font-weight:700;">当前阶段：'+esc(STAGES[t.stage])+'</div>' +
+          '<div style="font-size:13px; color:#666; margin:7px 0;">'+esc(t.stageNote)+'</div>' +
+          '<button class="btn" onclick="W.stepOne('+t.id+')">▶ 模拟 Agent 完成本阶段</button></div>';
+      }
+      h += '<div style="font-size:13px; color:#888; margin:12px 0 5px;">活动日志</div><div class="log">';
+      state.logs.forEach(function(l){ h += '<div class="row">'+esc(l)+'</div>'; });
+      h += '</div></div>';
+      h += '<div class="side-panel"><div style="font-size:13px; color:#888; margin-bottom:7px;">属性</div>' +
+        '<div class="kv"><span class="k">类型</span><span class="v">电商新品上架</span></div>' +
+        '<div class="kv"><span class="k">当前阶段</span><span class="v">'+esc(STAGES[t.stage])+'</span></div>' +
+        '<div class="kv"><span class="k">进度</span><span class="v">'+Math.round(t.stage/(STAGES.length-1)*100)+'%</span></div>' +
+        '<div class="kv"><span class="k">负责人</span><span class="v">'+esc(t.owner)+'</span></div>' +
+        '<div class="kv"><span class="k">创建人</span><span class="v">你</span></div>' +
+        '<div class="kv"><span class="k">状态</span><span class="v">'+(t.col==='awaiting'?'待确认':t.col==='done'?'已完成':t.col==='progress'?'进行中':'规划中')+'</span></div>' +
+        '</div></div>';
+    }
+    return h;
+  }
+
+  function renderDeliver(t){
+    var d = state.deliver;
+    // —— 板块交付状态判定 ——
+    // 文案板块状态：none(未产出) / working(生成中) / pending(待拍板) / done(已采纳) / rejected(已打回)
+    var copyState = 'none';
+    if (d.copy.status === 'approved') copyState = 'done';
+    else if (d.copy.status === 'rejected') copyState = 'rejected';
+    else if (t.stage === 0) copyState = 'none';
+    else if (t.stage === 1 && t.col === 'progress') copyState = 'working';
+    else if (t.stage === 1 && t.col === 'awaiting') copyState = 'pending';
+    else if (t.stage >= 2) copyState = 'done'; // 阶段1拍板点已过 → 文案必已采纳
+
+    // 图片板块状态：none(未产出) / working(生成中) / pending(逐张待拍板) / done(已采纳)
+    var imgState = 'none';
+    if (t.stage < 2) imgState = 'none';
+    else if (t.stage === 2 && t.col === 'progress') imgState = 'working';
+    else if (t.stage === 2 && t.col === 'awaiting') imgState = 'pending';
+    else if (t.stage >= 3) imgState = 'done'; // 阶段2拍板点已过 → 主图必已采纳
+    if (t.col === 'done'){ copyState = 'done'; imgState = 'done'; }
+
+    // —— 文案板块 ——
+    var copyBlock;
+    if (copyState === 'none'){
+      copyBlock = '<div class="phc"><div class="ph-title">文案成品 · 卖点文案</div><div class="ph-sub">尚未产出 · 待进入卖点文案阶段</div></div>';
+    } else if (copyState === 'working'){
+      copyBlock = '<div class="phc"><div class="ph-title"><span class="ph-dot"></span>文案生成中…</div><div class="ph-sub">Agent 美美正在撰写（与工位状态同步）</div></div>';
+    } else {
+      var chip = copyState === 'done' ? '<span class="chip ok">已采纳 ✓</span>' : (copyState === 'rejected' ? '<span class="chip" style="border-color:#dc2626;color:#b91c1c;background:#fef2f2;">已打回 · 返工中</span>' : '<span class="chip">待你拍板</span>');
+      var showBtns = copyState === 'pending';
+      copyBlock = '<div class="wf-card"><h4>文案成品 · 卖点文案包 '+chip+'</h4>' +
+        '<div class="copy-item"><b>标题：</b>'+esc(d.copy.title)+'</div>' +
+        d.copy.points.map(function(p,i){ return '<div class="copy-item"><b>卖点'+(i+1)+'：</b>'+esc(p)+'</div>'; }).join('') +
+        '<div class="copy-item">详情大纲 · 关键词清单</div>' +
+        (showBtns ? '<div class="approve-row"><button class="btn sm" onclick="W.copyApprove(\'reject\')">打回</button><button class="btn sm primary" onclick="W.copyApprove(\'approve\')">采纳 ✓</button></div>' : '') +
+        '</div>';
+    }
+
+    // —— 图片板块 ——
+    var imgBlock;
+    if (imgState === 'none'){
+      imgBlock = '<div class="phc"><div class="ph-title">图片成品 · 主图 + 详情图</div><div class="ph-sub">尚未产出 · 待文案拍板后进入主图设计</div></div>';
+    } else if (imgState === 'working'){
+      imgBlock = '<div class="phc"><div class="ph-title"><span class="ph-dot"></span>主图生成中…</div><div class="ph-sub">Agent 平平正在输出（1 主图 + 3 副图）</div></div>';
+    } else {
+      var imgChip = imgState === 'done' ? '<span class="chip ok">已采纳 ✓</span>' : '<span class="chip">1 主图 + 3 副图</span>';
+      imgBlock = '<div class="wf-card"><h4>图片成品 · 主图画廊 '+imgChip+'</h4><div class="gallery">';
+      d.images.forEach(function(im,i){
+        var st = im.status==='approved' ? '<span class="st-badge ok">✓ 已采纳</span>' : (im.status==='rejected' ? '<span class="st-badge no">✗ 已打回</span>' : '');
+        var actions = (im.status==='pending' && imgState==='pending')
+          ? '<div class="actions"><button onclick="W.imgAct('+i+',\'approve\')">采纳</button><button onclick="W.imgAct('+i+',\'reject\')">打回</button></div>'
+          : '';
+        imgBlock += '<div class="gimg '+(im.status==='approved'?'approved':im.status==='rejected'?'rejected':'')+'">'+esc(im.name)+st+actions+'</div>';
+      });
+      imgBlock += '</div><div style="font-size:13px; color:#888; margin-top:10px;">详情长图预览条：卖点 / 细节 / 参数 / 场景（横向滚动）</div>' +
+        '<div style="display:flex; gap:4px; margin-top:8px;">'+['卖点图','细节图','参数图','场景图'].map(function(s){ return '<div style="flex:1; height:44px; border:1px dashed #d5d9de; border-radius:6px; background:#f6f7f9; color:#aaa; font-size:11px; display:flex; align-items:center; justify-content:center;">'+s+'</div>'; }).join('')+'</div></div>';
+    }
+
+    // —— 左右等宽并排 ——
+    var h = '<div class="status-grid" style="grid-template-columns: 1fr;">' +
+      '<div class="deliver-grid">' +
+        '<div class="deliver-col"><div class="section-title">文案成品</div>'+copyBlock+'</div>' +
+        '<div class="deliver-col"><div class="section-title">图片成品</div>'+imgBlock+'</div>' +
+      '</div>';
+
+    // 审批操作条
+    if (t.col==='awaiting'){
+      h += '<div class="approve-box"><div class="al"><b>审批 · 待你拍板 '+esc(STAGES[t.stage])+' #'+t.id+'</b> —— 采纳则进入下一阶段；打回需填写修改意见，将发给 '+esc(t.owner)+' 重新输出。</div>' +
+        '<textarea id="rejectInp" placeholder="修改意见（打回时必填）…"></textarea>' +
+        '<div class="approve-row"><button class="btn ghost" onclick="W.rejectTask('+t.id+')">打回并发送意见</button>' +
+        '<button class="btn primary" onclick="W.approveTask('+t.id+')">采纳并推进下一阶段</button></div></div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  /* ================= 聊天渲染 ================= */
+  function chatIcon(k, label, badge){
+    var sel = state.chat===k ? 'sel' : '';
+    var b = state.unread[k] ? '<span class="bdg">'+state.unread[k]+'</span>' : '';
+    return '<div class="cicon '+sel+'" onclick="W.setChat(\''+k+'\')">'+label+b+'</div>';
+  }
+  function renderChat(){
+    var h = '<div class="chat-icons">' +
+      chatIcon('group','群聊') +
+      chatIcon('美','美') +
+      chatIcon('平','平') +
+      chatIcon('波','波') +
+      '</div>';
+    var head = '';
+    var msgs = state.chats[state.chat] || [];
+    if (state.chat==='group'){
+      head = '<div class="chat-head">工作群 <span class="muted">用户 + 全部 Agent 互相沟通</span></div>';
+    } else {
+      var ag = agentByKey(state.chat);
+      head = '<div class="chat-head">与'+ag.name+'的私聊 <span class="muted">● 状态与工位同步 · '+esc(ag.status)+'</span></div>';
+    }
+    h += head;
+    h += '<div class="chat-msgs">';
+    msgs.forEach(function(m){
+      if (m.kind==='evt'){
+        var onclick = m.taskId ? 'onclick="W.openTask('+m.taskId+')"' : '';
+        h += '<div class="cmsg evt" '+onclick+'>'+esc(m.text)+'</div>';
+      } else if (m.from==='我'){
+        h += '<div class="cmsg mine">'+esc(m.text)+'</div>';
+      } else {
+        h += '<div class="cmsg"><span class="who">'+esc(m.from)+'：</span>'+esc(m.text)+'</div>';
+      }
+    });
+    h += '</div>';
+    h += '<div class="chat-input"><input id="chatInp" placeholder="输入消息…" onkeydown="if(event.key===\'Enter\')W.sendChat()"><button onclick="W.sendChat()">发送</button></div>';
+    if (state.rightOpen){
+      // 折叠按钮在底部
+    }
+    return h;
+  }
+
+  /* ================= 主渲染 ================= */
+  function render(){
+    // 顶部
+    var awaiting = awaitingCount();
+    var h = '<div class="topbar"><div class="logo">电</div><div class="title">电商工作台</div><div class="spacer"></div>' +
+      '<div class="tb-item" onclick="W.toBoard()">任务 '+(awaiting?'<span class="dot">'+awaiting+'</span>':'')+'</div>' +
+      '<div class="tb-item">在岗 GROUP ▾</div>' +
+      '<div class="tb-item">主题</div></div>';
+    h += '<div class="body">';
+
+    // 左栏
+    if (state.leftOpen){
+      h += '<div class="left">' +
+        '<div class="l-group">工作流</div>' +
+        '<div class="l-card sel">🛍 电商新品上架 <span class="cnt">'+(state.tasks.length)+'</span><div style="font-size:11px; color:#999;">6阶段 · 2拍板点</div></div>' +
+        '<div class="l-card">📺 直播带货上架 <div style="font-size:11px; color:#bbb;">占位</div></div>' +
+        '<div class="l-card">📦 跨境选品 <div style="font-size:11px; color:#bbb;">占位</div></div>' +
+        '<div class="l-hr"></div><div class="l-group">通用</div>' +
+        '<div class="l-card">⚙ 设置</div>' +
+        '<div class="l-fold" onclick="W.toggleLeft()">◀ 折叠左栏</div></div>';
+    } else {
+      h += '<div style="width:48px; background:#fff; border-right:1px solid #e2e5e9; display:flex; align-items:flex-start; justify-content:center; padding-top:12px;"><div class="l-fold" style="margin:0;" onclick="W.toggleLeft()">▶</div></div>';
+    }
+
+    // 中间
+    h += '<div class="main">';
+    // 工位栏（固定）
+    h += '<div class="ws-bar"><div class="ws-head"><div class="l-group">工位 WORKSTATIONS</div>' +
+      '<button class="ws-add" onclick="W.openWorkstation(\'美\')">＋ 添加 Agent</button></div><div class="ws-row">';
+    state.agents.forEach(function(a){
+      h += '<div class="ws-card"><span class="ws-set" onclick="W.openWorkstation(\''+a.key+'\')">⚙ 设置</span>' +
+        '<div class="ws-name"><span class="ws-dot '+(a.status==='待命'?'idle':'on')+'"></span> '+a.role+' · '+a.name+'</div>' +
+        '<div class="ws-meta">模型 '+a.model+'</div>' +
+        '<span class="ws-task">'+(a.status==='待命'?'待命 · 无当前任务':esc(a.status))+'</span></div>';
+    });
+    h += '</div></div>';
+
+    // 主视图
+    h += '<div class="main-body">';
+    if (state.view==='board'){
+      h += renderBoard();
+    } else {
+      var t = taskById(state.currentTaskId);
+      if (t) h += renderTask(t);
+      else { state.view='board'; h += renderBoard(); }
+    }
+    h += '</div></div>';
+
+    // 右栏
+    if (state.rightOpen){
+      h += '<div class="right">' + renderChat() + '<div class="r-fold" onclick="W.toggleRight()">▶ 折叠聊天栏</div></div>';
+    } else {
+      h += '<div style="width:48px; background:#fff; border-left:1px solid #e2e5e9; display:flex; align-items:flex-start; justify-content:center; padding-top:12px;"><div class="r-fold" style="margin:0;" onclick="W.toggleRight()">◀</div></div>';
+    }
+
+    h += '</div>';
+    $('app').innerHTML = h;
+
+    // 弹窗
+    var mask = $('modalMask');
+    if (state.modal){
+      mask.style.display = 'flex';
+      mask.innerHTML = renderModal();
+    } else {
+      mask.style.display = 'none';
+      mask.innerHTML = '';
+    }
+  }
+
+  function renderModal(){
+    var m = state.modal;
+    if (m.type==='new'){
+      if (m.step==='form'){
+        return '<div class="modal"><div class="modal-t">新建任务 <span style="cursor:pointer;font-size:14px;" onclick="W.closeModal()">×</span></div>' +
+          '<div class="modal-b">' +
+          '<div class="field"><div class="fl">任务标题</div><input id="nt-title" placeholder="如：智能手环新品上架全套物料"></div>' +
+          '<div class="field"><div class="fl">产品资料 / 任务描述</div><textarea id="nt-desc" placeholder="品名/类目/卖点素材…"></textarea></div>' +
+          '<div class="field"><div class="fl">目标平台</div><input id="nt-platform" placeholder="如：天猫+京东"></div>' +
+          '<div class="field"><div class="fl">工作流</div><select><option>电商新品上架 · 6阶段（默认）</option></select></div>' +
+          '<div class="hint">⚠ 提交后将展示任务内容摘要，<b>确认后 AI 才开工</b></div>' +
+          '</div><div class="modal-f"><button class="btn" onclick="W.closeModal()">取消</button>' +
+          '<button class="btn primary" onclick="W.newConfirm()">下一步：确认内容</button></div></div>';
+      } else if (m.step==='confirm'){
+        var d = m.data;
+        return '<div class="modal"><div class="modal-t">确认任务内容 <span style="cursor:pointer;font-size:14px;" onclick="W.closeModal()">×</span></div>' +
+          '<div class="modal-b">' +
+          '<div style="border:1px solid #e2e5e9; border-radius:8px; padding:10px; font-size:12px;" class="col">' +
+          '<div><b>标题：</b>'+esc(d.title)+'</div><div><b>描述：</b>'+esc(d.desc)+'</div><div><b>平台：</b>'+esc(d.platform)+'</div>' +
+          '</div>' +
+          '<div class="hint">确认后 AI 将开始工作（未确认前不会启动任何 Agent）</div>' +
+          '</div><div class="modal-f"><button class="btn" onclick="W.newBack()">返回修改</button>' +
+          '<button class="btn primary" onclick="W.newSubmit()">确认并开工</button></div></div>';
+      }
+    }
+    if (m.type==='workstation'){
+      var a = agentByKey(m.agent) || state.agents[0];
+      return '<div class="modal"><div class="modal-t">工位编辑 · '+a.name+'（'+a.role+'）<span style="cursor:pointer;font-size:14px;" onclick="W.closeModal()">×</span></div>' +
+        '<div class="modal-b">' +
+        '<div class="field"><div class="fl">人设（岗位职责 / 语气 / 规则）— S3.2</div><textarea>'+(a.key==='美'?'产品文案专家，突出卖点与转化…':a.key==='平'?'电商视觉设计师，输出主图与详情图…':'质检主管，跨产出物一致性校对…')+'</textarea></div>' +
+        '<div class="field"><div class="fl">挂载 Skill — S3.3</div><div class="chip-row"><span class="chip x">电商文案模板 ×</span><span class="chip x">SEO 关键词 ×</span><span class="chip" style="border-style:dashed;">+ 挂载 Skill</span></div></div>' +
+        '<div class="field"><div class="fl">挂载文件（仅该 Agent 可见）— S3.3</div><div class="chip-row"><span class="chip x">品牌手册.pdf ×</span><span class="chip" style="border-style:dashed;">+ 挂载文件</span></div>' +
+        '<div style="font-size:12px; color:#999; border:1px dashed #e2e5e9; border-radius:6px; padding:7px 10px; margin-top:7px;">🔒 内容隔离：仅 '+a.name+' 可访问其挂载内容</div></div>' +
+        '<div class="field"><div class="fl">模型 — S3.4（独立配置）</div><select><option>'+a.model+'</option></select></div>' +
+        '</div><div class="modal-f"><button class="btn" onclick="W.closeModal()">取消</button>' +
+        '<button class="btn primary" onclick="W.closeModal()">保存</button></div></div>';
+    }
+    return '';
+  }
+
+  /* ================= 全局接口 ================= */
+  window.W = {
+    openNew: openNew,
+    newConfirm: function(){
+      var d = state.modal.data;
+      d.title = $('nt-title').value.trim() || '新品上架';
+      d.desc = $('nt-desc').value.trim() || '新品上架全套物料';
+      d.platform = $('nt-platform').value.trim() || '天猫+京东';
+      state.modal.step = 'confirm';
+      render();
+    },
+    newBack: function(){ state.modal.step='form'; render(); },
+    newSubmit: newSubmit,
+    closeModal: function(){ state.modal=null; render(); },
+    openWorkstation: function(k){ state.modal={ type:'workstation', agent:k }; render(); },
+    openTask: function(id){
+      state.view='task'; state.currentTaskId=id; state.taskTab='detail';
+      // 清除群聊红点（打开任务）
+      render();
+    },
+    back: function(){ state.view='board'; render(); },
+    toBoard: function(){ state.view='board'; render(); },
+    setTab: function(tab){ state.taskTab=tab; render(); },
+    setChat: function(k){
+      state.chat=k; state.unread[k]=0;
+      render();
+    },
+    sendChat: sendChat,
+    stepOne: stepOne,
+    approveTask: approveTask,
+    rejectTask: rejectTask,
+    copyApprove: function(act){
+      var t = taskById(state.currentTaskId);
+      state.deliver.copy.status = act==='approve' ? 'approved' : 'rejected';
+      if (act==='approve' && t && t.col==='awaiting' && t.stage===1){
+        // 拍板点1 通过 → 进入主图设计
+        approveTask(t.id);
+        return;
+      }
+      if (act==='reject' && t && t.col==='awaiting' && t.stage===1){
+        rejectTask(t.id);
+        return;
+      }
+      render();
+    },
+    imgAct: function(i, act){
+      var t = taskById(state.currentTaskId);
+      state.deliver.images[i].status = act==='approve' ? 'approved' : 'rejected';
+      // 全部图片已处理且任务在拍板点2 → 联动推进/打回
+      if (t && t.col==='awaiting' && t.stage===2 &&
+          state.deliver.images.every(function(x){ return x.status!=='pending'; })){
+        var anyRejected = state.deliver.images.some(function(x){ return x.status==='rejected'; });
+        if (anyRejected){ rejectTask(t.id); return; }
+        approveTask(t.id);
+        return;
+      }
+      render();
+    },
+    toggleLeft: function(){ state.leftOpen=!state.leftOpen; render(); },
+    toggleRight: function(){ state.rightOpen=!state.rightOpen; render(); }
+  };
+
+  /* ================= 初始化 ================= */
+  render();
+})();
+</script>
+</body>
+</html>
