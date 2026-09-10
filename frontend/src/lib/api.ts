@@ -36,7 +36,8 @@ export const api = {
   uploadImage: (dataUrl: string) => j<{ url: string }>(fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl }) })),
 
   // ===== 工位 =====
-  listAgents: () => j<{ agents: Agent[] }>(fetch('/api/agents')),
+  /** 返回含 channelConfigured（后端 isAgentConfigured 权威判定：面板 key 或 .env 默认渠道回退） */
+  listAgents: () => j<{ agents: (Agent & { channelConfigured: boolean })[] }>(fetch('/api/agents')),
   updateAgent: (id: string, input: AgentUpdateInput) => j<{ agent: Agent }>(fetch(`/api/agents/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })),
   agentStats: (id: string) => j<{ stats: ExecutionStats }>(fetch(`/api/agents/${id}/stats`)),
   executions: (limit = 50) => j<{ executions: AgentExecution[] }>(fetch(`/api/executions?limit=${limit}`)),

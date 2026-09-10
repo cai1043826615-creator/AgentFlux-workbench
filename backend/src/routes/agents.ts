@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AgentOnlineStatus, AgentUpdateInput, ExecutionStats, StageStat } from '@workbench/shared';
 import { all, get, run } from '../db/client.ts';
 import type { AgentExecutionRow, AgentRow } from '../db/schema.ts';
-import { toAgent } from '../agents/runtime.ts';
+import { toAgent, isAgentConfigured } from '../agents/runtime.ts';
 import { listFiles, listSkills, saveFileContent } from '../agents/skills.ts';
 
 /** PUT 请求体：AgentUpdateInput 基础上扩展工位在线状态字段（shared 冻结，本地扩展） */
@@ -59,9 +59,12 @@ export function executionStats(agentId: string): ExecutionStats {
 }
 
 export async function agentRoutes(app: FastifyInstance): Promise<void> {
-  // 工位列表（online_status 转 camelCase）
+  // 工位列表（online_status 转 camelCase；channelConfigured 为渠道可用性权威判定：面板 key 或 .env 默认渠道回退）
   app.get('/api/agents', async () => {
-    const agents = all<AgentRow>('SELECT * FROM agents ORDER BY id ASC').map(toAgent);
+    const agents = all<AgentRow>('SELECT * FROM agents ORDER BY id ASC').map((row) => {
+      const a = toAgent(row);
+      return { ...a, channelConfigured: isAgentConfigured(a.id) };
+    });
     return { agents };
   });
 
@@ -110,7 +113,8 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     if (body.activity !== undefined) run('UPDATE agents SET activity = ? WHERE id = ?', [body.activity, id]);
 
     const row = get<AgentRow>('SELECT * FROM agents WHERE id = ?', [id])!;
-    return { agent: toAgent(row) };
+    const a = toAgent(row);
+    return { agent: { ...a, channelConfigured: isAgentConfigured(a.id) } };
   });
 
   // 工位执行统计

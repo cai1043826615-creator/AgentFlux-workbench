@@ -122,7 +122,13 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
     reader.readAsText(file);
   };
 
-  const configured = Boolean(baseUrl.trim() && apiKey.trim());
+  /**
+   * 已配置判定（权威）：后端 isAgentConfigured —— 面板 llmChannels 的 key 或 .env.local 默认渠道回退，
+   * 与运行时 llm.ts / imagegen.ts 实际使用渠道一致（修复：面板 key 空但默认渠道可用时不再误显示「未配置」）。
+   */
+  const configured = Boolean((agent as Agent & { channelConfigured?: boolean }).channelConfigured);
+  /** 表单是否填了专属 key（区分「默认渠道密钥」与「专属密钥」提示） */
+  const hasOwnKey = Boolean(apiKey.trim());
 
   const skillMounted = (s: AgentSkillInfo) => skills.includes(s.id) || skills.includes(s.name);
   const skillDisplayName = (key: string) => catalog.find((s) => s.id === key || s.name === key)?.name ?? key;
@@ -154,12 +160,18 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
     setError('');
     try {
       const prevChannels = (settings.llmChannels ?? {}) as Record<string, LlmChannelConfig>;
+      const prev = prevChannels[agent.id];
       await Promise.all([
         api.updateAgent(agent.id, { persona: persona.trim(), model: model.trim(), skills, files }),
         api.putSettings({
           llmChannels: {
             ...prevChannels,
-            [agent.id]: { baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), model: model.trim() },
+            // 未填的字段保留原值（避免误用空串覆盖已配置的渠道 / 默认渠道）
+            [agent.id]: {
+              baseUrl: baseUrl.trim() || prev?.baseUrl || '',
+              apiKey: apiKey.trim() || prev?.apiKey || '',
+              model: model.trim() || prev?.model || '',
+            },
           },
         }),
       ]);
@@ -233,10 +245,14 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
               <input className="qs-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="如 https://api.openai.com/v1" />
             </Field>
             <Field label="API Key">
-              <input className="qs-input" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-…" autoComplete="off" />
+              <input className="qs-input" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={configured && !hasOwnKey ? '留空则使用默认渠道密钥' : 'sk-…'} autoComplete="off" />
             </Field>
             <p className="qs-meta" style={{ color: configured ? 'var(--color-ok)' : 'var(--color-warn)' }}>
-              {configured ? '渠道已配置：请求将发往该 Base URL' : '未配置：Agent 暂时无法调用该渠道'}
+              {configured && hasOwnKey
+                ? '渠道已配置：请求将发往该 Base URL'
+                : configured
+                  ? '已配置：使用默认渠道密钥（在此填写可换成专属密钥）'
+                  : '未配置：Agent 暂时无法调用该渠道'}
             </p>
           </div>
         ) : null}

@@ -12,9 +12,12 @@ export interface TaskWithMeta extends Task {
   stageLabel: string;
 }
 
+/** Agent 渠道配置状态（后端 isAgentConfigured 权威判定：面板 key 或 .env 默认渠道回退） */
+export type AgentWithChannel = Agent & { channelConfigured: boolean };
+
 interface WorkbenchState {
   tasks: TaskWithMeta[];
-  agents: Agent[];
+  agents: AgentWithChannel[];
   connected: boolean;
   view: WorkbenchView;
   selectedTaskId: number | null;
@@ -55,7 +58,7 @@ const Ctx = createContext<WorkbenchState | null>(null);
 
 export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<TaskWithMeta[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<AgentWithChannel[]>([]);
   const [connected, setConnected] = useState(false);
   const [initialHash] = useState(viewFromHash);
   const [view, setViewState] = useState<WorkbenchView>(initialHash.view);
@@ -114,7 +117,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
             });
             break;
           case 'agent:status':
-            setAgents((prev) => prev.map((a) => (a.id === msg.agent.id ? msg.agent : a)));
+            setAgents((prev) => prev.map((a) => (a.id === msg.agent.id ? { ...a, ...msg.agent, channelConfigured: a.channelConfigured } : a)));
             break;
           case 'chat:message':
             setMessages((prev) => [...prev, msg.message]);
