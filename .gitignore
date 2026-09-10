@@ -13,6 +13,19 @@ dist/
 .env.local
 .env.*.local
 
+# 密钥类文件（无论放在哪个目录，一律不入库）
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+secrets*
+*credentials*
+*credential.json
+*service-account*.json
+.ssh/
+
 # 本地工具与日志
 .agents/
 .claude/
