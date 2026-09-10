@@ -503,3 +503,36 @@ body {
     animation: none;
   }
 }
+
+/* ===== Toast 前后堆叠（用户 2026-09-10：层叠而非纵向滚动铺满；FIFO 保留最新 5 条，最早自动消除） ===== */
+.qs-toast-stack {
+  display: flex;
+  flex-direction: column-reverse; /* 最新一张渲染在最下（右下角最前） */
+  align-items: flex-end;
+  pointer-events: none; /* 容器透明穿透，卡片自身接收点击 */
+  padding-top: 12px; /* 给 hover 展开的旧卡留出空间 */
+}
+.qs-toast-stack .qs-toast {
+  pointer-events: auto;
+  margin-top: var(--stack-offset, 8px);
+  opacity: var(--stack-opacity, 1);
+  transition:
+    margin-top var(--dur-standard) var(--ease-standard),
+    opacity var(--dur-standard) var(--ease-standard),
+    transform var(--dur-standard) var(--ease-standard),
+    box-shadow var(--dur-standard) var(--ease-standard);
+}
+/* hover 整叠展开（覆盖内联堆叠变量；关闭时 leaving 优先） */
+.qs-toast-stack:hover .qs-toast {
+  margin-top: 8px !important;
+  opacity: 1 !important;
+}
+.qs-toast-stack .qs-toast.leaving {
+  opacity: 0 !important;
+  transform: translateY(8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .qs-toast-stack .qs-toast {
+    transition: none;
+  }
+}

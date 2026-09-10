@@ -3,12 +3,13 @@ import { WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../store/useWorkbench.tsx';
 
 /**
- * 右下角 Toast 通知（意见12 + 意见1 重构）：
+ * 右下角 Toast 通知（意见12 + 意见1 重构 + 堆叠版）：
  * - 触发：任务进入待确认（approvalQueue 新增）/ 任务完成归档（tasks 中 column 变为 done）
  * - 不自动关闭（移除 45s 淡出）；手动 × 关闭，或点击主卡 / action 按钮跳转对应任务并关闭
  * - Aceternity 风卡片：宽 500；底部右侧 action 按钮
  *   （待确认「去处理」紫 primary / 任务完成「查看」绿）
- * - 常驻上限约 5 条：容器 max-height + overflow-y-auto，超出滚动，按时间顺序排列
+ * - 前后堆叠：最新一张在最前（右下角），旧卡向上重叠只露一条边（非纵向滚动铺满）；
+ *   鼠标悬停整叠展开，松开恢复层叠；超出上限只保留最新 5 条
  */
 
 export interface ToastItem {
@@ -21,23 +22,25 @@ export interface ToastItem {
 
 const FADE_MS = 220; // 手动关闭淡出时长
 const TOAST_W = 500; // 单卡宽度（用户指定 500px）
-const TOAST_H = 140; // 单卡估算高度（含 padding + 按钮行），用于容器 max-height
-const TOAST_GAP = 8; // 卡片间距
-const MAX_VISIBLE = 5; // 常驻上限（容器高度近似 5 条）
+const TOAST_H = 140; // 单卡估算高度（含 padding + 按钮行），用于堆叠重叠量
+const TOAST_EDGE = 26; // 被遮挡的旧卡露出的边缘高度（px）
+const MAX_VISIBLE = 5; // 常驻上限（超出保留最新 5 条）
 
 function stageText(stage: string): string {
   return WORKFLOW_STAGE_LABELS[stage] ?? stage;
 }
 
-/** 单条 Toast 卡片：进入动画 + 手动 × 淡出关闭 + 主卡/action 按钮点击跳转 */
+/** 单条 Toast 卡片：进入动画 + 手动 × 淡出关闭 + 主卡/action 按钮点击跳转；depth=0 为最新（最前） */
 function ToastCard({
   item,
   onDismiss,
   onOpen,
+  depth,
 }: {
   item: ToastItem;
   onDismiss: (id: string) => void;
   onOpen: (item: ToastItem) => void;
+  depth: number;
 }) {
   const [leaving, setLeaving] = useState(false);
 
@@ -50,12 +53,21 @@ function ToastCard({
 
   const isApproval = item.kind === 'approval';
   const accent = isApproval ? 'var(--color-signal)' : 'var(--color-ok)';
+  const behind = depth > 0;
 
   return (
     <div
       role="status"
       className={`qs-toast qs-clickable shrink-0 ${leaving ? 'leaving' : ''}`}
-      style={{ width: TOAST_W }}
+      style={
+        {
+          width: TOAST_W,
+          zIndex: 100 - depth,
+          // 堆叠偏移：最新一张完全展开；旧卡向上重叠只露边缘（hover 展开由 CSS 覆盖）
+          '--stack-offset': behind ? `${-(TOAST_H - TOAST_EDGE)}px` : '8px',
+          '--stack-opacity': behind ? Math.max(0.55, 1 - depth * 0.13) : 1,
+        } as React.CSSProperties
+      }
       title={`点击跳转任务 #${item.taskId}`}
       onClick={() => onOpen(item)}
     >
@@ -114,7 +126,6 @@ export function ToastHost() {
   const seenApproval = useRef<Set<string>>(new Set());
   const seenDone = useRef<Set<number>>(new Set());
   const tasksRef = useRef<TaskWithMeta[] | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const dismiss = useCallback((id: string) => {
     setQueue((prev) => prev.filter((x) => x.id !== id));
@@ -122,7 +133,8 @@ export function ToastHost() {
 
   const enqueue = useCallback((item: Omit<ToastItem, 'id'>) => {
     const id = `${item.kind}-${item.taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setQueue((prev) => [...prev, { ...item, id }]);
+    // 常驻上限 MAX_VISIBLE：超出时最先出现的自动消除（FIFO 淘汰，旧卡不复活）
+    setQueue((prev) => [...prev, { ...item, id }].slice(-MAX_VISIBLE));
   }, []);
 
   // 触发1：任务进入待确认（approvalQueue 出现新条目）
@@ -151,10 +163,7 @@ export function ToastHost() {
     }
   }, [tasks, enqueue]);
 
-  // 超出滚动：新条目追加到底部时自动滚到底部，保证最新通知可见
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [queue.length]);
+  // 超出滚动 → 已改为堆叠（无滚动）；新条目追加自动触发重排，无需滚动定位
 
   // 点击 Toast / action 按钮：跳转任务详情并关闭该条
   const open = useCallback(
@@ -168,15 +177,12 @@ export function ToastHost() {
   if (queue.length === 0) return null;
 
   return (
-    <div
-      ref={scrollRef}
-      className="fixed bottom-4 right-4 z-[70] flex flex-col items-end gap-2 overflow-y-auto pr-1"
-      style={{ maxHeight: MAX_VISIBLE * TOAST_H + (MAX_VISIBLE - 1) * TOAST_GAP }}
-      aria-live="polite"
-    >
-      {queue.map((it) => (
-        <ToastCard key={it.id} item={it} onDismiss={dismiss} onOpen={open} />
-      ))}
+    <div className="qs-toast-stack fixed bottom-4 right-4 z-[70]" aria-live="polite">
+      {queue.map((it, idx) => {
+        // depth：0 = 最新（渲染在最前/最下），越大越靠后
+        const depth = queue.length - 1 - idx;
+        return <ToastCard key={it.id} item={it} onDismiss={dismiss} onOpen={open} depth={depth} />;
+      })}
     </div>
   );
 }
