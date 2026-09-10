@@ -3,7 +3,7 @@
  * routes/agents.ts 读取在线状态时可结合 isAgentConfigured 把未配置渠道的 Agent 展示为「未连接API」。
  */
 import type { Agent, AgentOnlineStatus } from '@workbench/shared';
-import { hasImageChannel, hasLlmChannel, hasSupervisorChannel } from '../config.ts';
+import { CHANNEL, hasImageChannel, hasLlmChannel, hasSupervisorChannel } from '../config.ts';
 import { get, run } from '../db/client.ts';
 import type { AgentRow } from '../db/schema.ts';
 import { bus } from '../engine/bus.ts';
@@ -77,6 +77,16 @@ export function isAgentConfigured(agentId: string): boolean {
   if (agentId === 'agent-design') return hasImageChannel();
   if (agentId === 'agent-supervisor') return hasSupervisorChannel() || hasLlmChannel();
   return hasLlmChannel();
+}
+
+/**
+ * Agent 运行时实际使用的模型（界面展示 / 执行日志的权威来源）：
+ * 主管波波在视觉审阅渠道（SUPERVISOR_*）已配置时返回该渠道模型（gpt-5.5），
+ * 其余返回 agents 表存储的 model。
+ */
+export function effectiveModel(agentId: string, storedModel?: string): string {
+  if (agentId === 'agent-supervisor' && hasSupervisorChannel()) return CHANNEL.supervisor.model;
+  return storedModel ?? '';
 }
 
 /** 在线状态中文标签（意见19：unconfigured 显示「未连接API」） */

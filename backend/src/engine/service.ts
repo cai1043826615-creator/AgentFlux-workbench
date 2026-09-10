@@ -1,7 +1,7 @@
 import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_LABELS, type BoardColumn, type CopyPackage, type DeliverableDecisionInput, type ImageItem, type Task, type TaskEvent } from '@workbench/shared';
 import { MockProducer, getProducer, type ReviewReport } from '../agents/producer.ts';
 import { logExecution } from '../agents/execution-logger.ts';
-import { markBusy, markIdle } from '../agents/runtime.ts';
+import { markBusy, markIdle, effectiveModel } from '../agents/runtime.ts';
 import * as delivery from '../delivery/store.ts';
 import { get } from '../db/client.ts';
 import { ensureSchema } from '../db/ensure.ts';
@@ -153,7 +153,7 @@ export class WorkflowService {
   ): Promise<unknown> {
     const agentId = STAGE_AGENT[stage];
     const row = get<{ model: string }>('SELECT model FROM agents WHERE id = ?', [agentId]);
-    const model = row?.model ?? '';
+    const model = effectiveModel(agentId, row?.model ?? '');
     // 顶层 producer 为内置 mock 时，成功也标注 (mock)
     const isMock = getProducer() instanceof MockProducer;
 
