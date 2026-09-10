@@ -50,13 +50,13 @@ export class WorkflowService {
     return this.executor.createTask(input);
   }
 
-  /** 确认开工 → 自动编排推进到首个拍板点或完成 */
+  /** 确认开工 → 自动编排推进到首个确认点或完成 */
   async confirmAndRun(taskId: number): Promise<Task> {
     this.executor.confirmTask(taskId);
     return this.advance(taskId);
   }
 
-  /** 从当前状态自动跑阶段链，直到待确认 / 已完成（线性降级模式：拍板点自动通过） */
+  /** 从当前状态自动跑阶段链，直到待确认 / 已完成（线性降级模式：确认点自动通过） */
   async advance(taskId: number): Promise<Task> {
     const producer = getProducer();
     let t = this.executor.getTask(taskId);
@@ -70,7 +70,7 @@ export class WorkflowService {
       const task = t; // 循环内快照：闭包引用避免 let 窄化丢失（Task | undefined → Task）
 
       if (linear && APPROVAL_POINT_STAGES.includes(node.id) && t.column === 'progress') {
-        // 线性降级：拍板点自动通过
+        // 线性降级：确认点自动通过
         t = this.executor.approve(t.id);
         continue;
       }
@@ -105,8 +105,8 @@ export class WorkflowService {
           break;
         }
         case 'deliver': {
-          const pack = (await this.runStage(task, node.id, () => producer.produceDeliverable(task), (r) => `交付归档：${(r as { packName: string }).packName}`)) as { packName: string; entries: string[] };
-          delivery.saveDeliverable(t.id, node.id, 'copy', { title: pack.packName, points: pack.entries, outline: '上架资料包已归档', keywords: [] });
+          const pack = (await this.runStage(task, node.id, () => producer.produceDeliverable(task), (r) => `交付完成：${(r as { packName: string }).packName}`)) as { packName: string; entries: string[] };
+          delivery.saveDeliverable(t.id, node.id, 'copy', { title: pack.packName, points: pack.entries, outline: '上架资料包已完成', keywords: [] });
           t = this.executor.onStageCompleted(t.id, node.id);
           break;
         }

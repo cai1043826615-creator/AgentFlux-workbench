@@ -140,14 +140,14 @@ await check('advance 全流程 6 阶段日志齐全（mock 标注）', async () 
 
   const created = service.createTask({ title: '冒烟测试品', description: '冒烟', platform: '测试平台' });
   const after = await service.confirmAndRun(created.id);
-  assert.equal(after.column, 'awaiting'); // graph 模式：copy 拍板点停
+  assert.equal(after.column, 'awaiting'); // graph 模式：copy 确认点停
 
   await service.decideDeliverable({ taskId: created.id, kind: 'copy', decision: 'approve' });
   const main = await service.decideDeliverable({ taskId: created.id, kind: 'image', decision: 'approve' });
-  assert.equal(main.column, 'awaiting'); // graph 模式：detail-image 拍板点停（意见7）
+  assert.equal(main.column, 'awaiting'); // graph 模式：detail-image 确认点停（意见7）
   assert.equal(main.stage, 'detail-image');
   const final = await service.decideDeliverable({ taskId: created.id, kind: 'image', decision: 'approve' });
-  assert.equal(final.column, 'done'); // 全链走通（detail 拍板通过后直达交付归档）
+  assert.equal(final.column, 'done'); // 全链走通（detail 确认通过后直达交付完成）
 
   const rows = all(
     'SELECT stage, status, output_summary, agent_id FROM agent_executions WHERE task_id = ? ORDER BY id ASC',
@@ -162,7 +162,7 @@ await check('advance 全流程 6 阶段日志齐全（mock 标注）', async () 
   assert.equal(rows.find((r) => r.stage === 'main-image')!.output_summary, '生成 3 张图片 (mock)');
   assert.equal(rows.find((r) => r.stage === 'detail-image')!.output_summary, '生成 4 张图片 (mock)');
   assert.equal(rows.find((r) => r.stage === 'review')!.output_summary, '校对结论：无问题，准予放行 (mock)');
-  assert.equal(rows.find((r) => r.stage === 'deliver')!.output_summary, '交付归档：冒烟测试品_上架资料包 (mock)');
+  assert.equal(rows.find((r) => r.stage === 'deliver')!.output_summary, '交付完成：冒烟测试品_上架资料包 (mock)');
 
   // 工位在阶段结束后回到待命
   const copyAgent = get('SELECT online_status, activity FROM agents WHERE id = ?', ['agent-copy'])!;
@@ -170,8 +170,8 @@ await check('advance 全流程 6 阶段日志齐全（mock 标注）', async () 
   assert.equal(copyAgent.activity, '待命');
 });
 
-// 9. 意见7：详情图设计成为拍板点（图定义断言）
-await check('detail-image 为拍板点：approvalPoint + approved/rejected 边 + 常量为拍板点', async () => {
+// 9. 意见7：详情图设计成为确认点（图定义断言）
+await check('detail-image 为确认点：approvalPoint + approved/rejected 边 + 常量为确认点', async () => {
   const { ECOM_WORKFLOW, APPROVAL_POINT_STAGES, STAGE_DETAIL_IMAGE, STAGE_REVIEW } = await import('@workbench/shared');
   const node = ECOM_WORKFLOW.nodes.find((n) => n.id === STAGE_DETAIL_IMAGE)!;
   assert.equal(node.approvalPoint, true);
@@ -183,14 +183,14 @@ await check('detail-image 为拍板点：approvalPoint + approved/rejected 边 +
   assert.ok(APPROVAL_POINT_STAGES.includes(STAGE_DETAIL_IMAGE), 'APPROVAL_POINT_STAGES 应含 detail-image');
 });
 
-// 10. linear 降级模式：detail-image 拍板自动通过直达交付归档
-await check('linear 模式：detail-image 拍板自动通过直达交付归档', async () => {
+// 10. linear 降级模式：detail-image 确认自动通过直达交付完成
+await check('linear 模式：detail-image 确认自动通过直达交付完成', async () => {
   run("UPDATE settings SET value = ? WHERE key = 'orchestrationMode'", [JSON.stringify({ mode: 'linear' })]);
   try {
     const { service } = await import('../src/engine/service.ts');
     const created = service.createTask({ title: '线性冒烟品', description: 'linear', platform: '测试平台' });
     const final = await service.confirmAndRun(created.id);
-    assert.equal(final.column, 'done', 'linear 下三个拍板点（copy/main-image/detail-image）均自动通过');
+    assert.equal(final.column, 'done', 'linear 下三个确认点（copy/main-image/detail-image）均自动通过');
     assert.equal(final.stage, 'deliver');
   } finally {
     run("UPDATE settings SET value = ? WHERE key = 'orchestrationMode'", [JSON.stringify({ mode: 'graph' })]);

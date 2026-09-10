@@ -189,8 +189,8 @@ export class SmartProducer implements StageProducer {
     const agentId = AGENT_IDS['主管'];
     return this.withLlm<{ packName: string; entries: string[] }>(
       agentId,
-      '你是电商交付归档专员。输出上架资料包清单。严格输出 JSON：{"packName":"资料包名称","entries":["标题","关键词","文案","主图","详情图",...]}',
-      `任务：${task.title}，请生成交付归档资料包文件清单（6-8 项）。`,
+      '你是电商交付完成专员。输出上架资料包清单。严格输出 JSON：{"packName":"资料包名称","entries":["标题","关键词","文案","主图","详情图",...]}',
+      `任务：${task.title}，请生成交付完成资料包文件清单（6-8 项）。`,
       () => this.mock.produceDeliverable(task),
       (text) => {
         const parsed = extractJson<{ packName?: string; entries?: string[] }>(text);

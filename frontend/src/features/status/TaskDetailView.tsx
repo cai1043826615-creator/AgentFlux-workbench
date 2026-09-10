@@ -183,11 +183,11 @@ const ROLE_TO_AGENT_NAME: Record<string, string> = {
 };
 
 /**
- * 6 阶段条（意见5 重构：横向等分 + 圆形指示器 + 弹簧进度线 + 数字→✓ 形态 + 拍板标记）
+ * 6 阶段条（意见5 重构：横向等分 + 圆形指示器 + 弹簧进度线 + 数字→✓ 形态 + 确认标记）
  * 意见3：指示器圆内显示负责 Agent 头像（按名从 agents 查；查不到回退数字/✓）
  * 意见4：仅「已流转到」的阶段（已完成/当前）显示头像；未到阶段不显示头像，回退为灰描边圆内数字序号
  * 状态语义：完成=绿底+右上对勾角标 / 当前=黑底+紫描边 / 未到=灰描边数字；标签同色
- * 拍板点保留右下紫「拍板」角标（引用 APPROVAL_POINT_STAGES，detail-image 加入后自动生效）
+ * 确认点保留右下紫「确认」角标（引用 APPROVAL_POINT_STAGES，detail-image 加入后自动生效）
  * 进度线已完成段填充绿（300ms 过渡）；动效遵循 QS（--dur-standard / --dur-deliberate），
  * reduced-motion 由 index.css 全局规则自动关闭，无需组件内判断。
  */
@@ -231,7 +231,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                       i + 1
                     )}
                   </div>
-                  {/* 完成对勾角标（右上；与右下拍板角标并存不冲突） */}
+                  {/* 完成对勾角标（右上；与右下确认角标并存不冲突） */}
                   {state === 'done' ? (
                     <span
                       className="absolute -top-0.5 -right-0.5 flex h-[14px] w-[14px] items-center justify-center rounded-full text-[9px] font-bold"
@@ -245,7 +245,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                       className="absolute -bottom-1 -right-2 flex h-[15px] items-center rounded-[4px] px-1 text-[9px] font-bold text-white"
                       style={{ background: 'var(--color-signal)' }}
                     >
-                      拍板
+                      确认
                     </span>
                   ) : null}
                 </div>
@@ -366,7 +366,7 @@ export function TaskDetailView({
         </div>
       </div>
 
-      {/* stages（意见11：6 节点 + 拍板标记 + 箭头；意见3：节点内嵌负责 Agent 头像） */}
+      {/* stages（意见11：6 节点 + 确认标记 + 箭头；意见3：节点内嵌负责 Agent 头像） */}
       <div className="qs-card p-3">
         <StageStepper task={task} agents={agents} />
       </div>
@@ -398,7 +398,7 @@ export function TaskDetailView({
                 <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>负责人 {task.ownerName || '—'}</span>
               </div>
               <div className="text-[13px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
-                {task.stageNote || (done ? '已交付 · 已归档' : '引擎推进中…')}
+                {task.stageNote || (done ? '已交付 · 已完成' : '引擎推进中…')}
               </div>
               {copyTitle || imgCount > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 border-t pt-2" style={{ borderColor: 'var(--color-line)' }}>

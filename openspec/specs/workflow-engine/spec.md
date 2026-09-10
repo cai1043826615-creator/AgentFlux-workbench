@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Defines the workflow engine for e-commerce new-product listing: a six-stage pipeline (需求对齐 → 卖点文案 → 主图设计 → 详情图设计 → 主管校对 → 交付归档) with two human approval points, automatic progression, supervisor review, and stage rollback. The workflow is defined as a graph of nodes, edges, and conditional branches; a stage may schedule parallel sub-tasks (e.g. generating multiple images concurrently).
+Defines the workflow engine for e-commerce new-product listing: a six-stage pipeline (需求对齐 → 卖点文案 → 主图设计 → 详情图设计 → 主管校对 → 交付完成) with two human approval points, automatic progression, supervisor review, and stage rollback. The workflow is defined as a graph of nodes, edges, and conditional branches; a stage may schedule parallel sub-tasks (e.g. generating multiple images concurrently).
 
 ## Requirements
 
 ### Requirement: Six-stage workflow definition
 
-The system SHALL define the e-commerce listing workflow as six ordered stages: 需求对齐, 卖点文案, 主图设计, 详情图设计, 主管校对, 交付归档.
+The system SHALL define the e-commerce listing workflow as six ordered stages: 需求对齐, 卖点文案, 主图设计, 详情图设计, 主管校对, 交付完成.
 
 #### Scenario: Workflow stages shown in status view
 
@@ -17,7 +17,7 @@ The system SHALL define the e-commerce listing workflow as six ordered stages: �
 
 ### Requirement: Stage assignment and inputs
 
-The system SHALL route each stage to the responsible agents: 需求对齐 (人工+文案), 卖点文案 (文案+主管), 主图设计 (设计师+主管), 详情图设计 (设计师+主管), 主管校对 (主管), 交付归档 (主管+人工).
+The system SHALL route each stage to the responsible agents: 需求对齐 (人工+文案), 卖点文案 (文案+主管), 主图设计 (设计师+主管), 详情图设计 (设计师+主管), 主管校对 (主管), 交付完成 (主管+人工).
 
 #### Scenario: Stage routed to responsible agent
 
@@ -88,7 +88,7 @@ The system SHALL run a full supervisor review at the 主管校对 stage; if issu
 #### Scenario: Supervisor review passes
 
 - **WHEN** all outputs pass the supervisor review
-- **THEN** the task proceeds to 交付归档
+- **THEN** the task proceeds to 交付完成
 
 ### Requirement: Task status view
 
@@ -111,7 +111,7 @@ The system SHALL define the workflow as a graph: each stage is a node, ordered e
 #### Scenario: Supervisor review branch
 
 - **WHEN** the supervisor review passes
-- **THEN** the engine follows the pass edge to 交付归档; when issues are found, it follows the rollback edge to the affected stage node
+- **THEN** the engine follows the pass edge to 交付完成; when issues are found, it follows the rollback edge to the affected stage node
 
 #### Scenario: Workflow graph persisted as definition
 

@@ -39,7 +39,7 @@
 | Agent 设置 | `features/workstation/AgentSettingsModal.tsx` | 角色行、人设、模型/API、SKILL/文件挂载 |
 | 左栏导航 | `features/LeftPanel.tsx` | 工作流项、占位项、设置弹窗（任务推进方式单选） |
 | 新建任务 | `App.tsx` NewTaskModal | 两步弹窗：表单 → 确认摘要 |
-| 通知 | `components/Toast.tsx` | 右下角 Toast 队列（待拍板/任务完成） |
+| 通知 | `components/Toast.tsx` | 右下角 Toast 队列（待确认/任务完成） |
 
 ### 1.3 已封装基础组件（`components/ui.tsx` + `index.css`）
 
@@ -145,7 +145,7 @@
 
 ### 3.2 中优先级（重复 2 处或单处但跨页面可复用）
 
-7. **阶段推导逻辑**（done/current/todo + 拍板点）：`ui.tsx` `StageFlow` 与 `TaskDetailView.tsx` `StageStepper` 双实现。
+7. **阶段推导逻辑**（done/current/todo + 确认点）：`ui.tsx` `StageFlow` 与 `TaskDetailView.tsx` `StageStepper` 双实现。
    → 统一为 `StageStepper`（详情页增强版），`StageFlow` 保留为看板卡内紧凑版，共享 `useStageState` 推导 hook。
 
 8. **空态占位**：各处 `<Empty>` 已用组件，但文案/结构不统一 → 升级 `EmptyState`（支持 icon/action/插画位，接 gpt-taste 品味）。
@@ -266,7 +266,7 @@ frontend/src/components/
 ## 6. 后续工作流页面的复用指引
 
 1. **新工作流页面（直播上架 / 跨境选品）结构模板**：沿用 `BoardView` 标题行 + 四列看板 + `TaskDetailView`（阶段条 + 内容交付 + 活动日志 + 属性面板）的骨架，只替换 `WORKFLOW_STAGE_*` 配置与负责人映射。
-2. **阶段配置外置**：工作流阶段名/拍板点/负责人角色已由 `@workbench/shared` 的 `WORKFLOW_STAGE_*` + `STAGE_OWNER_ROLE` 承载，新工作流只需新增一组常量 + 一个 workflow 图定义（后端 `workflows.stages_json`），前端 `StageStepper/StatusTag/ContentDeliveryView` 天然复用。
+2. **阶段配置外置**：工作流阶段名/确认点/负责人角色已由 `@workbench/shared` 的 `WORKFLOW_STAGE_*` + `STAGE_OWNER_ROLE` 承载，新工作流只需新增一组常量 + 一个 workflow 图定义（后端 `workflows.stages_json`），前端 `StageStepper/StatusTag/ContentDeliveryView` 天然复用。
 3. **组件接入顺序**：先沉淀基础原子（§4 的 ui/ + feedback/）→ 再抽业务组件（workflow/ + media/ + chat/）→ 新页面直接组合，避免复制内联样式。
 4. **风格红线（禁止项，SPEC §7）**：不做玻璃拟态 / 渐变光晕 / 层层圆角 / 卡片墙 / 胶囊泛滥 / 装饰性 3D / 无意义循环动效；紫色仅作焦点与关键状态，稀疏使用。
 

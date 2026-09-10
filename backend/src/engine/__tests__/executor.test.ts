@@ -36,14 +36,14 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     expect(counts.planned).toBeGreaterThanOrEqual(1);
   });
 
-  it('确认开工自动推进到拍板点1（卖点文案）待确认', async () => {
+  it('确认开工自动推进到确认点1（卖点文案）待确认', async () => {
     const t = service.createTask({ title: '确认测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     expect(task.column).toBe('awaiting');
     expect(APPROVAL_POINT_STAGES).toContain(task.stage);
   });
 
-  it('拍板点进入待确认，产出文案交付物，活动日志按时间线完整', async () => {
+  it('确认点进入待确认，产出文案交付物，活动日志按时间线完整', async () => {
     const t = service.createTask({ title: '拍板测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     expect(task.column).toBe('awaiting');
@@ -61,7 +61,7 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     }
   });
 
-  it('采纳沿 approved 边推进到主图设计（拍板点2）', async () => {
+  it('采纳沿 approved 边推进到主图设计（确认点2）', async () => {
     const t = service.createTask({ title: '采纳测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     const approved = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
@@ -83,7 +83,7 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     expect(events.some((e) => e.type === 'REJECTED')).toBe(true);
   });
 
-  it('逐张图片采纳联动：主图全采纳后进入详情图拍板点待拍板', async () => {
+  it('逐张图片采纳联动：主图全采纳后进入详情图确认点待确认', async () => {
     const t = service.createTask({ title: '图片决策测试', description: '', platforms: [] });
     const task = await service.confirmAndRun(t.id);
     const approvedCopy = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
@@ -94,7 +94,7 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     for (const img of list) {
       cur = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
     }
-    // 意见7：主图全采纳 → 详情图拍板点待拍板（不再自动推进）
+    // 意见7：主图全采纳 → 详情图确认点待确认（不再自动推进）
     expect(cur.stage).toBe(STAGE_DETAIL_IMAGE);
     expect(cur.column).toBe('awaiting');
   });
@@ -128,9 +128,9 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
       for (const img of list) {
         task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
       }
-      // 意见7：主图全采纳 → 详情图拍板点待拍板
+      // 意见7：主图全采纳 → 详情图确认点待确认
       expect(task.stage).toBe(STAGE_DETAIL_IMAGE);
-      // 详情图全采纳 → 校对发现主图问题 → 自动沿 rollback 回退主图返工重产出 → 重新待拍板
+      // 详情图全采纳 → 校对发现主图问题 → 自动沿 rollback 回退主图返工重产出 → 重新待确认
       const detail = getDeliverable(task.id, 'detail-image', 'image')!;
       const dlist = JSON.parse(detail.content) as { id: string }[];
       for (const img of dlist) {
@@ -156,10 +156,10 @@ describe('TaskExecutor 图执行引擎（tasks 2.3/2.4/2.5）', () => {
     for (const img of list) {
       task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
     }
-    // 意见7：主图全采纳 → 详情图拍板点待拍板
+    // 意见7：主图全采纳 → 详情图确认点待确认
     expect(task.stage).toBe(STAGE_DETAIL_IMAGE);
     expect(task.column).toBe('awaiting');
-    // 详情图全采纳 → 校对自动放行 → 交付归档
+    // 详情图全采纳 → 校对自动放行 → 交付完成
     const detail = getDeliverable(task.id, 'detail-image', 'image')!;
     const dlist = JSON.parse(detail.content) as { id: string }[];
     for (const img of dlist) {

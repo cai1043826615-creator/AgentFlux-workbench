@@ -166,7 +166,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 
   const decide = useCallback(
     async (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject', imageId?: string, note?: string) => {
-      // 决策后移除该任务对应阶段的待拍板条目（copy 决策移除 copy；image 决策移除图片拍板阶段）
+      // 决策后移除该任务对应阶段的待确认条目（copy 决策移除 copy；image 决策移除图片确认阶段）
       const removeQueue = (prev: { taskId: number; stage: string; title: string }[]) =>
         prev.filter((x) => x.taskId !== taskId || (kind === 'copy' ? x.stage !== 'copy' : x.stage !== 'main-image' && x.stage !== 'detail-image'));
       // 打回（reject）→ 乐观移除：请求发起即清理旧条目，避免后端返工（decideDeliverable 会同步等待重产出）

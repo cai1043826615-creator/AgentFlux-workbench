@@ -25,12 +25,12 @@ function stageIdxOf(task: TaskWithMeta): number {
   return i < 0 ? 0 : i;
 }
 
-/** 状态 tag（对齐线框 tag：warn 待拍板 / ok 已归档 / work 进行中） */
+/** 状态 tag（对齐线框 tag：warn 待确认 / ok 已归档 / work 进行中） */
 function Tag({ task }: { task: TaskWithMeta }) {
   if (task.column === 'awaiting') {
-    return <span className="qs-badge warn">{`待你拍板 · ${stageText(task)}`}</span>;
+    return <span className="qs-badge warn">{`待你确认 · ${stageText(task)}`}</span>;
   }
-  if (task.column === 'done') return <span className="qs-badge ok">✓ 已归档</span>;
+  if (task.column === 'done') return <span className="qs-badge ok">✓ 已完成</span>;
   if (task.column === 'progress') return <span className="qs-badge">进行中 · {stageText(task)}</span>;
   return <span className="qs-badge">需求对齐</span>;
 }
@@ -70,7 +70,7 @@ function TaskCard({
       <Tag task={task} />
 
       {/* 6 段 flowbar（对齐线框 flowbar；意见5 视觉降级版，颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰；
-          拍板点（APPROVAL_POINT_STAGES，含 detail-image）仅在 hover title 标注「拍板点」，不再渲染微标 */}
+          确认点（APPROVAL_POINT_STAGES，含 detail-image）仅在 hover title 标注「确认点」，不再渲染微标 */}
       <div className="mt-2 flex gap-[3px]">
         {WORKFLOW_STAGE_KEYS.map((k, i) => {
           const isApproval = (APPROVAL_POINT_STAGES as string[]).includes(k);
@@ -78,7 +78,7 @@ function TaskCard({
             <div
               key={k}
               className="flex min-w-0 flex-1 flex-col items-center"
-              title={isApproval ? `${WORKFLOW_STAGE_LABELS[k]} · 拍板点` : WORKFLOW_STAGE_LABELS[k]}
+              title={isApproval ? `${WORKFLOW_STAGE_LABELS[k]} · 确认点` : WORKFLOW_STAGE_LABELS[k]}
             >
               <span
                 className="block h-[3px] w-full rounded-full"
@@ -120,7 +120,7 @@ function TaskCard({
         {task.column === 'done' ? (
           <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
             <span className="qs-dot ok" />
-            已交付 · 已归档
+            已交付 · 已完成
           </span>
         ) : null}
         <div className="flex-1" />

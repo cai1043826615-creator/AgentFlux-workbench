@@ -39,7 +39,7 @@ export function nextNode(wf: WorkflowDefinition, nodeId: string): WorkflowNode |
   return followEdge(wf, nodeId, 'next');
 }
 
-/** 拍板点条件分支 */
+/** 确认点条件分支 */
 export function approvalEdge(wf: WorkflowDefinition, from: string, approved: boolean): WorkflowNode | undefined {
   return followEdge(wf, from, approved ? 'approved' : 'rejected');
 }

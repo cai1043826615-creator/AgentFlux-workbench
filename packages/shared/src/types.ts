@@ -247,9 +247,9 @@ export interface WorkflowNode {
   id: string;
   label: string;
   ownerRole: string;
-  /** 是否人工拍板点 */
+  /** 是否人工确认点 */
   approvalPoint?: boolean;
-  /** 无拍板点阶段是否自动流转下一阶段 */
+  /** 无确认点阶段是否自动流转下一阶段 */
   autoNext?: boolean;
   /** 并行子任务分组（按渠道分组、组内串行） */
   parallelGroups?: WorkflowParallelGroup[];
@@ -259,7 +259,7 @@ export interface WorkflowEdge {
   from: string;
   to: string;
   label?: string;
-  /** 条件分支：拍板点 approved/rejected、校对 passed/rollback */
+  /** 条件分支：确认点 approved/rejected、校对 passed/rollback */
   condition?: 'approved' | 'rejected' | 'passed' | 'rollback' | 'next';
 }
 

@@ -31,14 +31,14 @@ test('创建任务进入规划中，看板列映射正确', () => {
   assert.ok(service.boardCounts().planned >= 1);
 });
 
-test('确认开工自动推进到拍板点1（卖点文案）待确认', async () => {
+test('确认开工自动推进到确认点1（卖点文案）待确认', async () => {
   const t = service.createTask({ title: '确认测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   assert.equal(task.column, 'awaiting');
   assert.ok(APPROVAL_POINT_STAGES.includes(task.stage));
 });
 
-test('拍板点进入待确认，产出文案交付物，活动日志按时间线完整', async () => {
+test('确认点进入待确认，产出文案交付物，活动日志按时间线完整', async () => {
   const t = service.createTask({ title: '拍板测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   assert.equal(task.column, 'awaiting');
@@ -56,7 +56,7 @@ test('拍板点进入待确认，产出文案交付物，活动日志按时间�
   }
 });
 
-test('采纳沿 approved 边推进到主图设计（拍板点2）', async () => {
+test('采纳沿 approved 边推进到主图设计（确认点2）', async () => {
   const t = service.createTask({ title: '采纳测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   const approved = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
@@ -76,7 +76,7 @@ test('打回沿 rejected 边返工再入待确认（deliverables 重置 pending�
   assert.ok(service.listEvents(rejected.id).some((e) => e.type === 'REJECTED'));
 });
 
-test('逐张图片采纳联动：主图全采纳后进入详情图拍板点待拍板', async () => {
+test('逐张图片采纳联动：主图全采纳后进入详情图确认点待确认', async () => {
   const t = service.createTask({ title: '图片决策测试', description: '', platforms: [] });
   const task = await service.confirmAndRun(t.id);
   const approvedCopy = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
@@ -87,7 +87,7 @@ test('逐张图片采纳联动：主图全采纳后进入详情图拍板点待�
   for (const img of list) {
     cur = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
   }
-  // 意见7：主图全采纳 → 详情图拍板点待拍板（不再自动推进）
+  // 意见7：主图全采纳 → 详情图确认点待确认（不再自动推进）
   assert.equal(cur.column, 'awaiting');
   assert.equal(cur.stage, STAGE_DETAIL_IMAGE);
 });
@@ -119,10 +119,10 @@ test('主管校对发现问题自动沿 rollback 边回退已完成→进行中'
     for (const img of list) {
       task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
     }
-    // 意见7：主图全采纳 → 详情图拍板点待拍板
+    // 意见7：主图全采纳 → 详情图确认点待确认
     assert.equal(task.column, 'awaiting');
     assert.equal(task.stage, STAGE_DETAIL_IMAGE);
-    // 详情图全采纳 → 进入校对 → 发现问题 → 回退主图返工重产出 → 重新待拍板
+    // 详情图全采纳 → 进入校对 → 发现问题 → 回退主图返工重产出 → 重新待确认
     const detail = getDeliverable(task.id, 'detail-image', 'image')!;
     const dlist = JSON.parse(detail.content) as { id: string }[];
     for (const img of dlist) {
@@ -151,10 +151,10 @@ test('全链路：6 阶段自动走完并归档', async () => {
   for (const img of list) {
     task = await service.decideDeliverable({ taskId: task.id, kind: 'image', imageId: img.id, decision: 'approve' });
   }
-  // 主图全采纳 → 详情图拍板点待拍板
+  // 主图全采纳 → 详情图确认点待确认
   assert.equal(task.column, 'awaiting');
   assert.equal(task.stage, STAGE_DETAIL_IMAGE);
-  // 详情图全采纳 → 校对自动放行 → 交付归档
+  // 详情图全采纳 → 校对自动放行 → 交付完成
   const detail = getDeliverable(task.id, 'detail-image', 'image')!;
   const dlist = JSON.parse(detail.content) as { id: string }[];
   for (const img of dlist) {
@@ -176,7 +176,7 @@ test('编排开关可读（graph / linear）', async () => {
 test('并行子任务逐张完成事件', async () => {
   const t = service.createTask({ title: '并行测试', description: '', platforms: [] });
   let task = await service.confirmAndRun(t.id);
-  // 通过拍板点1，进入主图并行产出
+  // 通过确认点1，进入主图并行产出
   task = await service.decideDeliverable({ taskId: task.id, kind: 'copy', decision: 'approve' });
   const subEvents = service.listEvents(task.id).filter((e) => e.type === 'SUB_TASK_COMPLETE');
   assert.ok(subEvents.length >= 2, `expected >=2 SUB_TASK_COMPLETE, got ${subEvents.length}`);

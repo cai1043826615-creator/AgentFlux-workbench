@@ -64,8 +64,8 @@ function progressOf(wf: WorkflowDefinition, stage: string, done: boolean): numbe
 }
 
 function stageNoteOf(stageNode: WorkflowNode | undefined, column: BoardColumn, ownerName?: string): string {
-  if (column === 'awaiting' && stageNode) return `${stageNode.label}完成 · 待你拍板`;
-  if (column === 'done') return '已交付 · 已归档';
+  if (column === 'awaiting' && stageNode) return `${stageNode.label}完成 · 待你确认`;
+  if (column === 'done') return '已交付 · 已完成';
   if (stageNode) {
     return ownerName ? `${stageNode.label} · ${ownerName} 处理中` : `${stageNode.label} · 进行中`;
   }
@@ -148,7 +148,7 @@ export class TaskExecutor {
         run('UPDATE tasks SET column = ?, progress = ?, stage_note = ?, owner_agent_id = ? WHERE id = ?', [
           'done',
           100,
-          '已交付 · 已归档',
+          '已交付 · 已完成',
           AGENT_BY_ROLE[node?.ownerRole ?? ''] ?? row.owner_agent_id,
           taskId,
         ]);
@@ -168,13 +168,13 @@ export class TaskExecutor {
         return toTask(getTaskRow(taskId)!);
       }
 
-      // 无拍板点：记录完成并自动推进下一节点
+      // 无确认点：记录完成并自动推进下一节点
       this.logEventSync(taskId, 'STAGE_COMPLETED', { stage: stageId, stageLabel: node?.label, autoAdvance: true });
       return this.moveTo(row, nextNode(this.wf, stageId), stageId);
     });
   }
 
-  /** 拍板点采纳：沿 approved 边推进下一节点 */
+  /** 确认点采纳：沿 approved 边推进下一节点 */
   approve(taskId: number): Task {
     return tx(() => {
       const row = getTaskRow(taskId);
@@ -187,7 +187,7 @@ export class TaskExecutor {
     });
   }
 
-  /** 拍板点打回：沿 rejected 边回自身节点返工（进行中） */
+  /** 确认点打回：沿 rejected 边回自身节点返工（进行中） */
   reject(taskId: number, note?: string): Task {
     return tx(() => {
       const row = getTaskRow(taskId);
@@ -205,7 +205,7 @@ export class TaskExecutor {
     });
   }
 
-  /** 主管校对通过：沿 passed 边到交付归档 */
+  /** 主管校对通过：沿 passed 边到交付完成 */
   reviewPass(taskId: number, note?: string): Task {
     return tx(() => {
       const row = getTaskRow(taskId);
@@ -314,7 +314,7 @@ export class TaskExecutor {
 
   private moveTo(row: TaskRow, next: WorkflowNode | undefined, fromStage: string): Task {
     if (!next) {
-      run('UPDATE tasks SET column = ?, progress = ?, stage_note = ? WHERE id = ?', ['done', 100, '已交付 · 已归档', row.id]);
+      run('UPDATE tasks SET column = ?, progress = ?, stage_note = ? WHERE id = ?', ['done', 100, '已交付 · 已完成', row.id]);
       this.logEventSync(row.id, 'STAGE_COMPLETED', { stage: fromStage, done: true });
       return toTask(getTaskRow(row.id)!);
     }

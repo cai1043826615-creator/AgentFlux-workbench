@@ -24,7 +24,7 @@ function ownerNameOfStage(stage: string): string {
   return ROLE_TO_NAME[STAGE_OWNER_ROLE[stage] ?? ''] ?? '';
 }
 
-/** 拍板点采纳后下一阶段负责 Agent 名（沿 approved 边） */
+/** 确认点采纳后下一阶段负责 Agent 名（沿 approved 边） */
 function nextOwnerNameOfStage(stage: string): string {
   const edge = ECOM_WORKFLOW.edges.find((e) => e.from === stage && e.condition === 'approved');
   return edge ? ownerNameOfStage(edge.to) : '';
@@ -48,8 +48,8 @@ function announceBody(e: TaskEvent): string | null {
       return `任务 #${taskId} 已开工，${ownerNameOfStage(stage)} 开始「${str(payload.stageLabel)}」`;
     }
     case 'STAGE_COMPLETED':
-      if (payload.done === true) return `任务 #${taskId} 已完成全部阶段，交付归档`;
-      if (payload.awaitingApproval === true) return `${str(payload.stageLabel)} 完成 · 待你拍板`;
+      if (payload.done === true) return `任务 #${taskId} 已完成全部阶段，交付完成`;
+      if (payload.awaitingApproval === true) return `${str(payload.stageLabel)} 完成 · 待你确认`;
       return `${str(payload.stageLabel)} 完成 · 自动推进`;
     case 'APPROVED': {
       const stage = str(payload.stage);
@@ -58,7 +58,7 @@ function announceBody(e: TaskEvent): string | null {
     case 'REJECTED':
       return `「${str(payload.stageLabel)}」被打回返工${noteSuffix}`;
     case 'REVIEW_PASSED':
-      return `任务 #${taskId} 通过主管校对，进入交付归档`;
+      return `任务 #${taskId} 通过主管校对，进入交付完成`;
     case 'REVIEW_ROLLBACK':
       return `主管校对发现问题，已回退至「${str(payload.targetLabel)}」返工${noteSuffix}`;
     case 'SUB_TASK_COMPLETE':
@@ -78,15 +78,15 @@ function signatureBody(e: TaskEvent): string | null {
   switch (type) {
     case 'STAGE_COMPLETED': {
       const label = str(payload.stageLabel);
-      if (payload.done === true) return `${idPrefix}全部阶段完成，已交付归档`;
-      if (payload.awaitingApproval === true) return `${idPrefix}${label}已生成 1 版，请审阅拍板`;
+      if (payload.done === true) return `${idPrefix}全部阶段完成，已交付完成`;
+      if (payload.awaitingApproval === true) return `${idPrefix}${label}已生成 1 版，请审阅确认`;
       return `${idPrefix}${label}已完成，自动推进下一阶段`;
     }
     case 'SUB_TASK_COMPLETE':
       // 仅成功子任务署名（失败保持 evt「生成失败」播报，不冒充完成）
       return payload.ok === true ? `${idPrefix}${str(payload.itemId)} 已生成` : null;
     case 'REVIEW_PASSED':
-      return `${idPrefix}主管校对通过，进入交付归档`;
+      return `${idPrefix}主管校对通过，进入交付完成`;
     default:
       return null;
   }

@@ -55,7 +55,7 @@ function groupMsgs(kind: string): { from: string; to: string; body: string; task
 }
 
 // ===== A. 完成类事件 → 署名 msg 与 evt 并存 =====
-await check('A1: STAGE_COMPLETED（待拍板）→ 美美署名 msg + 系统 evt 并存', () => {
+await check('A1: STAGE_COMPLETED（待确认）→ 美美署名 msg + 系统 evt 并存', () => {
   bus.emitEvent({
     id: 9001,
     taskId: 777,
@@ -67,12 +67,12 @@ await check('A1: STAGE_COMPLETED（待拍板）→ 美美署名 msg + 系统 evt
   const evt = evts.find((m) => m.task_id === 777);
   assert.ok(evt, 'STAGE_COMPLETED 应保留原 evt 播报');
   assert.equal(evt.from, '系统');
-  assert.ok(evt.body.includes('卖点文案 完成 · 待你拍板'), `evt 文案异常: ${evt.body}`);
-  const sig = groupMsgs('msg').find((m) => m.task_id === 777 && m.body.includes('请审阅拍板'));
+  assert.ok(evt.body.includes('卖点文案 完成 · 待你确认'), `evt 文案异常: ${evt.body}`);
+  const sig = groupMsgs('msg').find((m) => m.task_id === 777 && m.body.includes('请审阅确认'));
   assert.ok(sig, 'STAGE_COMPLETED 应额外产生署名 msg');
   assert.equal(sig.from, '美美', '署名 msg from 应为 Agent 姓名');
   assert.ok(sig.body.includes('任务 #777'), `署名 msg 应带任务号: ${sig.body}`);
-  assert.ok(sig.body.includes('卖点文案已生成 1 版，请审阅拍板'), `署名 msg 文案异常: ${sig.body}`);
+  assert.ok(sig.body.includes('卖点文案已生成 1 版，请审阅确认'), `署名 msg 文案异常: ${sig.body}`);
 });
 
 await check('A2: SUB_TASK_COMPLETE 成功署名 / 失败仅 evt 不署名', () => {
@@ -108,7 +108,7 @@ await check('A3: REVIEW_PASSED → 波波署名 msg + evt 保留', () => {
     payload: { stage: 'review' },
     createdAt: new Date().toISOString(),
   });
-  const rev = groupMsgs('msg').find((m) => m.body.includes('主管校对通过，进入交付归档'));
+  const rev = groupMsgs('msg').find((m) => m.body.includes('主管校对通过，进入交付完成'));
   assert.ok(rev, 'REVIEW_PASSED 应产生署名 msg');
   assert.equal(rev.from, '波波', '校对通过署名应为主管');
   assert.ok(groupMsgs('evt').some((m) => m.body.includes('通过主管校对')), 'REVIEW_PASSED 原 evt 应保留');

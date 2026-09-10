@@ -4,10 +4,10 @@ import { useWorkbench, type TaskWithMeta } from '../store/useWorkbench.tsx';
 
 /**
  * 右下角 Toast 通知（意见12 + 意见1 重构）：
- * - 触发：任务进入待拍板（approvalQueue 新增）/ 任务完成归档（tasks 中 column 变为 done）
+ * - 触发：任务进入待确认（approvalQueue 新增）/ 任务完成归档（tasks 中 column 变为 done）
  * - 不自动关闭（移除 45s 淡出）；手动 × 关闭，或点击主卡 / action 按钮跳转对应任务并关闭
  * - Aceternity 风卡片：宽 500；底部右侧 action 按钮
- *   （待拍板「去处理」紫 primary / 任务完成「查看」绿）
+ *   （待确认「去处理」紫 primary / 任务完成「查看」绿）
  * - 常驻上限约 5 条：容器 max-height + overflow-y-auto，超出滚动，按时间顺序排列
  */
 
@@ -66,7 +66,7 @@ function ToastCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-bold leading-tight" style={{ color: isApproval ? 'var(--color-signal-strong)' : 'var(--color-ok)' }}>
-            {isApproval ? '待你拍板' : '任务完成'}
+            {isApproval ? '待你确认' : '任务完成'}
           </div>
           <div className="qs-meta mt-1.5 truncate text-[13px] leading-snug" style={{ color: 'var(--color-ink-soft)' }}>
             #{item.taskId} {item.title}
@@ -125,7 +125,7 @@ export function ToastHost() {
     setQueue((prev) => [...prev, { ...item, id }]);
   }, []);
 
-  // 触发1：任务进入待拍板（approvalQueue 出现新条目）
+  // 触发1：任务进入待确认（approvalQueue 出现新条目）
   useEffect(() => {
     const titleById = new Map(tasks.map((t) => [t.id, t.title] as const));
     for (const a of approvalQueue) {

@@ -30,7 +30,7 @@ function stageTone(stage: string): 'default' | 'ok' | 'no' | 'warn' | 'signal' {
   return 'default';
 }
 
-/** 板块状态：none 未产出 / working 生成中 / pending 待拍板 / done 已采纳 / rejected 已打回返工 */
+/** 板块状态：none 未产出 / working 生成中 / pending 待确认 / done 已采纳 / rejected 已打回返工 */
 type BlockState = 'none' | 'working' | 'pending' | 'done' | 'rejected';
 
 function copyBlockState(task: Task | null, copyDel: Deliverable | undefined): BlockState {
@@ -42,7 +42,7 @@ function copyBlockState(task: Task | null, copyDel: Deliverable | undefined): Bl
     if (task.column === 'progress') return 'working';
     return 'none';
   }
-  if (stageIndex(task.stage) > stageIndex('copy')) return 'done'; // 拍板点1 已过 → 文案必已采纳
+  if (stageIndex(task.stage) > stageIndex('copy')) return 'done'; // 确认点1 已过 → 文案必已采纳
   return 'none';
 }
 
@@ -53,7 +53,7 @@ function imgBlockState(task: Task | null): BlockState {
     if (task.column === 'progress') return 'working';
     return 'none';
   }
-  if (stageIndex(task.stage) > stageIndex('detail-image')) return 'done'; // 详情图拍板已过 → 主图与详情图必已采纳
+  if (stageIndex(task.stage) > stageIndex('detail-image')) return 'done'; // 详情图确认已过 → 主图与详情图必已采纳
   return 'none';
 }
 
@@ -223,7 +223,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     task && task.column === 'awaiting' ? (
       <div className="rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
         <div className="mb-1.5 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
-          审批 · 待你拍板 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
+          审批 · 待你确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
         </div>
         <div className="mb-2 text-[13px]" style={{ color: 'var(--color-ink-soft)' }}>
           {task.stage === 'copy'
@@ -236,7 +236,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   /* ---------- 左栏：卖点文案 ---------- */
   const copyBadge =
     copyState === 'pending' ? (
-      <Badge tone="signal">待你拍板</Badge>
+      <Badge tone="signal">待你确认</Badge>
     ) : copyState === 'done' ? (
       <Badge tone="ok">已采纳</Badge>
     ) : copyState === 'rejected' ? (
@@ -255,7 +255,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
       return (
         <div className="py-6 text-center">
           <Spinner label="文案 Agent 正在撰写卖点文案…" />
-          <div className="qs-meta mt-2">生成完成后将在此展示，供你整包拍板</div>
+          <div className="qs-meta mt-2">生成完成后将在此展示，供你整包确认</div>
         </div>
       );
     }
@@ -338,7 +338,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   /* ---------- 右栏：图片交付（主图 / 详情图） ---------- */
   const imgBadge =
     imgState === 'pending' ? (
-      <Badge tone="signal">待逐张拍板</Badge>
+      <Badge tone="signal">待逐张确认</Badge>
     ) : imgState === 'done' ? (
       <Badge tone="ok">已采纳</Badge>
     ) : imgState === 'working' ? (
@@ -362,7 +362,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                   {img.name}
                 </span>
                 <Badge tone={failed ? 'no' : img.status === 'approved' ? 'ok' : img.status === 'rejected' ? 'no' : canDecide ? 'signal' : 'default'}>
-                  {failed ? '生成失败' : img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回' : canDecide ? '待拍板' : '未决'}
+                  {failed ? '生成失败' : img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回' : canDecide ? '待确认' : '未决'}
                 </Badge>
               </div>
               {failed ? (
@@ -415,17 +415,17 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
 
   const imageBlock = (() => {
     if (imgState === 'none') {
-      return <Empty text="图片尚未产出 · 待文案拍板后进入主图设计" />;
+      return <Empty text="图片尚未产出 · 待文案确认后进入主图设计" />;
     }
     if (imgState === 'working') {
       return (
         <div className="py-6 text-center">
           <Spinner label={task?.stage === 'detail-image' ? '设计师正在生成详情图…' : '设计师正在生成主图…'} />
-          <div className="qs-meta mt-2">生成完成后将在此展示，供你逐张拍板</div>
+          <div className="qs-meta mt-2">生成完成后将在此展示，供你逐张确认</div>
         </div>
       );
     }
-    // 图片拍板点：main-image 与 detail-image 均为拍板点（详情图审批，意见7）；awaiting 待拍板时图卡可采纳/打回
+    // 图片确认点：main-image 与 detail-image 均为确认点（详情图审批，意见7）；awaiting 待确认时图卡可采纳/打回
     const canDecide = imgState === 'pending' && (task?.stage === 'main-image' || task?.stage === 'detail-image');
     return (
       <>
@@ -474,7 +474,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
           <div>
             <div className="qs-meta mb-1.5">终审操作</div>
             <Btn variant="primary" disabled={busy} onClick={() => void doReview('pass')}>
-              放行 → 交付归档
+              放行 → 交付完成
             </Btn>
             <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
               <div className="qs-meta mb-1.5">回退（发现问题打回对应阶段重新输出）</div>
@@ -572,7 +572,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             </button>
             <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
               {preview.name} ·{' '}
-              {preview.status === 'approved' ? '已采纳' : preview.status === 'rejected' ? '已打回' : preview.status === 'ref' ? '参考图' : '待拍板'}
+              {preview.status === 'approved' ? '已采纳' : preview.status === 'rejected' ? '已打回' : preview.status === 'ref' ? '参考图' : '待确认'}
             </div>
           </div>
         </div>
