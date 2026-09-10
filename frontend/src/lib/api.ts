@@ -14,6 +14,10 @@ export const api = {
   listTasks: () => j<{ tasks: (Task & { ownerName: string; stageLabel: string })[] }>(fetch('/api/tasks')),
   createTask: (input: TaskCreateInput) => j<{ task: Task }>(fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })),
   confirmTask: (id: number) => j<{ task: Task }>(fetch(`/api/tasks/${id}/confirm`, { method: 'POST' })),
+  /** 归档任务（归档≠删除：数据保留，看板不显示，可恢复回原列） */
+  archiveTask: (id: number) => j<{ task: Task }>(fetch(`/api/tasks/${id}/archive`, { method: 'POST' })),
+  /** 恢复归档任务回看板原列 */
+  restoreTask: (id: number) => j<{ task: Task }>(fetch(`/api/tasks/${id}/restore`, { method: 'POST' })),
   taskEvents: (id: number) => j<{ events: TaskEvent[] }>(fetch(`/api/tasks/${id}/events`)),
   taskDeliverables: (id: number) => j<{ deliverables: Deliverable[] }>(fetch(`/api/tasks/${id}/deliverables`)),
   decideDeliverable: (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject', imageId?: string, note?: string) =>

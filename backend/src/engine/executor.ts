@@ -41,6 +41,7 @@ function toTask(row: TaskRow): Task {
     referenceImage: row.reference_image ?? undefined,
     progress: row.progress,
     stageNote: row.stage_note,
+    archived: row.archived === 1,
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
@@ -258,13 +259,36 @@ export class TaskExecutor {
     return all<TaskRow>('SELECT * FROM tasks ORDER BY id DESC').map(toTask);
   }
 
+  // ===== 归档（归档≠删除：仅置位 archived，数据保留，可恢复回原列） =====
+
+  archiveTask(taskId: number): Task {
+    return tx(() => {
+      run('UPDATE tasks SET archived = 1 WHERE id = ?', [taskId]);
+      const task = toTask(getTaskRow(taskId)!);
+      bus.emitTask(task);
+      return task;
+    });
+  }
+
+  restoreTask(taskId: number): Task {
+    return tx(() => {
+      run('UPDATE tasks SET archived = 0 WHERE id = ?', [taskId]);
+      const task = toTask(getTaskRow(taskId)!);
+      bus.emitTask(task);
+      return task;
+    });
+  }
+
   listEvents(taskId: number): TaskEvent[] {
     return all<TaskEventRow>('SELECT * FROM task_events WHERE task_id = ? ORDER BY id ASC', [taskId]).map(toEvent);
   }
 
   boardCounts(): Record<BoardColumn, number> {
     const counts: Record<BoardColumn, number> = { planned: 0, progress: 0, awaiting: 0, done: 0 };
-    for (const t of this.listTasks()) counts[t.column] += 1;
+    for (const t of this.listTasks()) {
+      if (t.archived) continue; // 归档任务不占看板列计数
+      counts[t.column] += 1;
+    }
     return counts;
   }
 

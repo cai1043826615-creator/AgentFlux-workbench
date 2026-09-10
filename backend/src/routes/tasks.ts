@@ -57,6 +57,20 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     return { task };
   });
 
+  // 归档（归档≠删除：数据保留，看板不显示，可恢复回原列）
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/archive', async (req, reply) => {
+    const task = service.archiveTask(Number(req.params.id));
+    if (!task) return reply.code(404).send({ error: 'task not found' });
+    return { task };
+  });
+
+  // 恢复归档任务回看板原列
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/restore', async (req, reply) => {
+    const task = service.restoreTask(Number(req.params.id));
+    if (!task) return reply.code(404).send({ error: 'task not found' });
+    return { task };
+  });
+
   // 任务事件（活动日志）
   app.get<{ Params: { id: string } }>('/api/tasks/:id/events', async (req) => {
     return { events: service.listEvents(Number(req.params.id)) };

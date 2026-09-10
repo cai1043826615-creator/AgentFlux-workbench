@@ -240,6 +240,15 @@ export class WorkflowService {
 
   // ===== 查询透传 =====
 
+  /** 归档（归档≠删除：数据保留，看板不显示，可恢复回原列） */
+  archiveTask(taskId: number): Task {
+    return this.executor.archiveTask(taskId);
+  }
+  /** 恢复归档任务回看板原列 */
+  restoreTask(taskId: number): Task {
+    return this.executor.restoreTask(taskId);
+  }
+
   listTasks(): Task[] {
     return this.executor.listTasks();
   }

@@ -30,6 +30,7 @@ export function ensureSchema(): void {
       reference_image TEXT,
       progress INTEGER NOT NULL DEFAULT 0,
       stage_note TEXT NOT NULL DEFAULT '',
+      archived INTEGER NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL DEFAULT '你',
       created_at TEXT NOT NULL
     );
@@ -37,6 +38,12 @@ export function ensureSchema(): void {
   // 旧库迁移：补充 reference_image 列（已存在则忽略）
   try {
     sqlite.exec('ALTER TABLE tasks ADD COLUMN reference_image TEXT');
+  } catch {
+    /* column already exists */
+  }
+  // 旧库迁移：补充 archived 列（已存在则忽略）
+  try {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
   } catch {
     /* column already exists */
   }

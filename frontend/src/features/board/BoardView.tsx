@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import type { BoardColumn } from '@workbench/shared';
 import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
+import { ArchivedTasksModal } from './ArchivedTasksModal.tsx';
 
 /** 看板列定义（对齐线框 columns） */
 const COLUMNS: { key: BoardColumn; label: string }[] = [
@@ -38,10 +40,12 @@ function TaskCard({
   task,
   onOpen,
   onConfirm,
+  onArchive,
 }: {
   task: TaskWithMeta;
   onOpen: (task: TaskWithMeta) => void;
   onConfirm: (id: number) => void;
+  onArchive: (id: number) => void;
 }) {
   return (
     <article
@@ -101,7 +105,7 @@ function TaskCard({
       </span>
 
       {/* 快捷操作 */}
-      <div className="mt-2.5 flex gap-2" onClick={(e) => e.stopPropagation()}>
+      <div className="mt-2.5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         {task.column === 'planned' ? (
           <Btn size="sm" variant="primary" onClick={() => onConfirm(task.id)}>
             确认开工
@@ -119,6 +123,11 @@ function TaskCard({
             已交付 · 已归档
           </span>
         ) : null}
+        <div className="flex-1" />
+        {/* 归档（归档≠删除：数据保留，看板隐藏，可在「已归档任务」中恢复回原列） */}
+        <Btn size="sm" variant="ghost" title="归档（归档≠删除，可在「已归档任务」中恢复）" onClick={() => onArchive(task.id)}>
+          归档
+        </Btn>
       </div>
     </article>
   );
@@ -126,7 +135,8 @@ function TaskCard({
 
 /** 任务看板（对齐线框 renderBoard：标题行 + ＋新建任务 + 四列） */
 export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onNew: () => void }) {
-  const { tasks, loading, confirmTask, openTask } = useWorkbench();
+  const { tasks, loading, confirmTask, openTask, archiveTask } = useWorkbench();
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   if (loading && tasks.length === 0) {
     return (
@@ -141,24 +151,32 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
     openTask(task.id);
   };
 
+  // 归档≠删除：看板只展示未归档任务
+  const activeTasks = tasks.filter((t) => !t.archived);
+  const archivedCount = tasks.length - activeTasks.length;
+
   return (
     <div className="flex h-full flex-col">
       {/* 标题行（对齐线框 board-title-row） */}
       <div className="mb-3.5 flex items-center gap-3">
         <span className="font-display text-xl font-bold">任务看板</span>
         <span className="qs-meta hidden sm:inline" style={{ color: 'var(--color-ink-faint)' }}>
-          {tasks.length}个任务
+          {activeTasks.length}个任务{archivedCount > 0 ? ` · ${archivedCount} 个已归档` : ''}
         </span>
         <div className="flex-1" />
+        {/* 已归档任务入口（新建任务左边）→ 弹窗查看 + 恢复 */}
+        <Btn variant="ghost" onClick={() => setArchiveOpen(true)} title="查看与恢复已归档任务">
+          {archivedCount > 0 ? `已归档任务（${archivedCount}）` : '已归档任务'}
+        </Btn>
         <Btn onClick={onNew}>＋ 新建任务</Btn>
       </div>
 
-      {tasks.length === 0 ? (
-        <Empty text="暂无任务，点击右上角「＋ 新建任务」" />
+      {activeTasks.length === 0 ? (
+        <Empty text={archivedCount > 0 ? '看板暂无任务，已归档任务可在「已归档任务」中查看' : '暂无任务，点击右上角「＋ 新建任务」'} />
       ) : (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto">
           {COLUMNS.map((col) => {
-            const list = tasks.filter((t) => t.column === col.key);
+            const list = activeTasks.filter((t) => t.column === col.key);
             return (
               <section key={col.key} className="qs-card flex min-w-[248px] flex-1 flex-col overflow-hidden">
                 <header className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ borderColor: 'var(--color-line)' }}>
@@ -167,7 +185,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
                 </header>
                 <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5">
                   {list.map((t) => (
-                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => void confirmTask(id)} />
+                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => void confirmTask(id)} onArchive={(id) => void archiveTask(id)} />
                   ))}
                   {list.length === 0 ? (
                     <div className="qs-meta py-6 text-center" style={{ color: 'var(--color-ink-faint)' }}>
@@ -180,6 +198,8 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
           })}
         </div>
       )}
+
+      <ArchivedTasksModal open={archiveOpen} onClose={() => setArchiveOpen(false)} />
     </div>
   );
 }

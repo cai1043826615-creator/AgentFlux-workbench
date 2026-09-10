@@ -28,6 +28,7 @@ export interface TaskRow {
   reference_image: string | null; // 参考图地址（/uploads/xxx.png 或 dataURL）
   progress: number;
   stage_note: string;
+  archived: number; // 0 未归档 / 1 已归档（归档≠删除，可恢复）
   created_by: string;
   created_at: string;
 }

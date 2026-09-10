@@ -31,6 +31,8 @@ interface WorkbenchState {
   confirmTask: (id: number) => Promise<void>;
   decide: (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject', imageId?: string, note?: string) => Promise<void>;
   review: (taskId: number, decision: 'pass' | 'rollback', targetStage?: string, note?: string) => Promise<void>;
+  archiveTask: (id: number) => Promise<void>;
+  restoreTask: (id: number) => Promise<void>;
   sendChat: (body: string) => void;
   selectChat: (target: ChatTarget) => void;
   setView: (v: 'board' | 'observability') => void;
@@ -243,6 +245,24 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     location.hash = `/${v}`;
   }, []);
 
+  /** 归档任务（归档≠删除：数据保留，看板不显示；WS task:update 同步各端） */
+  const archiveTask = useCallback(
+    async (id: number) => {
+      const { task } = await api.archiveTask(id);
+      upsertTask(task);
+    },
+    [upsertTask],
+  );
+
+  /** 恢复归档任务回看板原列 */
+  const restoreTask = useCallback(
+    async (id: number) => {
+      const { task } = await api.restoreTask(id);
+      upsertTask(task);
+    },
+    [upsertTask],
+  );
+
   const value = useMemo<WorkbenchState>(
     () => ({
       tasks,
@@ -263,6 +283,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       confirmTask,
       decide,
       review,
+      archiveTask,
+      restoreTask,
       sendChat,
       selectChat,
       setView,
@@ -270,7 +292,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       backToBoard,
       setTaskTab,
     }),
-    [tasks, agents, connected, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, refresh, createTask, confirmTask, decide, review, sendChat, selectChat, setView, openTask, backToBoard, setTaskTab],
+    [tasks, agents, connected, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, refresh, createTask, confirmTask, decide, review, archiveTask, restoreTask, sendChat, selectChat, setView, openTask, backToBoard, setTaskTab],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

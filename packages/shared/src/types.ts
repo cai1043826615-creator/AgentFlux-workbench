@@ -61,6 +61,8 @@ export interface Task {
   progress: number;
   /** 卡片状态文案，如「卖点文案 · 美美 在写 20m」 */
   stageNote: string;
+  /** 已归档（归档≠删除：数据保留，看板不显示，可恢复回原列） */
+  archived: boolean;
   createdBy: string;
   createdAt: string;
 }
