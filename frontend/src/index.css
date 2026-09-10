@@ -504,28 +504,30 @@ body {
   }
 }
 
-/* ===== Toast 前后堆叠（用户 2026-09-10：层叠而非纵向滚动铺满；FIFO 保留最新 5 条，最早自动消除） ===== */
+/* ===== Toast 前后堆叠 v3（用户 2026-09-10：点击才展开不回弹；最新一条在下面；FIFO 保留最新 5 条） ===== */
 .qs-toast-stack {
   display: flex;
-  flex-direction: column-reverse; /* 最新一张渲染在最下（右下角最前） */
+  flex-direction: column; /* 正序：最新卡在容器底部 = 视觉最下面 */
   align-items: flex-end;
-  pointer-events: none; /* 容器透明穿透，卡片自身接收点击 */
-  padding-top: 12px; /* 给 hover 展开的旧卡留出空间 */
+  pointer-events: auto; /* 空白区域可点击：点击展开/收起 */
+  padding-top: 12px; /* 展开态顶部留白 */
 }
 .qs-toast-stack .qs-toast {
   pointer-events: auto;
-  margin-top: var(--stack-offset, 8px);
-  opacity: var(--stack-opacity, 1);
+  height: 136px; /* 固定卡高（与 Toast.tsx TOAST_H 同步），保证堆叠露边稳定可预测 */
+  overflow: hidden;
+  margin-bottom: 8px; /* 展开态默认摊开（最新在底） */
+  opacity: 1;
   transition:
-    margin-top var(--dur-standard) var(--ease-standard),
+    margin-bottom var(--dur-standard) var(--ease-standard),
     opacity var(--dur-standard) var(--ease-standard),
     transform var(--dur-standard) var(--ease-standard),
     box-shadow var(--dur-standard) var(--ease-standard);
 }
-/* hover 整叠展开（覆盖内联堆叠变量；关闭时 leaving 优先） */
-.qs-toast-stack:hover .qs-toast {
-  margin-top: 8px !important;
-  opacity: 1 !important;
+/* 收起态：旧卡向上重叠只露顶边（--stack-mb 负值），最新卡在底部全展开 */
+.qs-toast-stack.collapsed .qs-toast {
+  margin-bottom: var(--stack-mb, 8px);
+  opacity: var(--stack-opacity, 1);
 }
 .qs-toast-stack .qs-toast.leaving {
   opacity: 0 !important;

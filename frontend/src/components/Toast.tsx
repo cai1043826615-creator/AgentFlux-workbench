@@ -3,13 +3,16 @@ import { WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../store/useWorkbench.tsx';
 
 /**
- * 右下角 Toast 通知（意见12 + 意见1 重构 + 堆叠版）：
+ * 右下角 Toast 通知（意见12 + 意见1 重构 + 堆叠版 v3）：
  * - 触发：任务进入待确认（approvalQueue 新增）/ 任务完成归档（tasks 中 column 变为 done）
  * - 不自动关闭（移除 45s 淡出）；手动 × 关闭，或点击主卡 / action 按钮跳转对应任务并关闭
  * - Aceternity 风卡片：宽 500；底部右侧 action 按钮
  *   （待确认「去处理」紫 primary / 任务完成「查看」绿）
- * - 前后堆叠：最新一张在最前（右下角），旧卡向上重叠只露一条边（非纵向滚动铺满）；
- *   鼠标悬停整叠展开，松开恢复层叠；超出上限只保留最新 5 条
+ * - 前后堆叠 v3（用户 2026-09-10 三点修订）：
+ *   ① 点击才展开（鼠标悬停不再展开）；
+ *   ② 展开后固定保持不回弹（再点空白收起）；
+ *   ③ 顺序修正：最新一条在下面（底部右下角最完整），旧卡向上重叠只露顶边；
+ *   超出上限只保留最新 5 条（FIFO，最早自动消除）
  */
 
 export interface ToastItem {
@@ -22,25 +25,33 @@ export interface ToastItem {
 
 const FADE_MS = 220; // 手动关闭淡出时长
 const TOAST_W = 500; // 单卡宽度（用户指定 500px）
-const TOAST_H = 140; // 单卡估算高度（含 padding + 按钮行），用于堆叠重叠量
-const TOAST_EDGE = 26; // 被遮挡的旧卡露出的边缘高度（px）
+const TOAST_H = 136; // 单卡固定高度（与 index.css .qs-toast-stack .qs-toast 的 height 同步），堆叠重叠量以此计算
+const TOAST_EDGE = 26; // 被遮挡的旧卡露出的顶部边缘高度（px）
 const MAX_VISIBLE = 5; // 常驻上限（超出保留最新 5 条）
 
 function stageText(stage: string): string {
   return WORKFLOW_STAGE_LABELS[stage] ?? stage;
 }
 
-/** 单条 Toast 卡片：进入动画 + 手动 × 淡出关闭 + 主卡/action 按钮点击跳转；depth=0 为最新（最前） */
+/**
+ * 单条 Toast 卡片：进入动画 + 手动 × 淡出关闭。
+ * 点击行为：收起态（collapsed）点击 = 展开整叠；展开态点击 = 跳转任务并关闭该条。
+ * depth=0 为最新（渲染在容器底部 = 视觉最下面）。
+ */
 function ToastCard({
   item,
   onDismiss,
   onOpen,
+  onExpand,
   depth,
+  collapsed,
 }: {
   item: ToastItem;
   onDismiss: (id: string) => void;
   onOpen: (item: ToastItem) => void;
+  onExpand: () => void;
   depth: number;
+  collapsed: boolean;
 }) {
   const [leaving, setLeaving] = useState(false);
 
@@ -63,13 +74,17 @@ function ToastCard({
         {
           width: TOAST_W,
           zIndex: 100 - depth,
-          // 堆叠偏移：最新一张完全展开；旧卡向上重叠只露边缘（hover 展开由 CSS 覆盖）
-          '--stack-offset': behind ? `${-(TOAST_H - TOAST_EDGE)}px` : '8px',
+          // 堆叠间距：最新一张在底部全展开；旧卡向上重叠只露顶边（收起态由 .collapsed 消费）
+          '--stack-mb': behind ? `${-(TOAST_H - TOAST_EDGE)}px` : '8px',
           '--stack-opacity': behind ? Math.max(0.55, 1 - depth * 0.13) : 1,
         } as React.CSSProperties
       }
-      title={`点击跳转任务 #${item.taskId}`}
-      onClick={() => onOpen(item)}
+      title={collapsed ? '点击展开通知列表' : `点击跳转任务 #${item.taskId}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (collapsed) onExpand();
+        else onOpen(item);
+      }}
     >
       {/* 主体：图标 + 标题 / 正文 / 阶段 */}
       <div className="flex items-start gap-2.5 px-5 pt-4 pb-2.5">
@@ -123,6 +138,7 @@ function ToastCard({
 export function ToastHost() {
   const { tasks, approvalQueue, openTask } = useWorkbench();
   const [queue, setQueue] = useState<ToastItem[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const seenApproval = useRef<Set<string>>(new Set());
   const seenDone = useRef<Set<number>>(new Set());
   const tasksRef = useRef<TaskWithMeta[] | null>(null);
@@ -163,8 +179,6 @@ export function ToastHost() {
     }
   }, [tasks, enqueue]);
 
-  // 超出滚动 → 已改为堆叠（无滚动）；新条目追加自动触发重排，无需滚动定位
-
   // 点击 Toast / action 按钮：跳转任务详情并关闭该条
   const open = useCallback(
     (item: ToastItem) => {
@@ -177,11 +191,25 @@ export function ToastHost() {
   if (queue.length === 0) return null;
 
   return (
-    <div className="qs-toast-stack fixed bottom-4 right-4 z-[70]" aria-live="polite">
+    <div
+      className={`qs-toast-stack fixed bottom-4 right-4 z-[70]${expanded ? '' : ' collapsed'}`}
+      aria-live="polite"
+      onClick={() => setExpanded((v) => !v)}
+    >
       {queue.map((it, idx) => {
-        // depth：0 = 最新（渲染在最前/最下），越大越靠后
+        // depth：0 = 最新（渲染在容器底部 = 视觉最下面），越大越旧越靠上
         const depth = queue.length - 1 - idx;
-        return <ToastCard key={it.id} item={it} onDismiss={dismiss} onOpen={open} depth={depth} />;
+        return (
+          <ToastCard
+            key={it.id}
+            item={it}
+            onDismiss={dismiss}
+            onOpen={open}
+            onExpand={() => setExpanded(true)}
+            depth={depth}
+            collapsed={!expanded}
+          />
+        );
       })}
     </div>
   );
