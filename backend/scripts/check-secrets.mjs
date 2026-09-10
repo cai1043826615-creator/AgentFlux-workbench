@@ -29,6 +29,11 @@ function isPlaceholder(value) {
   return /(xxx|your[-_]?|example|placeholder|<[^>]*>|\*{2,}|…|fill\s*in|your[-_]key|your[-_]token|sk-xxx)/.test(v);
 }
 
+/** 判定是否为环境变量引用（process.env.X —— 密钥不进代码的安全写法，放行） */
+function isEnvRef(value) {
+  return /^process\.env\./.test(String(value));
+}
+
 let failed = false;
 
 /** 扫描一段文本，报告命中 */
@@ -38,7 +43,7 @@ function scan(text, source) {
     let m;
     while ((m = re.exec(text)) !== null) {
       const hit = m[1] ?? m[0];
-      if (isPlaceholder(hit)) continue;
+      if (isPlaceholder(hit) || isEnvRef(hit)) continue;
       const line = text.slice(0, m.index).split('\n').length;
       console.error(`[密钥拦截] ${source}:${line} 命中「${name}」-> ${hit.slice(0, 4)}***（已脱敏）`);
       failed = true;

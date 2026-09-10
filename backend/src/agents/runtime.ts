@@ -3,7 +3,7 @@
  * routes/agents.ts 读取在线状态时可结合 isAgentConfigured 把未配置渠道的 Agent 展示为「未连接API」。
  */
 import type { Agent, AgentOnlineStatus } from '@workbench/shared';
-import { hasImageChannel, hasLlmChannel } from '../config.ts';
+import { hasImageChannel, hasLlmChannel, hasSupervisorChannel } from '../config.ts';
 import { get, run } from '../db/client.ts';
 import type { AgentRow } from '../db/schema.ts';
 import { bus } from '../engine/bus.ts';
@@ -69,12 +69,13 @@ export function markOnline(agentId: string): void {
 
 /**
  * 判断 Agent 渠道是否已配置：设置面板 llmChannels 按 agent 优先，回退 .env.local 默认渠道。
- * 设计师（agent-design）走生图渠道；其余文本 Agent 走 LLM 渠道。
+ * 设计师（agent-design）走生图渠道；主管波波（agent-supervisor）走视觉审阅渠道（SUPERVISOR_*）或 LLM 渠道；其余文本 Agent 走 LLM 渠道。
  */
 export function isAgentConfigured(agentId: string): boolean {
   const channels = getSetting<Record<string, { baseUrl: string; apiKey: string; model: string }>>('llmChannels') ?? {};
   if (channels[agentId]?.apiKey) return true;
   if (agentId === 'agent-design') return hasImageChannel();
+  if (agentId === 'agent-supervisor') return hasSupervisorChannel() || hasLlmChannel();
   return hasLlmChannel();
 }
 
