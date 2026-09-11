@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardColumn } from '@workbench/shared';
 import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { applyTaskFilters } from '../../lib/taskFilters.ts';
 import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { ArchivedTasksModal } from './ArchivedTasksModal.tsx';
-import { DeliverableSearch, DownloadButton, KbInvalidBadge, TaskFilterBar, TaskListTable } from './TaskListView.tsx';
+import { DeliverableSearch, KbInvalidBadge, TaskFilterBar, TaskListTable } from './TaskListView.tsx';
+import { useDownloadPackage } from '../../lib/useDownloadPackage.ts';
 
 /** 看板列定义（对齐线框 columns） */
 const COLUMNS: { key: BoardColumn; label: string }[] = [
@@ -49,6 +50,20 @@ function TaskCard({
   onConfirm: (id: number) => void;
   onArchive: (id: number) => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { download, busy: packing, error: packError } = useDownloadPackage(task.id);
+
+  // 点击卡片外部关闭溢出菜单（菜单本身在卡片内，需排除自身）
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [menuOpen]);
+
   return (
     <article
       className="qs-card qs-interactive relative p-3"
@@ -110,13 +125,17 @@ function TaskCard({
         <Avatar name={task.ownerName || '待'} size={14} /> {task.ownerName || '待分配'}
       </span>
 
-      {/* 快捷操作 */}
-      <div className="mt-2.5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-        {task.column === 'planned' ? (
-          <Btn size="sm" variant="primary" onClick={() => onConfirm(task.id)}>
+      {/* 主操作独占一行（次要操作已收进下方 ⋯ 溢出菜单，避免三按钮挤在一行导致中文折行） */}
+      {task.column === 'planned' ? (
+        <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+          <Btn size="sm" variant="primary" className="w-full" onClick={() => onConfirm(task.id)}>
             确认开工
           </Btn>
-        ) : null}
+        </div>
+      ) : null}
+
+      {/* 次要操作：交付包下载 / 归档 收进 ⋯ 溢出菜单 */}
+      <div className="mt-2.5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         {task.column === 'progress' ? (
           <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
             <span className="qs-dot signal busy" />
@@ -130,12 +149,47 @@ function TaskCard({
           </span>
         ) : null}
         <div className="flex-1" />
-        {/* B4 · 4.10 交付包下载入口（未归档任务也允许下载；无交付物时展示 409 中文原因） */}
-        <DownloadButton taskId={task.id} />
-        {/* 归档（归档≠删除：数据保留，看板隐藏，可在「已归档任务」中恢复回原列） */}
-        <Btn size="sm" variant="ghost" title="归档（归档≠删除，可在「已归档任务」中恢复）" onClick={() => onArchive(task.id)}>
-          归档
-        </Btn>
+        {/* B4 · 4.10 下载失败原因（409 中文）现在卡片层级展示，避免藏在菜单里被忽略 */}
+        {packError ? (
+          <span className="qs-meta max-w-[130px] truncate text-[10px]" style={{ color: 'var(--color-danger)' }} title={packError}>
+            {packError}
+          </span>
+        ) : null}
+        <div className="relative" ref={menuRef}>
+          <Btn size="sm" variant="ghost" title="更多操作" onClick={() => setMenuOpen((v) => !v)}>
+            ⋯
+          </Btn>
+          {menuOpen ? (
+            <div
+              className="qs-card absolute bottom-full right-0 z-20 mb-1 w-[124px] p-1"
+              style={{ boxShadow: '0 4px 12px rgba(10,10,10,0.08)' }}
+            >
+              <button
+                type="button"
+                className="qs-nav-item"
+                disabled={packing}
+                title="下载交付包 ZIP（文案 + 已采纳图片）"
+                onClick={() => {
+                  void download();
+                  setMenuOpen(false);
+                }}
+              >
+                {packing ? '打包中…' : '下载交付包'}
+              </button>
+              <button
+                type="button"
+                className="qs-nav-item"
+                title="归档（归档≠删除，可在「已归档任务」中恢复）"
+                onClick={() => {
+                  onArchive(task.id);
+                  setMenuOpen(false);
+                }}
+              >
+                归档
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </article>
   );
