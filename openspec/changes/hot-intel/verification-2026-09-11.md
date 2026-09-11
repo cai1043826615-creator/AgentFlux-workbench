@@ -70,6 +70,8 @@
 | `backend/package.json` | test 脚本追加 `hot-boundary.test.ts` |
 
 > 说明：1.3 属后端语义核对（无代码改动——`routes/tasks.ts` 本就只接受已知字段），1.4 以新增测试落实。
+>
+> **协调者执行注记（2026-09-11）**：组1 的 `useWorkbench.tsx` / `App.tsx` 两文件与 T4（通知/渠道）在同文件交错改动（文件级无法干净拆分），故组1 未单独成 commit；已按「四梯队各自中文 conventional commit」提交，`HotView.tsx`（删创建按钮）随 `feat(hot-intel)` 落地，`useWorkbench/App` 的 prefill 删除随 `feat(delivery-ops)` 落地（两 commit message 均已注明）。提交历史：`feat(quality-loop)` → `feat(knowledge-ux)` → `feat(hot-intel)` → `feat(delivery-ops)` → `chore` 共享收口。
 
 ---
 
