@@ -2,8 +2,8 @@
 
 - [x] 1.1 `README.md` 修正：环境变量名（`DEEPSEEK_BASE_URL/DEEPSEEK_API_KEY/DEEPSEEK_MODEL`、`IMAGE_BASE_URL/IMAGE_API_KEY/IMAGE_MODEL`）、拍板点 2→3（含 ASCII 工作流图）、版本 Vite 6 / React 19
   - ✓ 按文档配置渠道可生效；拍板点与图定义一致
-- [ ] 1.2 主 spec `workflow-engine` 拍板点 2→3 + 详情图拍板后自动推进（delta spec 已就绪），归档时由 sync 流程落到 `openspec/specs/`
-  - ✓ `openspec validate` 通过（1.2 随归档 sync 落地后勾选）
+- [x] 1.2 主 spec `workflow-engine` 拍板点 2→3 + 详情图拍板后自动推进（delta spec 已就绪），归档时由 sync 流程落到 `openspec/specs/`
+  - ✓ `openspec validate` 通过；主 spec `workflow-engine` 已 sync（Human approval points 2→3 + Approval actions/自动推进段贯穿修订）
 
 ## 2. 数据清理与最终验收
 

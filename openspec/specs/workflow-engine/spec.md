@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the workflow engine for e-commerce new-product listing: a six-stage pipeline (需求对齐 → 卖点文案 → 主图设计 → 详情图设计 → 主管校对 → 交付完成) with two human approval points, automatic progression, supervisor review, and stage rollback. The workflow is defined as a graph of nodes, edges, and conditional branches; a stage may schedule parallel sub-tasks (e.g. generating multiple images concurrently).
+Defines the workflow engine for e-commerce new-product listing: a six-stage pipeline (需求对齐 → 卖点文案 → 主图设计 → 详情图设计 → 主管校对 → 交付完成) with three human approval points, automatic progression, supervisor review, and stage rollback. The workflow is defined as a graph of nodes, edges, and conditional branches; a stage may schedule parallel sub-tasks (e.g. generating multiple images concurrently).
 
 ## Requirements
 
@@ -26,7 +26,7 @@ The system SHALL route each stage to the responsible agents: 需求对齐 (人�
 
 ### Requirement: Human approval points
 
-The system SHALL place two human approval points in the workflow: after 卖点文案 output and after 主图设计 output; at these points the task enters the 待确认 column and waits for the user's decision.
+The system SHALL place three human approval points in the workflow: after 卖点文案 output, after 主图设计 output, and after 详情图设计 output; at these points the task enters the 待确认 column and waits for the user's decision.
 
 #### Scenario: Approval point after copy output
 
@@ -37,6 +37,11 @@ The system SHALL place two human approval points in the workflow: after 卖点�
 
 - **WHEN** the 设计师 agent finishes the main image set
 - **THEN** the task moves to 待确认 with an approval prompt for the main images
+
+#### Scenario: Approval point after detail image output
+
+- **WHEN** the 设计师 agent finishes the detail image set
+- **THEN** the task moves to 待确认 with an approval prompt for the detail images
 
 #### Scenario: Approve advances the workflow
 
@@ -55,7 +60,7 @@ The system SHALL place two human approval points in the workflow: after 卖点�
 
 ### Requirement: Approval actions driven from content delivery
 
-The system SHALL drive approval-point transitions from the per-item actions in the 内容交付 page: copy approve/reject at approval point 1 (卖点文案), and per-image approve/reject at approval point 2 (主图设计); the stage advances only after all pending images are decided.
+The system SHALL drive approval-point transitions from the per-item actions in the 内容交付 page: copy approve/reject at approval point 1 (卖点文案), per-image approve/reject at approval point 2 (主图设计), and per-image approve/reject at approval point 3 (详情图设计); the stage advances only after all pending images are decided.
 
 #### Scenario: Copy approval advances at point 1
 
@@ -67,14 +72,24 @@ The system SHALL drive approval-point transitions from the per-item actions in t
 - **WHEN** the user approves all pending images while the task is at approval point 2
 - **THEN** the task advances to 详情图设计
 
+#### Scenario: Image approval completes point 3
+
+- **WHEN** the user approves all pending images while the task is at approval point 3
+- **THEN** the task advances to 主管校对
+
 ### Requirement: Automatic progression without approval points
 
 The system SHALL automatically advance stages that have no human approval point, with zero manual intervention.
 
-#### Scenario: Auto-progress detail image stage
+#### Scenario: Auto-progress requirement stage
 
-- **WHEN** the 详情图设计 stage completes
-- **THEN** the system automatically continues to the next stage without waiting for the user
+- **WHEN** the 需求对齐 stage completes
+- **THEN** the system automatically continues to the 卖点文案 stage without waiting for the user
+
+#### Scenario: Auto-progress after detail approval
+
+- **WHEN** the user approves all pending detail images at approval point 3
+- **THEN** the system automatically runs the 主管校对 stage without waiting for the user
 
 ### Requirement: Supervisor review with rollback
 
