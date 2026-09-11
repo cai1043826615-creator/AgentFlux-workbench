@@ -5,11 +5,11 @@ Multi-Agent E-Commerce Workbench —— 一套把「电商新品上架全套物�
 ## 工作流
 
 ```
-需求对接 → 卖点文案 ✱ → 主图设计 ✱ → 详情图设计 → 主管校对 → 交付归档
+需求对接 → 卖点文案 ✱ → 主图设计 ✱ → 详情图设计 ✱ → 主管校对 → 交付归档
 ```
 
 - **6 阶段**：需求对接 → 卖点文案 → 主图设计 → 详情图设计 → 主管校对 → 交付归档
-- **2 个拍板点**（✱）：卖点文案、主图设计 —— 产出后停在「待确认」，由你在「内容交付」页采纳或打回
+- **3 个拍板点**（✱）：卖点文案、主图设计、详情图设计 —— 产出后停在「待确认」，由你在「内容交付」页采纳或打回
 - **采纳即推进**：文案整包采纳 / 图片逐张采纳（全部采纳后自动推进），无需回看板重复操作
 - **校对回退**：主管校对发现问题时，可沿回退边把任务退回文案 / 主图 / 详情图重新输出
 - **并行生图**：主图 / 详情图按渠道分组并行生成（组间并行、组内串行），逐张上报进度，失败不阻塞
@@ -39,7 +39,7 @@ Multi-Agent E-Commerce Workbench —— 一套把「电商新品上架全套物�
 ## 技术栈
 
 - **Monorepo**：pnpm workspaces（`frontend` / `backend` / `packages/shared`）
-- **前端**：Vite 5 + React 18 + TypeScript + Tailwind CSS v4（Quiet Signal 设计语言基座；布局严格对照低保真线框可交互版）
+- **前端**：Vite 6 + React 19 + TypeScript + Tailwind CSS v4（Quiet Signal 设计语言基座；布局严格对照低保真线框可交互版）
 - **后端**：Fastify 5 + WebSocket（@fastify/websocket）+ SQLite（node:sqlite，WAL）
 - **共享**：`@workbench/shared` 类型包（Agent / Task / Event / Deliverable / Message / 工作流定义 / WS 协议），前后端契约一致
 - **引擎**：状态图式工作流引擎（6 阶段节点 + 条件分支边 + 并行子任务分组 + 编排开关）
@@ -79,7 +79,7 @@ pnpm install --ignore-scripts
 
 # 2. 配置渠道密钥（可选，不配置则用内置模拟内容跑通全流程）
 #    复制 backend/.env.local.example 为 backend/.env.local 并填写：
-#    LLM_API_URL / LLM_API_KEY / LLM_MODEL / IMAGE_API_URL / IMAGE_API_KEY / IMAGE_MODEL
+#    DEEPSEEK_BASE_URL / DEEPSEEK_API_KEY / DEEPSEEK_MODEL / IMAGE_BASE_URL / IMAGE_API_KEY / IMAGE_MODEL
 #    （.env.local 已被 gitignore，密钥不会入库）
 
 # 3. 启动后端（端口 4311）
