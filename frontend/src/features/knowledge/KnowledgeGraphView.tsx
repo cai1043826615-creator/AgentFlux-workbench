@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KB_GRAPH_PRESETS, type KnowledgeGraphData, type KnowledgeGraphEdge, type KnowledgeGraphIsolationFilter, type KnowledgeGraphPreset, type KnowledgeNodeDetail } from '@workbench/shared';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { KB_GRAPH_PRESETS, type KnowledgeDirInfo, type KnowledgeGraphData, type KnowledgeGraphEdge, type KnowledgeGraphPreset, type KnowledgeNodeDetail, type KnowledgeTagInfo } from '@workbench/shared';
 import { Badge, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
@@ -8,6 +8,100 @@ import { drawGraph, hitTest as kernelHitTest, layoutInitial, screenToWorld as ke
 
 /** 模拟节点（布局/视觉状态由渲染内核 graphCanvas.ts 提供，此处仅别名） */
 type SimNode = GraphSimNode;
+
+/** 目录树节点（由 flat dirs 列表构建，用于左树渲染） */
+interface DirTreeNode {
+  dir: string;
+  count: number;
+  depth: number;
+  children: DirTreeNode[];
+}
+
+/** 将 flat 目录列表（含 '' 根）构建为嵌套树；跳过根目录（由「全部」行表达） */
+function buildDirTree(items: KnowledgeDirInfo[]): DirTreeNode[] {
+  const map = new Map<string, DirTreeNode>();
+  for (const it of items) {
+    if (it.dir === '') continue;
+    map.set(it.dir, { dir: it.dir, count: it.count, depth: it.dir.split('/').length - 1, children: [] });
+  }
+  const roots: DirTreeNode[] = [];
+  for (const it of items) {
+    if (it.dir === '') continue;
+    const node = map.get(it.dir)!;
+    const i = it.dir.lastIndexOf('/');
+    const parent = i < 0 ? '' : it.dir.slice(0, i);
+    if (parent === '') roots.push(node);
+    else map.get(parent)?.children.push(node);
+  }
+  return roots;
+}
+
+/** 目录展示名（取最后一段，如 10_raw/products → products） */
+function dirLabel(dir: string): string {
+  const i = dir.lastIndexOf('/');
+  return i < 0 ? dir : dir.slice(i + 1);
+}
+
+/** 已激活筛选条件 chip（可单独移除） */
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span
+      className="qs-clickable inline-flex items-center gap-1 rounded-[3px] border px-2 py-0.5 text-[12px]"
+      style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-sunken)', color: 'var(--color-ink)' }}
+    >
+      {label}
+      <button type="button" className="leading-none opacity-60 hover:opacity-100" aria-label={`移除 ${label}`} onClick={onRemove}>
+        ×
+      </button>
+    </span>
+  );
+}
+
+/** 目录树递归行：缩进表达层级，可展开/折叠，单选高亮 */
+function DirTreeRow({
+  node,
+  expanded,
+  activeDir,
+  onToggle,
+  onSelect,
+}: {
+  node: DirTreeNode;
+  expanded: Record<string, boolean>;
+  activeDir: string | null;
+  onToggle: (dir: string) => void;
+  onSelect: (dir: string) => void;
+}) {
+  const hasChildren = node.children.length > 0;
+  const open = expanded[node.dir] ?? false;
+  const active = activeDir === node.dir;
+  return (
+    <Fragment>
+      <div className="flex items-center" style={{ paddingLeft: node.depth * 12 }}>
+        {hasChildren ? (
+          <button type="button" className="qs-clickable w-4 shrink-0 text-center text-[11px]" onClick={() => onToggle(node.dir)} aria-label={open ? '折叠' : '展开'}>
+            {open ? '▾' : '▸'}
+          </button>
+        ) : (
+          <span className="w-4 shrink-0" />
+        )}
+        <button
+          type="button"
+          className={`qs-nav-item min-w-0 flex-1 text-left ${active ? 'active' : ''}`}
+          onClick={() => onSelect(node.dir)}
+          title={node.dir}
+        >
+          <span className="min-w-0 flex-1 truncate">{dirLabel(node.dir)}</span>
+          <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{node.count}</span>
+        </button>
+      </div>
+      {open && hasChildren
+        ? node.children.map((c) => (
+            <DirTreeRow key={c.dir} node={c} expanded={expanded} activeDir={activeDir} onToggle={onToggle} onSelect={onSelect} />
+          ))
+        : null}
+    </Fragment>
+  );
+}
 
 /**
  * 知识星图（design.md D4）：自绘 canvas 力导向布局，不引入重型图库。
@@ -25,10 +119,18 @@ export function KnowledgeGraphView() {
   const [loading, setLoading] = useState(true);
   /** 缩放百分比显示（与 viewRef.zoom 同步；滚轮/按钮/适配/重置视图后均更新） */
   const [zoomPct, setZoomPct] = useState(100);
-  /** 图谱透镜过滤（仅影响前端渲染集合）：目录 / 标签 / 孤立状态三维度取交集 */
-  const [filters, setFilters] = useState<{ dir: string | null; tag: string | null; isolation: KnowledgeGraphIsolationFilter }>({ dir: null, tag: null, isolation: 'all' });
-  /** 当前生效的业务预设 id（null = 无预设；手动修改任一过滤维度时置 null 取消高亮） */
-  const [preset, setPreset] = useState<KnowledgeGraphPreset['id'] | null>(null);
+  /** 左树目录数据（GET /api/knowledge/dirs）与标签数据（GET /api/knowledge/tags） */
+  const [dirs, setDirs] = useState<KnowledgeDirInfo[]>([]);
+  const [tagInfos, setTagInfos] = useState<KnowledgeTagInfo[]>([]);
+  /** 目录树展开状态（目录路径 → 是否展开；默认展开所有含子目录的节点） */
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  /**
+   * 图谱透镜过滤（仅影响前端渲染集合，3.4/7 重构后）：
+   * - dir：目录单选（含子孙目录）；null = 不过滤目录
+   * - tags：标签多选，与目录维度取交集（"产品资料里标注了主推的"）
+   * - islandOnly：只显示孤岛文档（连通性健康检查，独立开关）
+   */
+  const [filters, setFilters] = useState<{ dir: string | null; tags: string[]; islandOnly: boolean }>({ dir: null, tags: [], islandOnly: false });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -48,8 +150,18 @@ export function KnowledgeGraphView() {
     setLoading(true);
     setError(null);
     try {
-      const { graph: g } = await api.kbGraph();
+      const [gRes, dirsRes, tagsRes] = await Promise.all([api.kbGraph(), api.kbDirs(), api.kbTags()]);
+      const g = gRes.graph;
       setGraph(g);
+      setDirs(dirsRes.dirs);
+      setTagInfos(tagsRes.tags);
+      // 默认展开所有含子目录的节点（叶子目录默认不展开）
+      const paths = dirsRes.dirs.map((d) => d.dir);
+      const exp: Record<string, boolean> = {};
+      for (const d of dirsRes.dirs) {
+        if (d.dir && paths.some((p) => p.startsWith(`${d.dir}/`))) exp[d.dir] = true;
+      }
+      setExpanded(exp);
       // 初始化布局：由渲染内核提供（文档环形 + 标签散布），避免全部重叠
       nodesRef.current = layoutInitial(g.nodes);
       edgesRef.current = g.edges;
@@ -190,45 +302,38 @@ export function KnowledgeGraphView() {
    */
   const getVisibleNodes = useCallback((): SimNode[] => {
     const all = nodesRef.current;
-    const { dir, tag, isolation } = filters;
-    if (!dir && !tag && isolation === 'all' && !preset) return all;
+    const { dir, tags, islandOnly } = filters;
+    if (!dir && tags.length === 0 && !islandOnly) return all;
     let docs = all.filter((n) => n.kind === 'doc');
     if (dir) {
-      const target = dir;
+      // 目录单选：命中所选目录或其子孙目录的文档
       docs = docs.filter((d) => {
         const p = d.path ?? '';
         const i = p.lastIndexOf('/');
         const dd = i < 0 ? '' : p.slice(0, i);
-        return dd === target || dd.startsWith(`${target}/`);
+        return dd === dir || dd.startsWith(`${dir}/`);
       });
     }
-    if (tag) {
-      const t = tag.trim();
-      docs = docs.filter((d) => d.tags.some((x) => x.trim() === t));
+    if (tags.length > 0) {
+      // 标签多选：文档命中任一所选标签（标签维度内取并集），再与目录维度取交集
+      const sel = new Set(tags.map((t) => t.trim()));
+      docs = docs.filter((d) => d.tags.some((x) => sel.has(x.trim())));
     }
-    if (isolation === 'linked') {
-      const linked = new Set<string>();
-      for (const e of edgesRef.current) {
-        if (e.kind === 'link') {
-          linked.add(e.source);
-          linked.add(e.target);
-        }
-      }
-      docs = docs.filter((d) => linked.has(d.id));
-    } else if (isolation === 'island') {
+    if (islandOnly) {
       docs = docs.filter((d) => d.isolated === true);
     }
-    let tags: SimNode[] = [];
-    if (tag) {
-      const t = tag.trim();
-      if (docs.length > 0) tags = all.filter((n) => n.kind === 'tag' && n.label.trim() === t);
+    // 标签节点：标签过滤下仅保留所选标签节点；否则保留被可见文档使用的标签节点
+    let tagNodes: SimNode[] = [];
+    if (tags.length > 0) {
+      const sel = new Set(tags.map((t) => t.trim()));
+      tagNodes = all.filter((n) => n.kind === 'tag' && sel.has(n.label.trim()));
     } else {
       const used = new Set<string>();
       for (const d of docs) for (const t0 of d.tags) used.add(t0.trim());
-      tags = all.filter((n) => n.kind === 'tag' && used.has(n.label.trim()));
+      tagNodes = all.filter((n) => n.kind === 'tag' && used.has(n.label.trim()));
     }
-    return [...docs, ...tags];
-  }, [filters, preset]);
+    return [...docs, ...tagNodes];
+  }, [filters]);
 
   /** 当前过滤条件下的可见边：仅两端均可见时保留（3.4） */
   const getVisibleEdges = useCallback((): KnowledgeGraphEdge[] => {
@@ -262,21 +367,19 @@ export function KnowledgeGraphView() {
   const zoomIn = useCallback(() => applyView({ zoom: viewRef.current.zoom * 1.2 }), [applyView]);
   const zoomOut = useCallback(() => applyView({ zoom: viewRef.current.zoom / 1.2 }), [applyView]);
 
-  /** 手动修改任一过滤维度 → 预设高亮取消（3.7 预设与手动条件互斥） */
-  const updateFilters = (next: Partial<{ dir: string | null; tag: string | null; isolation: KnowledgeGraphIsolationFilter }>) => {
+  /** 修改过滤维度（单选目录切换 / 标签勾选 / 孤岛开关）；预设高亮改为派生，无需手动取消 */
+  const updateFilters = (next: Partial<{ dir: string | null; tags: string[]; islandOnly: boolean }>) => {
     setHover(null);
-    setPreset(null);
     setFilters((prev) => ({ ...prev, ...next }));
   };
 
-  /** 清除全部过滤（含预设）→ 图谱恢复全量 */
+  /** 清除全部过滤 → 图谱恢复全量 */
   const clearFilters = () => {
     setHover(null);
-    setPreset(null);
-    setFilters({ dir: null, tag: null, isolation: 'all' });
+    setFilters({ dir: null, tags: [], islandOnly: false });
   };
 
-  /** 解析预设依据目录（3.7）：优先 status.presets（连接设置可改），未配置/未连接时回退共享常量 KB_GRAPH_PRESETS */
+  /** 解析预设依据目录：优先 status.presets（连接设置可改），未配置/未连接时回退共享常量 KB_GRAPH_PRESETS */
   const resolvePresetDir = useCallback(async (id: KnowledgeGraphPreset['id']): Promise<string | undefined> => {
     const fallback = KB_GRAPH_PRESETS.find((p) => p.id === id)?.dir;
     try {
@@ -288,24 +391,16 @@ export function KnowledgeGraphView() {
     }
   }, []);
 
-  /** 应用业务预设：覆盖 filters（dir = 预设目录，tag = null，isolation = 'all'）并记录 preset id */
-  const applyPreset = useCallback(
+  /** 点击 ⭐ 快捷项：解析预设目录并单选该目录（与目录树同一状态，无独立预设态） */
+  const selectPresetDir = useCallback(
     async (id: KnowledgeGraphPreset['id']) => {
       const dir = await resolvePresetDir(id);
       if (!dir) return;
       setHover(null);
-      setPreset(id);
-      setFilters({ dir, tag: null, isolation: 'all' });
+      setFilters((prev) => ({ ...prev, dir }));
     },
     [resolvePresetDir],
   );
-
-  /** 工具栏「K 孤岛」入口（3.9）：进入仅孤岛过滤态并取消预设高亮 */
-  const goIsland = () => {
-    setHover(null);
-    setPreset(null);
-    setFilters((prev) => ({ ...prev, isolation: 'island' }));
-  };
 
   /** 绘制一帧（渲染内核 graphCanvas.drawGraph；主视图与缩略预览共用同一绘制） */
   const draw = useCallback(() => {
@@ -475,18 +570,16 @@ export function KnowledgeGraphView() {
 
   const nodeCount = graph?.nodes.length ?? 0;
   const hasData = useMemo(() => (graph ? graph.nodes.length > 0 : false), [graph]);
-  /** 3.9 健康度计数：N 页面（文档节点，不含标签）/ M 双链（kind==='link' 边）/ K 孤岛（isolated 文档节点） */
-  const docCount = graph?.nodes.filter((n) => n.kind === 'doc').length ?? 0;
-  const linkEdgeCount = graph?.edges.filter((e) => e.kind === 'link').length ?? 0;
+  /** 孤岛计数（isolated 文档节点），用于左树孤岛开关文案 */
   const islandCount = graph?.nodes.filter((n) => n.kind === 'doc' && n.isolated === true).length ?? 0;
-  /** 3.4 计数：已显示 X / 共 Y 个节点 */
+  /** 目录列表 → 嵌套树（左树渲染用） */
+  const dirTree = useMemo(() => buildDirTree(dirs), [dirs]);
+  /** 已显示 X / 共 Y 个节点 */
   const visibleCount = useMemo(() => (hasData ? getVisibleNodes().length : 0), [hasData, getVisibleNodes, graph]);
-  /** 过滤是否生效（任一维度或预设） */
-  const filterActive = filters.dir != null || filters.tag != null || filters.isolation !== 'all' || preset != null;
-  /** 3.6 过滤后无可见节点 → 画布区空态（不渲染 canvas） */
+  /** 过滤是否生效（目录 / 标签 / 孤岛 任一维度） */
+  const filterActive = filters.dir != null || filters.tags.length > 0 || filters.islandOnly;
+  /** 过滤后无可见节点 → 画布区空态（不渲染 canvas） */
   const showFilterEmpty = hasData && visibleCount === 0 && filterActive;
-  /** 3.7 当前生效预设名（label 取自共享常量，不散落在视图代码内） */
-  const activePresetLabel = preset ? KB_GRAPH_PRESETS.find((p) => p.id === preset)?.label ?? null : null;
 
   // 3.5 过滤可见性贯通：每次过滤变化后，若当前选中节点不在可见节点集合中 → 清空选中与详情
   useEffect(() => {
@@ -502,7 +595,7 @@ export function KnowledgeGraphView() {
           <h2 className="font-display text-[20px] font-bold">知识星图</h2>
           <p className="qs-meta mt-1">悬停看关系，点击聚焦邻居，双击进入文档</p>
           <p className="qs-meta mt-1" style={{ color: 'var(--color-ink-faint)' }}>
-            节点 {nodeCount} 个 · 关系边 {graph?.edges.length ?? 0} 条 · 圆形=文档，菱形=标签，虚线=标签归属
+            节点 {nodeCount} 个 · 关系边 {graph?.edges.length ?? 0} 条
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -520,9 +613,6 @@ export function KnowledgeGraphView() {
           <Btn size="sm" onClick={() => void load()} loading={loading}>
             刷新
           </Btn>
-          <Btn size="sm" variant="ghost" onClick={resetView}>
-            重置视图
-          </Btn>
         </div>
       </div>
 
@@ -532,72 +622,84 @@ export function KnowledgeGraphView() {
         </p>
       ) : null}
 
-      {hasData ? (
-        /* 工具栏：交互图例 + 业务预设 + 健康度计数 + 图谱透镜过滤（3.1/3.4/3.7/3.9） */
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-line)' }}>
-          <span className="qs-meta">拖拽 · 滚轮缩放 · 双击阅读</span>
-          <span className="h-3 w-px shrink-0" style={{ background: 'var(--color-line-strong)' }} />
-          {KB_GRAPH_PRESETS.map((p) => (
-            <Btn key={p.id} size="sm" variant={preset === p.id ? 'signal' : 'ghost'} onClick={() => void applyPreset(p.id)} title={`按 ${p.label} 预设目录过滤`}>
-              {p.label}
-            </Btn>
-          ))}
-          {preset && activePresetLabel ? <Badge tone="signal">{activePresetLabel} 生效中</Badge> : null}
-          <span className="h-3 w-px shrink-0" style={{ background: 'var(--color-line-strong)' }} />
-          <span className="qs-meta">
-            {docCount} 页面 / {linkEdgeCount} 双链 /{' '}
-            <button
-              type="button"
-              className="cursor-pointer hover:underline"
-              style={{ color: 'var(--color-signal)' }}
-              onClick={goIsland}
-              title="进入仅孤岛过滤"
-            >
-              {islandCount} 孤岛
-            </button>
-          </span>
-          <span className="h-3 w-px shrink-0" style={{ background: 'var(--color-line-strong)' }} />
-          <input
-            className="qs-input w-[150px]"
-            placeholder="按目录过滤"
-            aria-label="按目录过滤"
-            value={filters.dir ?? ''}
-            onChange={(e) => {
-              const v = e.target.value.trim().replace(/\/+$/, '');
-              updateFilters({ dir: v ? v : null });
-            }}
-          />
-          <input
-            className="qs-input w-[130px]"
-            placeholder="按标签过滤"
-            aria-label="按标签过滤"
-            value={filters.tag ?? ''}
-            onChange={(e) => {
-              const v = e.target.value.trim();
-              updateFilters({ tag: v ? v : null });
-            }}
-          />
-          <div className="flex items-center gap-1">
-            <Btn size="sm" variant={filters.isolation === 'all' ? 'signal' : 'ghost'} onClick={() => updateFilters({ isolation: 'all' })}>
-              全部
-            </Btn>
-            <Btn size="sm" variant={filters.isolation === 'linked' ? 'signal' : 'ghost'} onClick={() => updateFilters({ isolation: 'linked' })}>
-              仅有链接
-            </Btn>
-            <Btn size="sm" variant={filters.isolation === 'island' ? 'signal' : 'ghost'} onClick={() => updateFilters({ isolation: 'island' })}>
-              仅孤岛
-            </Btn>
-          </div>
-          <span className="qs-meta tabular">已显示 {visibleCount} / 共 {nodeCount} 个节点</span>
-          {filterActive ? (
-            <Btn size="sm" variant="ghost" onClick={clearFilters}>
-              清除过滤
-            </Btn>
+      {hasData && filterActive ? (
+        /* 已激活筛选标签条（7c）：可单独移除任一维度，一键清除全部 */
+        <div className="flex flex-wrap items-center gap-2 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-line)' }}>
+          <span className="qs-meta shrink-0">已激活筛选</span>
+          {filters.dir != null ? (
+            <FilterChip label={`目录：${dirLabel(filters.dir)}`} onRemove={() => updateFilters({ dir: null })} />
           ) : null}
+          {filters.tags.map((t) => (
+            <FilterChip key={t} label={`标签：${t}`} onRemove={() => updateFilters({ tags: filters.tags.filter((x) => x !== t) })} />
+          ))}
+          {filters.islandOnly ? (
+            <FilterChip label="仅孤岛" onRemove={() => updateFilters({ islandOnly: false })} />
+          ) : null}
+          <Btn size="sm" variant="ghost" onClick={clearFilters}>清除全部</Btn>
         </div>
       ) : null}
 
       <div className="flex gap-4">
+        {/* 左树：目录树 + ⭐快捷预设 + 标签树 + 孤岛开关（7b） */}
+        <aside className="qs-card flex w-[240px] shrink-0 flex-col self-start p-3">
+          <div className="qs-meta mb-1">目录</div>
+          <button type="button" className={`qs-nav-item w-full text-left ${filters.dir == null ? 'active' : ''}`} onClick={() => updateFilters({ dir: null })}>
+            <span className="flex-1 truncate">全部文档</span>
+            <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{graph?.nodes.filter((n) => n.kind === 'doc').length ?? 0}</span>
+          </button>
+          <div className="mb-3 mt-0.5">
+            {dirTree.map((d) => (
+              <DirTreeRow
+                key={d.dir}
+                node={d}
+                expanded={expanded}
+                activeDir={filters.dir}
+                onToggle={(dir) => setExpanded((prev) => ({ ...prev, [dir]: !(prev[dir] ?? false) }))}
+                onSelect={(dir) => updateFilters({ dir: filters.dir === dir ? null : dir })}
+              />
+            ))}
+          </div>
+
+          <div className="qs-meta mb-1">快捷</div>
+          <div className="mb-3 flex flex-col gap-0.5">
+            {KB_GRAPH_PRESETS.map((p) => (
+              <button key={p.id} type="button" className="qs-nav-item text-left" onClick={() => void selectPresetDir(p.id)} title={`按 ${p.label} 预设目录过滤`}>
+                <span className="flex-1 truncate">⭐ {p.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="qs-meta mb-1">标签（多选）</div>
+          <div className="mb-3 flex max-h-[180px] flex-col gap-0.5 overflow-y-auto">
+            {tagInfos.map((t) => {
+              const on = filters.tags.includes(t.tag);
+              return (
+                <label key={t.tag} className={`qs-nav-item cursor-pointer select-none ${on ? 'active' : ''}`}>
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3 shrink-0 accent-[var(--color-signal)]"
+                    checked={on}
+                    onChange={() => updateFilters({ tags: on ? filters.tags.filter((x) => x !== t.tag) : [...filters.tags, t.tag] })}
+                  />
+                  <span className="flex-1 truncate">{t.tag}</span>
+                  <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{t.count}</span>
+                </label>
+              );
+            })}
+          </div>
+
+          <label className="qs-nav-item cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-3 w-3 shrink-0 accent-[var(--color-signal)]"
+              checked={filters.islandOnly}
+              onChange={(e) => updateFilters({ islandOnly: e.target.checked })}
+            />
+            <span className="flex-1 truncate">只显示孤岛</span>
+            <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{islandCount}</span>
+          </label>
+        </aside>
+
         <div className="min-w-0 flex-1">
           <div ref={wrapRef} className="qs-card relative h-[62vh] overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
             {loading && !graph ? (
@@ -613,9 +715,9 @@ export function KnowledgeGraphView() {
               // 3.6：过滤后无可见节点（或预设无匹配）→ 空态 + 可点击清除过滤，不渲染 canvas
               <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
                 <Empty
-                  text={preset ? '该预设在当前知识库中没有匹配资料' : '当前过滤条件下没有节点'}
-                  hint={preset ? '检查预设依据的目录/标签是否与 Vault 结构一致，或清除过滤' : '放宽或清除过滤条件'}
-                  emptyKey={preset ? 'graph-preset-empty' : 'graph-filter-empty'}
+                  text={filters.dir != null ? '所选目录在当前知识库中没有匹配资料' : '当前过滤条件下没有节点'}
+                  hint={filters.dir != null ? '检查该目录是否与 Vault 结构一致，或清除过滤' : '放宽或清除过滤条件'}
+                  emptyKey={filters.dir != null ? 'graph-preset-empty' : 'graph-filter-empty'}
                 />
                 <Btn size="sm" variant="ghost" onClick={clearFilters}>
                   清除过滤
@@ -653,6 +755,9 @@ export function KnowledgeGraphView() {
                   <Btn size="sm" variant="ghost" onClick={fitView} title="适配全部可见节点">
                     适配
                   </Btn>
+                  <Btn size="sm" variant="ghost" onClick={resetView} title="重置缩放与平移">
+                    重置
+                  </Btn>
                 </div>
               </>
             )}
@@ -670,6 +775,15 @@ export function KnowledgeGraphView() {
                     标签 {hover.node.tags.slice(0, 4).join(' / ')}
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+            {/* 图例（7c：操作说明移入画布角落） */}
+            {hasData && !showFilterEmpty ? (
+              <div
+                className="pointer-events-none absolute left-3 top-3 z-10 rounded-[3px] border px-2 py-1 text-[11px]"
+                style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-surface)' }}
+              >
+                <span className="qs-meta">圆形=文档 · 菱形=标签 · 虚线=标签归属</span>
               </div>
             ) : null}
           </div>
