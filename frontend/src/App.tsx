@@ -86,7 +86,6 @@ function TopBar() {
       <span className="font-display text-[17px] font-bold leading-none" style={{ fontFamily: 'var(--font-display)' }}>
         电商工作台
       </span>
-      <span className="qs-meta hidden md:inline">MULTI-AGENT E-COMMERCE</span>
       <div className="flex-1" />
       {/* B9 · 12.5/13.1：通知开关与权限入口（「任务」按钮附近） */}
       <NotifyControl />

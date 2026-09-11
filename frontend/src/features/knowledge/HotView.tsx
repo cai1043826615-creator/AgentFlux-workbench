@@ -523,7 +523,6 @@ export function HotView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="qs-meta mb-0.5">板块 B · 知识库管理系统</div>
           {/* 5.6 衬线 Display 大标题 */}
           <h2 className="font-display text-[22px] font-bold leading-tight" style={{ fontFamily: 'var(--font-display)' }}>
             每日热点

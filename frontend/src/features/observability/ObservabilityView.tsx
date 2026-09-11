@@ -134,14 +134,13 @@ export function ObservabilityView() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-display text-xl font-bold">Agent 状态</span>
         <Badge tone={connected ? 'ok' : 'no'}>{connected ? '实时连接' : '离线'}</Badge>
-        <span className="qs-meta">AGENT STATUS · 在线 / 统计 / 日志</span>
       </div>
 
       {/* 意见10：两个区域容器等高、底部对齐（网格 items-stretch；各自 h-full flex flex-col） */}
       <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[1fr_300px]">
         {/* 工位在线状态 */}
         <div className="flex min-w-0 flex-col">
-          <SectionTitle meta="AGENTS / ONLINE">Agent 在线状态</SectionTitle>
+          <SectionTitle>Agent 在线状态</SectionTitle>
           {agents.length === 0 ? (
             <Card>
               <Empty text="暂无工位（Agent）" />

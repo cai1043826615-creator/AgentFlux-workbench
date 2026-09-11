@@ -348,7 +348,6 @@ export function KnowledgeView() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <div className="qs-meta mb-0.5">板块 B · 知识库管理系统</div>
             <h2 className="font-display text-[20px] font-bold">知识库</h2>
           </div>
           <Badge tone="no">未连接</Badge>
@@ -382,10 +381,9 @@ export function KnowledgeView() {
       {/* 头部：状态 + 索引范围 + 操作 */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="qs-meta mb-0.5">板块 B · 知识库管理系统</div>
           <h2 className="font-display text-[20px] font-bold">知识库</h2>
           <p className="qs-meta mt-1" style={{ color: 'var(--color-ink-faint)' }} title={status.root ?? ''}>
-            已连接 · 只读接入{status.range.includeDirs.length > 0 ? ` · 白名单 ${status.range.includeDirs.join(' / ')}` : ''} · 排除 {status.range.excludeDirs.length} 个目录
+            已连接 · 只读接入
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -418,7 +416,7 @@ export function KnowledgeView() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') void runSearch();
             }}
-            placeholder="搜索知识库（中文 ≥3 字命中更准，1-2 字自动用短词匹配）"
+            placeholder="搜索知识库…"
             aria-label="搜索知识库"
           />
           <Btn variant="primary" size="sm" loading={busy} onClick={() => void runSearch()}>

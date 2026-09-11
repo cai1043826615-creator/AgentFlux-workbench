@@ -499,7 +499,6 @@ export function KnowledgeGraphView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="qs-meta mb-0.5">板块 B · 知识库管理系统</div>
           <h2 className="font-display text-[20px] font-bold">知识星图</h2>
           <p className="qs-meta mt-1">悬停看关系，点击聚焦邻居，双击进入文档</p>
           <p className="qs-meta mt-1" style={{ color: 'var(--color-ink-faint)' }}>
@@ -514,7 +513,7 @@ export function KnowledgeGraphView() {
               setQuery(e.target.value);
               locate(e.target.value);
             }}
-            placeholder="搜索节点定位…"
+            placeholder="在图谱中定位…"
             aria-label="搜索节点"
           />
           {matchCount != null ? <Badge tone={matchCount > 0 ? 'signal' : 'no'}>命中 {matchCount}</Badge> : null}

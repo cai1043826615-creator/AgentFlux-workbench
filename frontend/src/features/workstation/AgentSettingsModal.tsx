@@ -328,7 +328,7 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
 
       {/* 挂载的 SKILL 与文件 */}
       <div className="qs-card p-3">
-        <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-soft)' }}>挂载的 SKILL 与文件</div>
+        <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-soft)' }}>技能与文件</div>
         <div className="space-y-1.5">
           {skills.map((s) => (
             <div key={`s-${s}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
