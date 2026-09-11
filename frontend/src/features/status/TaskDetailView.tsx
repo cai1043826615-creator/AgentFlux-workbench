@@ -503,6 +503,11 @@ export function TaskDetailView({
   const awaiting = task.column === 'awaiting';
   const done = task.column === 'done';
 
+  // 24：进度与阶段条统一数据源（均由 task.stage 推导），消除「进度 0% 但阶段已是 1/6」的语义冲突
+  const stageIdx = Math.max(0, WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]));
+  const stagePct = Math.round(((done ? WORKFLOW_STAGE_KEYS.length : stageIdx + 1) / WORKFLOW_STAGE_KEYS.length) * 100);
+  const progressText = `阶段 ${done ? WORKFLOW_STAGE_KEYS.length : stageIdx + 1}/${WORKFLOW_STAGE_KEYS.length} · ${stagePct}%`;
+
   // 产出摘要（文案标题 + 图片张数）
   const deliverables = deliverablesByTask[task.id] ?? [];
   const copyDel = deliverables.find((d) => d.kind === 'copy');
@@ -639,7 +644,7 @@ export function TaskDetailView({
               {[
                 ['类型', '电商新品上架'],
                 ['当前阶段', WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage],
-                ['进度', `${task.progress}%`],
+                ['进度', progressText],
                 ['负责人', task.ownerName || '—'],
                 ['创建人', task.createdBy || '—'],
                 ['状态', task.column === 'planned' ? '规划中' : task.column === 'progress' ? '进行中' : task.column === 'awaiting' ? '待确认' : '已完成'],

@@ -5,8 +5,9 @@ import { type ReactNode } from 'react';
  * 覆盖 spec 要求的「标题、段落、列表、链接、代码块等」，刻意不追求全量 Markdown 兼容。
  */
 
-/** 行内元素：**粗体** / *斜体* / `代码` / [链接](url) / [[wiki链接]] */
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
+/** 行内元素：**粗体** / *斜体* / `代码` / [链接](url) / [[wiki链接]]
+ *  onOpenDoc 提供时：wiki 链接与内部文档链接可点击跳转（30，与星图节点详情复用同一跳转能力） */
+function renderInline(text: string, keyPrefix: string, onOpenDoc?: (path: string) => void): ReactNode[] {
   const nodes: ReactNode[] = [];
   const pattern = /(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`)|(\[[^\]]+\]\([^)\s]+\))|(\[\[[^\]]+\]\])/g;
   let last = 0;
@@ -29,27 +30,43 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
         </code>,
       );
     } else if (token.startsWith('[[')) {
-      // wiki 链接：知识库内无跳转语义时按高亮文本呈现
+      // wiki 链接：有跳转能力时点击打开关联文档，否则按高亮文本呈现
+      const target = token.slice(2, -2);
       nodes.push(
-        <span key={key} style={{ color: 'var(--color-signal)' }} title="知识库内部链接">
-          {token.slice(2, -2)}
-        </span>,
+        onOpenDoc ? (
+          <button key={key} type="button" className="qs-clickable" style={{ color: 'var(--color-signal)', textDecoration: 'underline' }} title="跳转到关联文档" onClick={() => onOpenDoc(target)}>
+            {target}
+          </button>
+        ) : (
+          <span key={key} style={{ color: 'var(--color-signal)' }} title="知识库内部链接">
+            {target}
+          </span>
+        ),
       );
     } else if (token.startsWith('[')) {
       const lm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
       if (lm) {
         const external = /^https?:/i.test(lm[2]);
-        nodes.push(
-          <a
-            key={key}
-            href={external ? lm[2] : undefined}
-            target={external ? '_blank' : undefined}
-            rel="noreferrer"
-            style={{ color: 'var(--color-signal)', textDecoration: 'underline' }}
-          >
-            {lm[1]}
-          </a>,
-        );
+        // 30：内部文档链接（非 http）可点击跳转；外部链接仍走新窗口
+        if (!external && onOpenDoc) {
+          nodes.push(
+            <button key={key} type="button" className="qs-clickable" style={{ color: 'var(--color-signal)', textDecoration: 'underline' }} title="跳转到关联文档" onClick={() => onOpenDoc(lm[2])}>
+              {lm[1]}
+            </button>,
+          );
+        } else {
+          nodes.push(
+            <a
+              key={key}
+              href={external ? lm[2] : undefined}
+              target={external ? '_blank' : undefined}
+              rel="noreferrer"
+              style={{ color: 'var(--color-signal)', textDecoration: 'underline' }}
+            >
+              {lm[1]}
+            </a>,
+          );
+        }
       } else {
         nodes.push(token);
       }
@@ -72,7 +89,7 @@ function headingLevel(line: string): number {
   return m ? m[1].length : 0;
 }
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, onOpenDoc }: { text: string; onOpenDoc?: (path: string) => void }) {
   const lines = String(text ?? '').split(/\r?\n/);
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -106,7 +123,7 @@ export function Markdown({ text }: { text: string }) {
     // 标题
     const hl = headingLevel(line);
     if (hl > 0) {
-      const content = renderInline(line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/\s*#*\s*$/, ''), k);
+      const content = renderInline(line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/\s*#*\s*$/, ''), k, onOpenDoc);
       const cls = hl === 1 ? 'mt-5 mb-2 text-[19px]' : hl === 2 ? 'mt-5 mb-2 text-[16px]' : 'mt-4 mb-1.5 text-[14px]';
       blocks.push(
         <div key={k} className={`font-display font-semibold leading-snug ${cls}`} style={{ fontFamily: 'var(--font-display)' }} role="heading" aria-level={hl}>
@@ -124,7 +141,7 @@ export function Markdown({ text }: { text: string }) {
       blocks.push(
         <blockquote key={k} className="my-3 border-l-2 pl-3 text-[13px] leading-relaxed" style={{ borderColor: 'var(--color-signal)', color: 'var(--color-ink-soft)' }}>
           {buf.map((l, j) => (
-            <div key={`${k}-${j}`}>{renderInline(l, `${k}-${j}`)}</div>
+            <div key={`${k}-${j}`}>{renderInline(l, `${k}-${j}`, onOpenDoc)}</div>
           ))}
         </blockquote>,
       );
@@ -145,7 +162,7 @@ export function Markdown({ text }: { text: string }) {
         <ul key={k} className="my-2 space-y-1 text-[13px] leading-relaxed" style={{ listStyle: ordered ? 'decimal' : 'disc', paddingLeft: 18 }}>
           {items.map((it, j) => (
             <li key={`${k}-${j}`} style={{ marginLeft: Math.min(2, (it.indent - base) / 2) * 6 }}>
-              {renderInline(it.text, `${k}-${j}`)}
+              {renderInline(it.text, `${k}-${j}`, onOpenDoc)}
             </li>
           ))}
         </ul>,
@@ -166,7 +183,7 @@ export function Markdown({ text }: { text: string }) {
     }
     blocks.push(
       <p key={k} className="my-2 text-[13px] leading-[1.75]" style={{ color: 'var(--color-ink)' }}>
-        {renderInline(buf.join(' '), k)}
+        {renderInline(buf.join(' '), k, onOpenDoc)}
       </p>,
     );
   }

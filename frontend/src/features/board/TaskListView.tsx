@@ -70,6 +70,9 @@ export function TaskFilterBar() {
   const { agents, filters, setFilters, clearFilters } = useWorkbench();
   const set = <K extends keyof TaskFilters>(k: K, v: TaskFilters[K]) => setFilters({ ...filters, [k]: v });
   const active = isFilterActive(filters);
+  // 25：默认只显示「平台 + 关键字」，低频控件（负责人 / 创建日期）收进「更多筛选」
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreActive = filters.owner !== '' || filters.from !== '' || filters.to !== '';
   return (
     <div
       className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[4px] border px-3 py-2"
@@ -93,27 +96,40 @@ export function TaskFilterBar() {
         ))}
       </span>
       <label className="flex items-center gap-1.5 text-[12px]">
-        <span className="qs-meta">负责人</span>
-        <select className="qs-input" style={{ width: 'auto' }} value={filters.owner} onChange={(e) => set('owner', e.target.value)}>
-          <option value="">全部</option>
-          {agents.map((a) => (
-            <option key={a.id} value={a.name}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex items-center gap-1.5 text-[12px]">
-        <span className="qs-meta">创建</span>
-        <input type="date" className="qs-input" style={{ width: 'auto' }} value={filters.from} onChange={(e) => set('from', e.target.value)} />
-        <span className="qs-meta">至</span>
-        <input type="date" className="qs-input" style={{ width: 'auto' }} value={filters.to} onChange={(e) => set('to', e.target.value)} />
-      </label>
-      <label className="flex items-center gap-1.5 text-[12px]">
         <span className="qs-meta">关键字</span>
         <input className="qs-input" style={{ width: 140 }} placeholder="标题 / 描述" value={filters.q} onChange={(e) => set('q', e.target.value)} />
       </label>
-      {/* 33：排序已移至列表表头（点击列头切换），筛选栏不再重复排序下拉 */}
+      {/* 25：低频控件（负责人 / 创建日期）收进「更多筛选」；排序已移至列表表头（点击列头切换） */}
+      {moreOpen ? (
+        <>
+          <label className="flex items-center gap-1.5 text-[12px]">
+            <span className="qs-meta">负责人</span>
+            <select className="qs-input" style={{ width: 'auto' }} value={filters.owner} onChange={(e) => set('owner', e.target.value)}>
+              <option value="">全部</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.name}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-[12px]">
+            <span className="qs-meta">创建</span>
+            <input type="date" className="qs-input" style={{ width: 'auto' }} value={filters.from} onChange={(e) => set('from', e.target.value)} />
+            <span className="qs-meta">至</span>
+            <input type="date" className="qs-input" style={{ width: 'auto' }} value={filters.to} onChange={(e) => set('to', e.target.value)} />
+          </label>
+        </>
+      ) : null}
+      <button
+        type="button"
+        className="qs-clickable qs-meta inline-flex items-center gap-1 text-[12px]"
+        style={{ color: moreActive ? 'var(--color-signal)' : 'var(--color-ink-soft)' }}
+        onClick={() => setMoreOpen((v) => !v)}
+      >
+        更多筛选 {moreOpen ? '▴' : '▾'}
+        {!moreOpen && moreActive ? ' · 已启用' : ''}
+      </button>
       {active ? (
         <Btn size="sm" variant="ghost" onClick={clearFilters}>
           清除筛选

@@ -412,8 +412,8 @@ export function KnowledgeView() {
       {/* 总览带：统计 + 星图缩略预览 + 最近更新 + 健康度小指标（2.2–2.6） */}
       <KnowledgeOverviewBar status={status} stats={stats} health={health} islandOnly={islandOnly} onToggleIsland={() => void toggleIsland()} onOpenDoc={(path) => void openDoc(path)} />
 
-      {/* 搜索 */}
-      <div className="qs-card p-3">
+      {/* 搜索（29：sticky 冻结，目录树/列表滚动时搜索条仍在视野内） */}
+      <div className="qs-card sticky top-0 z-20 p-3" style={{ background: 'var(--color-surface)' }}>
         <div className="flex gap-2">
           <input
             className="qs-input flex-1"
@@ -589,7 +589,7 @@ export function KnowledgeView() {
                     </div>
                   ) : null}
                 </div>
-                <Markdown text={doc.content} />
+                <Markdown text={doc.content} onOpenDoc={(p) => void openDoc(p)} />
               </>
             )}
           </div>
