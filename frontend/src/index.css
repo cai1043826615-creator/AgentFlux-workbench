@@ -39,6 +39,7 @@
   --space-6: 24px;
 }
 
+@layer base {
 html,
 body,
 #root {
@@ -52,7 +53,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+} /* end @layer base */
+
 /* ===== 表面：大结构直角 · 小控件 4px · 无阴影默认（SPEC §4.4） ===== */
+/* @layer components：必须分层，否则未分层 CSS 会压过 Tailwind 的 @layer utilities，
+   .qs-input{width:100%} 等组件默认值会盖掉 w-[Npx]/flex-1 工具类（Step2 根因） */
+@layer components {
 .qs-card {
   background: var(--color-surface);
   border: 1px solid var(--color-line);
@@ -591,3 +597,5 @@ body {
 @media (min-width: 1440px) {
   .hot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+} /* end @layer components */
+

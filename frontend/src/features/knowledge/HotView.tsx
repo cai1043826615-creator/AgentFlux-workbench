@@ -275,10 +275,10 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
 /**
  * 关注域与数据源配置编辑器（3.5/4.7：排除词 / 多词阈值 / 源管理；本地保存，不入版本库）
  *
- * 布局注意：index.css 的 `.qs-input` 未被 `@layer` 包裹，其 `width:100%` 会压过 Tailwind 的
- * `w-[Npx]` 等宽度工具类（未分层 CSS 优先级高于 @layer utilities）。因此本弹窗内所有定宽控件
- * 一律用行内 style 定宽，只让真正需要填充剩余空间的控件使用 `flex-1`；
- * 否则兄弟节点会被撑到容器满宽、导致 `flex-1` 元素基准宽度为 0 而完全不可见（Step2 修复的缺陷）。
+ * 布局约束：宽度一律用 Tailwind 工具类（w-[Npx] / flex-1）表达，不要改成行内 style 或改写 qs-input。
+ * 背景：index.css 的 .qs-input 曾经未被 @layer 包裹，其 width:100% 会压过所有宽度工具类，导致本弹窗内
+ * flex-1 的输入框被撑满同行兄弟节点挤成 0 宽度而完全不可见。现已把组件类统一放进 @layer components
+ * （base < components < utilities），工具类恢复覆盖能力；改动这些宽度时请保持用工具类，避免重蹈覆辙。
  */
 function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const [config, setConfig] = useState<AttentionConfig | null>(null);
@@ -349,8 +349,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                   命中≥
                 </span>
                 <input
-                  className="qs-input"
-                  style={{ width: 56 }}
+                  className="qs-input w-[52px]"
                   type="number"
                   min={1}
                   max={20}
@@ -410,11 +409,10 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                   />
                   启用
                 </label>
-                <span className="qs-input shrink-0 bg-transparent text-[12px]" style={{ width: 110 }}>{s.id}</span>
+                <span className="qs-input w-[110px] shrink-0 bg-transparent text-[12px]">{s.id}</span>
                 <input className="qs-input flex-1" value={s.label} onChange={(e) => patchSource(s.id, { label: e.target.value })} placeholder="源名" />
                 <select
-                  className="qs-input shrink-0"
-                  style={{ width: 150 }}
+                  className="qs-input w-[150px] shrink-0"
                   value={s.tierCap ?? ''}
                   onChange={(e) => patchSource(s.id, { tierCap: (e.target.value || undefined) as HotTier | undefined })}
                   title="源分层上限"
@@ -430,9 +428,9 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                 </Btn>
               </div>
               <div className="mt-1.5 flex items-center gap-2">
-                <input className="qs-input shrink-0" style={{ width: 160 }} value={s.adapter} onChange={(e) => patchSource(s.id, { adapter: e.target.value })} placeholder="adapter id" list="hot-adapters" />
+                <input className="qs-input w-[160px] shrink-0" value={s.adapter} onChange={(e) => patchSource(s.id, { adapter: e.target.value })} placeholder="adapter id" list="hot-adapters" />
                 <input className="qs-input flex-1" value={s.endpoint} onChange={(e) => patchSource(s.id, { endpoint: e.target.value })} placeholder="拉取端点 URL" />
-                <input className="qs-input shrink-0" style={{ width: 140 }} value={s.vertical} onChange={(e) => patchSource(s.id, { vertical: e.target.value })} placeholder="垂直类别" />
+                <input className="qs-input w-[140px] shrink-0" value={s.vertical} onChange={(e) => patchSource(s.id, { vertical: e.target.value })} placeholder="垂直类别" />
               </div>
               {s.enterpriseCredentialRequired ? (
                 <div className="qs-meta mt-1" style={{ color: 'var(--color-warn)' }}>
@@ -466,8 +464,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               进入必看所需最少信源
             </span>
             <input
-              className="qs-input"
-              style={{ width: 64 }}
+              className="qs-input w-[64px]"
               type="number"
               min={1}
               max={20}
