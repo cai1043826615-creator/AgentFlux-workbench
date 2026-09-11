@@ -106,6 +106,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<(() => void) | null>(null);
   /** 供 WS 回调读取最新任务列表（避免闭包过期）：取任务标题用于通知与 Toast */
   const tasksRef = useRef<TaskWithMeta[]>([]);
+  /** 最近一次「本应用自己写入」的 hash：用于让 hashchange 回绑跳过自触发，避免重复拉取任务详情 */
+  const appliedHashRef = useRef<string>('');
   useEffect(() => {
     tasksRef.current = tasks;
   }, [tasks]);
@@ -204,6 +206,26 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setEventsByTask((prev) => ({ ...prev, [taskId]: e.events }));
   }, []);
 
+  // hash 路由回绑：修复浏览器前进/后退、分享链接、刷新保持视图（原先只有写入没有读取）
+  useEffect(() => {
+    const applyHash = () => {
+      const h = location.hash;
+      if (h === appliedHashRef.current) return; // 本应用自己写入的，忽略
+      appliedHashRef.current = h;
+      const { view: v, taskId } = viewFromHash();
+      setViewState(v);
+      setSelectedTaskId(taskId);
+      if (v === 'task' && taskId != null) void loadTaskDetail(taskId);
+    };
+    window.addEventListener('hashchange', applyHash);
+    window.addEventListener('popstate', applyHash);
+    applyHash(); // 首载对齐（含直接打开 #/task/:id 时补齐详情拉取）
+    return () => {
+      window.removeEventListener('hashchange', applyHash);
+      window.removeEventListener('popstate', applyHash);
+    };
+  }, [loadTaskDetail]);
+
   const createTask = useCallback(
     async (input: TaskCreateInput) => {
       const { task } = await api.createTask(input);
@@ -293,7 +315,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const openTask = useCallback((id: number) => {
     setViewState('task');
     setSelectedTaskId(id);
-    location.hash = `#/task/${id}`;
+    appliedHashRef.current = `#/task/${id}`;
+    location.hash = appliedHashRef.current;
     void loadTaskDetail(id);
   }, [loadTaskDetail]);
 
@@ -306,7 +329,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const backToBoard = useCallback(() => {
     setViewState('board');
     setSelectedTaskId(null);
-    location.hash = '#/board';
+    appliedHashRef.current = '#/board';
+    location.hash = appliedHashRef.current;
   }, []);
 
   const setTaskTab = useCallback((t: TaskTab) => {
@@ -316,7 +340,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const setView = useCallback((v: WorkbenchView) => {
     setViewState(v);
     if (v === 'board') setSelectedTaskId(null);
-    location.hash = `#/${v}`;
+    appliedHashRef.current = `#/${v}`;
+    location.hash = appliedHashRef.current;
   }, []);
 
   /** 打开知识库阅读指定文档（星图节点 / 任务关联资料跳转用） */
