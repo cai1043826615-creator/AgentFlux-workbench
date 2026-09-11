@@ -17,9 +17,12 @@ export interface ReviewReport {
 export interface StageProducer {
   produceRequirement(task: Task): Promise<{ summary: string }>;
   produceCopy(task: Task): Promise<CopyPackage>;
-  produceImages(task: Task, groups: WorkflowParallelGroup[], onEach: (itemId: string, ok: boolean, dataUrl?: string) => void): Promise<{ ok: boolean; itemId: string; dataUrl?: string; error?: string }[]>;
+  /** attempts：该图累计生图尝试次数（含自动重试；B11 落 attempts 字段用） */
+  produceImages(task: Task, groups: WorkflowParallelGroup[], onEach: (itemId: string, ok: boolean, dataUrl?: string) => void): Promise<{ ok: boolean; itemId: string; dataUrl?: string; error?: string; attempts?: number }[]>;
   produceReview(task: Task): Promise<ReviewReport>;
   produceDeliverable(task: Task): Promise<{ packName: string; entries: string[] }>;
+  /** 单张图片重试（B11）：只重新生成该图；producer 不支持时缺省（service 层拒绝） */
+  retryImage?(task: Task, imageId: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
 }
 
 /** 内置 mock 示例（真实渠道未配置时的降级输出） */
@@ -58,14 +61,14 @@ export class MockProducer implements StageProducer {
     task: Task,
     groups: WorkflowParallelGroup[],
     onEach: (itemId: string, ok: boolean, dataUrl?: string) => void,
-  ): Promise<{ ok: boolean; itemId: string; dataUrl?: string; error?: string }[]> {
-    const results: { ok: boolean; itemId: string; dataUrl?: string; error?: string }[] = [];
+  ): Promise<{ ok: boolean; itemId: string; dataUrl?: string; error?: string; attempts?: number }[]> {
+    const results: { ok: boolean; itemId: string; dataUrl?: string; error?: string; attempts?: number }[] = [];
     const palette = ['#7C3AED', '#0EA5E9', '#10B981', '#F59E0B'];
     for (const group of groups) {
       for (const itemId of group.items) {
         const color = palette[Math.floor(Math.random() * palette.length)];
         const dataUrl = createPlaceholderImage(itemId, color);
-        results.push({ ok: true, itemId, dataUrl });
+        results.push({ ok: true, itemId, dataUrl, attempts: 1 });
         onEach(itemId, true, dataUrl);
       }
     }

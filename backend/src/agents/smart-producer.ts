@@ -9,11 +9,15 @@ import { generateImage, ImageChannelUnavailableError } from './imagegen.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
 import { MockProducer, type ReviewIssue, type ReviewReport, type StageProducer, setProducer } from './producer.ts';
 import { readFileContent, readSkillContent } from './skills.ts';
-import { buildKnowledgeContext } from '../knowledge/refs.ts';
+import { buildHotContext, buildKnowledgeContext } from '../knowledge/refs.ts';
+import { assembleReworkText, getPendingRework } from '../engine/rework.ts';
 import * as delivery from '../delivery/store.ts';
 
 /** 上传目录（与 routes/tasks.ts UPLOAD_DIR 一致） */
 const UPLOAD_DIR = join(import.meta.dirname, '..', '..', 'data', 'uploads');
+
+/** 单张图片累计生图尝试上限（含自动重试与手动重试；B11 规格：不超过 3 次，抽为常量供测试断言） */
+export const MAX_IMAGE_ATTEMPTS = 3;
 
 /**
  * 参考图 → dataURL（生图/视觉审阅要求 dataURL 或可公网访问 URL）：
@@ -140,13 +144,27 @@ export async function buildSystemPrompt(agentId: string, base: string): Promise<
 }
 
 /**
- * 组装 producer 最终 system prompt：基础 system + 挂载技能/文件 + 关联知识库资料。
- * taskId 无关联资料时知识库段为空串，最终 prompt 与既有完全一致（板块独立性）。
+ * 组装 producer 最终 system prompt：基础 system + 挂载技能/文件 + 关联知识库资料 + 任务背景·外部环境情报 + 上次返工意见。
+ * 段序固定（主文档 §6.3 + hot-intel D2）：base → 【挂载技能】→【挂载文件】→【关联知识库资料】→【任务背景 · 外部环境情报】→【上次返工意见】。
+ * - 知识库段为既有一级通道（不改既有段序与行为）；
+ * - 热点段为 hot-intel 追加：仅当任务挂了热点背景时才出现，标题「【任务背景 · 外部环境情报】」，
+ *   含「不得作为产品品类/主体/功能规格依据」约束；持久化快照注入，不依赖热点面板当前状态（源不可用时仍可用）。
+ * - taskId 无关联资料 / 无热点背景 / 无待处理返工意见时对应段为空，最终 prompt 与既有完全一致（板块独立性）。
  */
 export async function buildProducerSystemPrompt(agentId: string, base: string, taskId?: number): Promise<string> {
   const withMounts = await buildSystemPrompt(agentId, base);
   const kb = await buildKnowledgeContext(taskId);
-  return kb ? `${withMounts}\n\n${kb}` : withMounts;
+  const hot = buildHotContext(taskId); // 同步只读快照表；异常内部降级为空串
+  const parts: string[] = [withMounts];
+  if (kb) parts.push(kb);
+  if (hot) parts.push(hot); // hot-intel D2：热点段在「关联知识库资料」段之后追加
+  if (taskId != null) {
+    const pending = getPendingRework(taskId);
+    if (pending.latest) {
+      parts.push(assembleReworkText(pending.latest.stage, pending.stageCount, pending.latest.note));
+    }
+  }
+  return parts.join('\n\n');
 }
 
 /**
@@ -166,7 +184,7 @@ export class SmartProducer implements StageProducer {
   ): Promise<T> {
     try {
       const finalSystem = await buildProducerSystemPrompt(agentId, system, taskId);
-      const text = await callLlm({ agentId, system: finalSystem, user });
+      const { content: text } = await callLlm({ agentId, system: finalSystem, user });
       const parsed = parser(text);
       if (parsed) return parsed;
       return fallback();
@@ -215,7 +233,7 @@ export class SmartProducer implements StageProducer {
     task: Task,
     groups: WorkflowParallelGroup[],
     onEach: (itemId: string, ok: boolean, dataUrl?: string) => void,
-  ): Promise<{ ok: boolean; itemId: string; dataUrl?: string; error?: string }[]> {
+  ): Promise<{ ok: boolean; itemId: string; dataUrl?: string; error?: string; attempts?: number }[]> {
     const isMain = task.stage === 'main-image';
     const basePrompt = isMain
       ? `电商产品主图（白底图），产品：${task.title}，突出核心卖点，干净专业电商摄影构图，方形 1:1，高质感`
@@ -225,31 +243,31 @@ export class SmartProducer implements StageProducer {
     const refImage = await resolveReferenceImage(task, isMain);
     const refSuffix = refImage ? '。必须严格基于参考图生成：产品外观、颜色、造型、LOGO/标识与参考图完全一致，仅变换角度/场景/构图，不得更换产品' : '';
 
-    const results = await runParallelGroups<{ dataUrl: string }>(
+    const results = await runParallelGroups<{ dataUrl: string; attempts: number }>(
       groups.map((g) => ({ channel: g.channel, items: g.items })),
       async (itemId) => {
-        // 生图重试（最多 3 次，指数退避）：参考图 edits / 文生图偶发抖动或上游限流时自动重试
+        // 生图自动重试（上限 MAX_IMAGE_ATTEMPTS，指数退避）：参考图 edits / 文生图偶发抖动或上游限流时自动重试
         let lastErr: unknown;
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        for (let attempt = 1; attempt <= MAX_IMAGE_ATTEMPTS; attempt++) {
           try {
             // 真实生图：有参考图走 /images/edits 图生图，无参考图走 /images/generations 文生图
             const dataUrl = await generateImage(`${basePrompt} —— 分区/子图：${itemId}${refSuffix}`, '1024x1024', refImage);
-            return { dataUrl };
+            return { dataUrl, attempts: attempt };
           } catch (err) {
             // 仅「无渠道配置」属于 mock 降级：返回 svg 占位图（前端识别 dataURL 标注「模拟占位」）
             if (err instanceof ImageChannelUnavailableError) {
-              return { dataUrl: createPlaceholderImage(itemId, '#7C3AED') };
+              return { dataUrl: createPlaceholderImage(itemId, '#7C3AED'), attempts: attempt };
             }
             lastErr = err;
-            if (attempt < 3) {
+            if (attempt < MAX_IMAGE_ATTEMPTS) {
               console.warn(`[producer] 生图第 ${attempt} 次失败（${itemId}）: ${err instanceof Error ? err.message : err}，${1500 * attempt}ms 后重试`);
               await new Promise((r) => setTimeout(r, 1500 * attempt));
             }
           }
         }
-        // 3 次均失败：真实渠道报错，抛给 runParallelGroups 记为失败（ok=false）→ 上层落 status='failed'，
+        // MAX_IMAGE_ATTEMPTS 次均失败：真实渠道报错，抛给 runParallelGroups 记为失败（ok=false）→ 上层落 status='failed'，
         // 绝不把 svg 占位图当作成品图入库
-        console.warn(`[producer] 生图 3 次重试均失败（${itemId}）: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
+        console.warn(`[producer] 生图 ${MAX_IMAGE_ATTEMPTS} 次重试均失败（${itemId}）: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
         throw lastErr;
       },
       (itemId, ok, value) => {
@@ -262,7 +280,32 @@ export class SmartProducer implements StageProducer {
       itemId: r.item.id,
       dataUrl: r.value?.dataUrl,
       error: r.error,
+      // 3 次均失败时 attempts 记满（失败路径在 worker 内 throw，attempts 无法从 value 带出，统一记上限）
+      attempts: r.ok ? r.value?.attempts : MAX_IMAGE_ATTEMPTS,
     }));
+  }
+
+  /**
+   * 单张图片重试（B11 · 4.8）：只重新生成指定 imageId 一张。
+   * 累计尝试上限由 service 层按 ImageItem.attempts 拦截；此处为单次生图尝试（无嵌套自动重试）。
+   */
+  async retryImage(task: Task, imageId: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
+    const isMain = task.stage === 'main-image';
+    const basePrompt = isMain
+      ? `电商产品主图（白底图），产品：${task.title}，突出核心卖点，干净专业电商摄影构图，方形 1:1，高质感`
+      : `电商详情页长图分区，产品：${task.title}，卖点/细节/参数清晰呈现，图文排版专业`;
+    const refImage = await resolveReferenceImage(task, isMain);
+    const refSuffix = refImage ? '。必须严格基于参考图生成：产品外观、颜色、造型、LOGO/标识与参考图完全一致，仅变换角度/场景/构图，不得更换产品' : '';
+    try {
+      const dataUrl = await generateImage(`${basePrompt} —— 分区/子图：${imageId}${refSuffix}`, '1024x1024', refImage);
+      return { ok: true, dataUrl };
+    } catch (err) {
+      // 无渠道配置 → 与既有 produceImages 一致：mock 占位图作为可决策结果
+      if (err instanceof ImageChannelUnavailableError) {
+        return { ok: true, dataUrl: createPlaceholderImage(imageId, '#7C3AED') };
+      }
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
@@ -336,7 +379,7 @@ export class SmartProducer implements StageProducer {
     const system =
       '你是电商质检主管（视觉审阅）。对比两张产品图，判断核心产品是否为同一件：品类、颜色、造型、LOGO/标识、核心特征一致即视为同一件；角度、光线、背景、构图、渲染质感、材质细节等差异不影响判定。严格输出 JSON：{"consistent":true或false,"reason":"不一致时的具体原因（30字内）；一致则空字符串"}，不要输出任何多余文字。';
     const user = `任务「${task.title}」。第一张是基准产品图，第二张是生成图。请判断第二张与第一张是否为同一件产品。`;
-    const text = await callLlm({ agentId, system, user, images: [baselineUrl, targetUrl], temperature: 0.2, maxTokens: 200 });
+    const { content: text } = await callLlm({ agentId, system, user, images: [baselineUrl, targetUrl], temperature: 0.2, maxTokens: 200 });
     const parsed = extractJson<{ consistent?: unknown; reason?: string }>(text);
     return { consistent: parsed?.consistent === true || parsed?.consistent === 'true', reason: String(parsed?.reason ?? '') };
   }

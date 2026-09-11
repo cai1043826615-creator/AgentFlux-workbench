@@ -5,13 +5,14 @@
  * 不触碰板块 A 的状态机与业务表；未连接/异常时全部接口返回可解释状态而非 5xx。
  */
 import type { FastifyInstance } from 'fastify';
-import type { AttentionConfig, TaskKbRefInput } from '@workbench/shared';
+import type { AttentionConfig, KnowledgeVaultConfigInput, TaskHotRefInput, TaskKbRefInput } from '@workbench/shared';
 import { loadAttentionConfig, saveAttentionConfig } from '../knowledge/attention.ts';
 import { knowledgeStats, knowledgeStatus, listAllDocs, listDocsByDir, listDocsByTag, listDirs, listTags, readDoc } from '../knowledge/docs.ts';
 import { graphData, nodeDetail } from '../knowledge/graph.ts';
+import { knowledgeHealth } from '../knowledge/health.ts';
 import { loadHotPanel } from '../knowledge/hot.ts';
 import { rebuildIndexInBackground } from '../knowledge/indexer.ts';
-import { KbRefInvalidError, KbRefLimitError, listTaskKbRefs, setTaskKbRefs } from '../knowledge/refs.ts';
+import { HotRefInvalidError, HotRefLimitError, KbRefInvalidError, KbRefLimitError, listTaskHotRefs, listTaskKbRefs, setTaskHotRefs, setTaskKbRefs } from '../knowledge/refs.ts';
 import { searchDocs } from '../knowledge/search.ts';
 import { ensureKnowledgeSchema } from '../knowledge/schema.ts';
 import { resolveVaultConfig, saveVaultConfig } from '../knowledge/vault.ts';
@@ -25,9 +26,9 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/knowledge/status', async () => ({ status: knowledgeStatus() }));
 
   // 保存 Vault 配置（设置面板）：root 为空 = 断开连接；保存后触发后台重建索引
-  app.put<{ Body: { root?: string; includeDirs?: string[]; excludeDirs?: string[] } }>('/api/knowledge/config', async (req) => {
-    const { root, includeDirs, excludeDirs } = req.body ?? {};
-    saveVaultConfig({ root, includeDirs, excludeDirs });
+  app.put<{ Body: KnowledgeVaultConfigInput }>('/api/knowledge/config', async (req) => {
+    const { root, includeDirs, excludeDirs, presetDirs } = req.body ?? {};
+    saveVaultConfig({ root, includeDirs, excludeDirs, presetDirs });
     const cfg = resolveVaultConfig();
     let started = false;
     if (cfg.root) started = rebuildIndexInBackground();
@@ -42,6 +43,9 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
 
   // 总览统计
   app.get('/api/knowledge/stats', async () => ({ stats: knowledgeStats() }));
+
+  // 知识健康度（只读：文档使用率 + 孤岛文件；未连接/空索引返回可解释空值而非 5xx）
+  app.get('/api/knowledge/health', async () => ({ health: knowledgeHealth() }));
 
   // ===== 浏览 =====
 
@@ -115,6 +119,28 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
       return { refs };
     } catch (err) {
       if (err instanceof KbRefLimitError || err instanceof KbRefInvalidError) {
+        return reply.code(400).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
+  // ===== 任务背景 · 外部环境情报（hot-intel D2，独立表 task_hot_refs） =====
+
+  // 任务详情读取热点背景（持久化快照，不依赖面板当前状态）
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/hot-refs', async (req) => {
+    return { refs: listTaskHotRefs(Number(req.params.id)) };
+  });
+
+  // 覆盖写入任务热点背景（2.8 卡片「挂为任务背景」调用；不产生新任务）
+  app.put<{ Params: { id: string }; Body: { refs?: TaskHotRefInput[] } }>('/api/tasks/:id/hot-refs', async (req, reply) => {
+    const taskId = Number(req.params.id);
+    if (!Number.isFinite(taskId)) return reply.code(400).send({ error: 'invalid task id' });
+    try {
+      const refs = setTaskHotRefs(taskId, req.body?.refs ?? []);
+      return { refs };
+    } catch (err) {
+      if (err instanceof HotRefLimitError || err instanceof HotRefInvalidError) {
         return reply.code(400).send({ error: err.message });
       }
       throw err;

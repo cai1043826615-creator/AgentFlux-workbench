@@ -7,15 +7,14 @@
  * - 降级：文件缺失/锚点漂移 → 注入「资料缺失」提示并标记失效，任务照常执行
  * - 边界：板块 A 对知识库内容只读消费，不写回 Vault
  */
-import { KB_REF_LIMIT, type TaskKbRef, type TaskKbRefInput } from '@workbench/shared';
+import { KB_REF_LIMIT, HOT_HOT_REF_LIMIT, type HotEvidenceLevel, type TaskHotRef, type TaskHotRefInput, type TaskKbRef, type TaskKbRefInput } from '@workbench/shared';
 import { all, get, run, tx } from '../db/client.ts';
 import { readDoc } from './docs.ts';
 import { sliceSection } from './markdown.ts';
-import { KT, ensureKnowledgeSchema } from './schema.ts';
+import { KT, ensureKnowledgeSchema, type TaskHotRefRow, type TaskKbRefRow } from './schema.ts';
 import { normalizeRel, resolveVaultConfig, vaultFileExists } from './vault.ts';
-import type { TaskKbRefRow } from './schema.ts';
 
-export { KB_REF_LIMIT };
+export { KB_REF_LIMIT, HOT_HOT_REF_LIMIT };
 
 /** 关联数量超限时抛出（路由层转 400） */
 export class KbRefLimitError extends Error {
@@ -213,4 +212,200 @@ export async function buildKnowledgeContext(taskId: number | null | undefined): 
   ].join('\n');
 }
 
+/**
+ * 批量只读聚合（delivery-ops B6）：一次查询取全部任务的关联资料，按任务返回
+ * { total, invalid }。同一 doc_path 只判定一次可用性（集合级去重 + 缓存），
+ * 避免逐任务 N+1 判定；与 listTaskKbRefs 的失效判定（isDocAvailable）口径一致。
+ * 纯只读：不修改 task_kb_refs 表结构与任何既有函数行为。
+ */
+export function countKbRefsByTask(taskIds: number[]): Map<number, { total: number; invalid: number }> {
+  const out = new Map<number, { total: number; invalid: number }>();
+  const ids = (taskIds ?? []).filter((id) => Number.isFinite(id));
+  if (ids.length === 0) return out;
+
+  ensureKnowledgeSchema();
+  const rows = all<TaskKbRefRow>(
+    `SELECT * FROM ${KT.taskRefs} WHERE task_id IN (${ids.map(() => '?').join(',')}) ORDER BY id ASC`,
+    ids,
+  );
+
+  // 集合级去重：同 doc_path 只判定一次，结果缓存复用
+  const availabilityCache = new Map<string, boolean>();
+  const check = (docPath: string): boolean => {
+    const path = normalizeRel(docPath);
+    if (availabilityCache.has(path)) return availabilityCache.get(path)!;
+    const valid = isDocAvailable(path);
+    availabilityCache.set(path, valid);
+    return valid;
+  };
+
+  for (const r of rows) {
+    const entry = out.get(r.task_id) ?? { total: 0, invalid: 0 };
+    entry.total += 1;
+    if (!check(r.doc_path)) entry.invalid += 1;
+    out.set(r.task_id, entry);
+  }
+  return out;
+}
+
 export type { TaskKbRefInput, TaskKbRef };
+
+// ============================================================================
+// hot-intel D2：任务背景 · 外部环境情报（独立表 task_hot_refs，不改 task_kb_refs）
+// ============================================================================
+
+/** 热点背景数量超限时抛出（路由层转 400） */
+export class HotRefLimitError extends Error {
+  constructor(limit: number) {
+    super(`任务背景·外部环境情报最多挂 ${limit} 条热点`);
+    this.name = 'HotRefLimitError';
+  }
+}
+
+/** 热点背景无效（hotId/title 缺失）时抛出 */
+export class HotRefInvalidError extends Error {
+  constructor(hotId: string) {
+    super(`无效的热点背景条目：${hotId}`);
+    this.name = 'HotRefInvalidError';
+  }
+}
+
+/** 证据等级归一化（非法值回退 single-source） */
+function normEvidence(v: unknown): HotEvidenceLevel {
+  const s = v && String(v).trim() ? String(v).trim() : '';
+  return s === 'multi-source' || s === 'single-source' || s === 'traceable' ? s : 'single-source';
+}
+
+/** 行 → 共享类型（快照条目持久化后始终有效；移除即删除行） */
+function toHotRef(row: TaskHotRefRow): TaskHotRef {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    hotId: row.hot_id,
+    title: row.title,
+    sourceId: row.source_id || '',
+    sourceName: row.source_name || '',
+    evidence: normEvidence(row.evidence),
+    url: row.url || null,
+    latestAt: row.latest_at || null,
+    createdAt: row.created_at,
+    valid: row.valid === 1,
+  };
+}
+
+/** 归一化并校验热点背景（不改库；超限/非法时抛出） */
+function normalizeHotRefs(refs: TaskHotRefInput[]): TaskHotRefInput[] {
+  const input = Array.isArray(refs) ? refs : [];
+  if (input.length > HOT_HOT_REF_LIMIT) throw new HotRefLimitError(HOT_HOT_REF_LIMIT);
+  const seen = new Set<string>();
+  const normalized: TaskHotRefInput[] = [];
+  for (const r of input) {
+    const hotId = String(r?.hotId ?? '').trim();
+    const title = String(r?.title ?? '').trim();
+    if (!hotId || !title) throw new HotRefInvalidError(hotId || '(空)');
+    if (seen.has(hotId)) continue;
+    seen.add(hotId);
+    normalized.push({
+      hotId,
+      title,
+      sourceId: r.sourceId && String(r.sourceId).trim() ? String(r.sourceId).trim() : '',
+      sourceName: r.sourceName && String(r.sourceName).trim() ? String(r.sourceName).trim() : '',
+      evidence: normEvidence(r.evidence),
+      url: r.url && String(r.url).trim() ? String(r.url).trim() : null,
+      latestAt: r.latestAt && String(r.latestAt).trim() ? String(r.latestAt).trim() : null,
+    });
+  }
+  return normalized;
+}
+
+/**
+ * 仅校验热点背景（挂接前调用；超限/非法时抛出）。
+ */
+export function validateTaskHotRefs(refs: TaskHotRefInput[]): void {
+  ensureKnowledgeSchema();
+  normalizeHotRefs(refs);
+}
+
+/**
+ * 写入任务的热点背景（全量替换，与 kbRefs 语义一致）。
+ * - 超过 HOT_HOT_REF_LIMIT 抛 HotRefLimitError；hotId/title 缺失抛 HotRefInvalidError
+ * - 同一 hotId 去重
+ */
+export function setTaskHotRefs(taskId: number, refs: TaskHotRefInput[]): TaskHotRef[] {
+  ensureKnowledgeSchema();
+  const normalized = normalizeHotRefs(refs);
+  tx(() => {
+    run(`DELETE FROM ${KT.hotTaskRefs} WHERE task_id = ?`, [taskId]);
+    for (const n of normalized) {
+      run(
+        `INSERT INTO ${KT.hotTaskRefs} (task_id,hot_id,title,source_id,source_name,evidence,url,latest_at,created_at,valid) VALUES (?,?,?,?,?,?,?,?,?,1)`,
+        [taskId, n.hotId, n.title, n.sourceId ?? '', n.sourceName ?? '', n.evidence ?? '', n.url ?? null, n.latestAt ?? null, nowIso()],
+      );
+    }
+  });
+  return listTaskHotRefs(taskId);
+}
+
+/** 读取任务的热点背景（持久化快照：即使热点源当前不可用也始终可用） */
+export function listTaskHotRefs(taskId: number): TaskHotRef[] {
+  ensureKnowledgeSchema();
+  const rows = all<TaskHotRefRow>(`SELECT * FROM ${KT.hotTaskRefs} WHERE task_id = ? ORDER BY id ASC`, [taskId]);
+  return rows.map(toHotRef);
+}
+
+/** 清除任务的全部热点背景（任务删除等场景） */
+export function clearTaskHotRefs(taskId: number): void {
+  ensureKnowledgeSchema();
+  run(`DELETE FROM ${KT.hotTaskRefs} WHERE task_id = ?`, [taskId]);
+}
+
+/** 任务是否有任何热点背景（注入前快速判断） */
+export function hasTaskHotRefs(taskId: number): boolean {
+  ensureKnowledgeSchema();
+  const row = get<{ c: number }>(`SELECT count(*) c FROM ${KT.hotTaskRefs} WHERE task_id = ?`, [taskId]);
+  return Number(row?.c ?? 0) > 0;
+}
+
+/**
+ * 构造注入 producer 上下文的外部环境情报段（hot-intel D2，与「关联知识库资料」段并列）。
+ * - 仅使用持久化快照（task_hot_refs 表），不依赖热点面板当前状态 → 热点源不可用时仍可注入；
+ * - 含「不得作为产品品类/主体/功能规格依据」约束声明；
+ * - 无背景时返回空字符串（板块 A 行为与既有完全一致——独立性保障）。
+ */
+export function buildHotContext(taskId: number | null | undefined): string {
+  if (taskId == null) return '';
+  let refs: TaskHotRef[];
+  try {
+    if (!hasTaskHotRefs(taskId)) return '';
+    refs = listTaskHotRefs(taskId);
+  } catch (err) {
+    // 板块 B 异常不阻塞板块 A：注入失败仅记录，任务照常执行
+    console.warn(`[knowledge] 加载任务 #${taskId} 外部环境情报失败，跳过注入：${err instanceof Error ? err.message : err}`);
+    return '';
+  }
+  if (refs.length === 0) return '';
+
+  const evidenceLabel: Record<string, string> = {
+    'multi-source': '多源事件',
+    'single-source': '单源信息',
+    traceable: '可回查原文',
+  };
+  const lines = refs.map((r, i) => {
+    const bits = [
+      r.sourceName || '外部热点',
+      r.evidence ? `证据等级：${evidenceLabel[r.evidence] ?? r.evidence}` : '',
+      r.latestAt ? `数据时间：${r.latestAt.slice(0, 10)}` : '',
+    ].filter(Boolean).join(' · ');
+    const link = r.url ? `原文：${r.url}` : '';
+    return `${i + 1}. ${r.title}（${bits}）${link ? `\n   ${link}` : ''}`;
+  });
+
+  return [
+    '【任务背景 · 外部环境情报】',
+    '以下为任务挂接时的外部热点情报（多信源聚合/行业快讯/官方数据），仅作任务背景参考，了解行业动态与外部环境。',
+    '要求：这些情报**不得作为产品品类、主体或功能规格的依据**，也不得据此编造任务需求与资料中未出现的事实；',
+    '如与任务需求或团队资料冲突，以任务需求与资料为准。',
+    '',
+    lines.join('\n'),
+  ].join('\n');
+}
