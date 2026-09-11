@@ -181,6 +181,8 @@ export function KnowledgeView() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
+  // 35：目录/标签栏可折叠（收起后由三栏变两栏，把宽度让给列表与阅读区）
+  const [catalogOpen, setCatalogOpen] = useState(true);
   const pollRef = useRef<number | null>(null);
 
   const loadMeta = useCallback(async () => {
@@ -391,6 +393,10 @@ export function KnowledgeView() {
           <Btn size="sm" loading={busy} onClick={() => void reindex()}>
             重建索引
           </Btn>
+          {/* 35：折叠 / 展开目录与标签栏 */}
+          <Btn size="sm" variant="ghost" onClick={() => setCatalogOpen((v) => !v)} title="折叠/展开目录与标签栏">
+            {catalogOpen ? '收起目录' : '展开目录'}
+          </Btn>
           <Btn size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>
             连接设置
           </Btn>
@@ -438,7 +444,8 @@ export function KnowledgeView() {
       </div>
 
       <div className="flex gap-4">
-        {/* 左：目录 + 标签 */}
+        {/* 左：目录 + 标签（35：可折叠，收起后三栏变两栏） */}
+        {catalogOpen ? (
         <aside className="w-[210px] shrink-0 space-y-4">
           <div className="qs-card p-3">
             <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
@@ -476,6 +483,7 @@ export function KnowledgeView() {
             )}
           </div>
         </aside>
+        ) : null}
 
         {/* 中：文档列表 / 搜索结果 */}
         <div className="w-[300px] shrink-0">

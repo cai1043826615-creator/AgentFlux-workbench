@@ -451,21 +451,19 @@ function Shell() {
         ) : (
           <div className="flex w-12 shrink-0 flex-col items-center overflow-y-auto border-r py-3" style={{ borderColor: 'var(--color-line)' }}>
             <div className="flex flex-col items-center gap-1">
+              {/* 38：分组标签不再常驻显示，改由各图标 tooltip 承载（分隔线保留分组语义） */}
               {/* 知识库分区：与展开态逐项对应 */}
-              <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>知识库</span>
               <RailIcon glyph="box" title="知识库 · 浏览与检索" active={view === 'knowledge'} onClick={openLeftKnowledge} />
-              <RailIcon glyph="graph" title="知识星图 · 知识关联图谱" active={view === 'knowledge-graph'} onClick={openLeftKnowledgeGraph} />
-              <RailIcon glyph="trend" title="每日热点 · 电商关注域" active={view === 'hot'} onClick={openLeftHot} />
+              <RailIcon glyph="graph" title="知识库 · 知识星图" active={view === 'knowledge-graph'} onClick={openLeftKnowledgeGraph} />
+              <RailIcon glyph="trend" title="知识库 · 每日热点" active={view === 'hot'} onClick={openLeftHot} />
               <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
               {/* 工作流分区（占位项展示但不可点，与展开态一致） */}
-              <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>工作流</span>
-              <RailIcon glyph="flow" title="电商工作流 · 看板" active={workflowActive} onClick={openLeftFlow} />
-              <RailIcon glyph="box" title="直播带货上架（占位）" disabled />
-              <RailIcon glyph="box" title="跨境选品（占位）" disabled />
+              <RailIcon glyph="flow" title="工作流 · 电商工作流看板" active={workflowActive} onClick={openLeftFlow} />
+              <RailIcon glyph="box" title="工作流 · 直播带货上架（占位）" disabled />
+              <RailIcon glyph="box" title="工作流 · 跨境选品（占位）" disabled />
               <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
-              <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>通用</span>
-              <RailIcon glyph="pulse" title="Agent 状态" active={view === 'observability'} onClick={openLeftObservability} />
-              <RailIcon glyph="gear" title="设置 · 编排模式" onClick={openLeftSettings} />
+              <RailIcon glyph="pulse" title="通用 · Agent 状态" active={view === 'observability'} onClick={openLeftObservability} />
+              <RailIcon glyph="gear" title="通用 · 设置 · 编排模式" onClick={openLeftSettings} />
             </div>
             <button
               type="button"

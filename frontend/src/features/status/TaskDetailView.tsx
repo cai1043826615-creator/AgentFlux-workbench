@@ -4,7 +4,7 @@ import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
-import { DownloadButton, KbInvalidBadge } from '../board/TaskListView.tsx';
+import { DownloadButton, KbInvalidBadge, fmtRelative } from '../board/TaskListView.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
   TASK_CREATED: '创建任务',
@@ -149,7 +149,7 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
                   {head}
                 </span>
               )}
-              <span className="qs-meta shrink-0">{fmtTime(g.items[0].createdAt)}</span>
+              <span className="qs-meta shrink-0" title={fmtFull(g.items[0].createdAt)}>{fmtRelative(g.items[0].createdAt)}</span>
             </div>
             {stageLabelOf(g.items[0]) ? (
               <div className="qs-meta mt-0.5 pl-6 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
@@ -163,7 +163,7 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
                   return (
                     <div key={ev.id} className="flex items-baseline justify-between gap-2">
                       <span className="text-[12px]" style={{ color: 'var(--color-ink-soft)' }}>{note || EVENT_LABELS[ev.type]}</span>
-                      <span className="qs-meta shrink-0">{fmtTime(ev.createdAt)}</span>
+                      <span className="qs-meta shrink-0" title={fmtFull(ev.createdAt)}>{fmtRelative(ev.createdAt)}</span>
                     </div>
                   );
                 })}
@@ -474,6 +474,7 @@ export function TaskDetailView({
   onNotFound: () => void;
 }) {
   const { tasks, agents, eventsByTask, deliverablesByTask, openTask, taskTab, setTaskTab } = useWorkbench();
+  const [descExpanded, setDescExpanded] = useState(false);
 
   // 新打开任务时默认落在「内容交付」tab（意见11；key=taskId 重挂载时执行一次；用户可手动切「任务详情」）
   const firstTabRef = useRef(true);
@@ -545,8 +546,15 @@ export function TaskDetailView({
             </button>
           </span>
         </div>
-        <div className="qs-meta mt-1.5" style={{ color: 'var(--color-ink-soft)' }}>
-          {task.description || '新品上架全套物料'} · 目标平台：{task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
+        <div className="space-y-1">
+          <div className={`qs-meta mt-1.5 ${descExpanded ? '' : 'line-clamp-3'}`} style={{ color: 'var(--color-ink-soft)' }}>
+            {task.description || '新品上架全套物料'}
+          </div>
+          {task.description && task.description.length > 80 ? (
+            <button type="button" className="qs-clickable qs-meta text-[12px]" style={{ color: 'var(--color-signal)' }} onClick={() => setDescExpanded((v) => !v)}>
+              {descExpanded ? '收起' : '展开全文'}
+            </button>
+          ) : null}
         </div>
         {/* B6 · 9.3 任务详情头部角标（阶段条以上，数字与看板一致） */}
         {task.kbRefsInvalid > 0 ? (
@@ -643,11 +651,6 @@ export function TaskDetailView({
                 </div>
               ))}
             </div>
-            {task.description ? (
-              <div className="qs-meta mt-3 border-t pt-2.5 leading-relaxed" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-faint)' }}>
-                {task.description}
-              </div>
-            ) : null}
           </aside>
         </div>
       )}
@@ -680,14 +683,11 @@ function ProvenancePanel({ taskId }: { taskId: number }) {
   // 文案未产出 / 加载中：先占位骨架，避免布局跳变；加载失败则下方按空态处理
   if (provenance === undefined) return <PanelSkeleton title="产出溯源" />;
 
-  // 无 kind='provenance' 行（老任务或文案未产出过）：提示重新产出后生效（spec 2.6）
+  // 无 kind='provenance' 行（老任务或文案未产出过）：一行提示，不占位（spec 2.6）
   if (provenance === null) {
     return (
-      <div className="qs-card p-4">
-        <h3 className="font-display mb-2 text-[15px] font-semibold">产出溯源</h3>
-        <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-          尚未生成溯源结果（重新产出后生效）
-        </div>
+      <div className="qs-meta px-1 py-1.5" style={{ color: 'var(--color-ink-faint)' }}>
+        产出溯源：尚未生成结果（重新产出后生效）
       </div>
     );
   }
@@ -707,14 +707,11 @@ function ProvenancePanel({ taskId }: { taskId: number }) {
     );
   }
 
-  // 无实质事实项：不显示 0%/100% 误导数值
+  // 无实质事实项：一行提示，不显示 0%/100% 误导数值
   if (provenance.noFacts) {
     return (
-      <div className="qs-card p-4">
-        <h3 className="font-display mb-2 text-[15px] font-semibold">产出溯源</h3>
-        <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-          无实质事实项（文案中未抽取到可核对的事实）
-        </div>
+      <div className="qs-meta px-1 py-1.5" style={{ color: 'var(--color-ink-faint)' }}>
+        产出溯源：无实质事实项（文案中未抽取到可核对的事实）
       </div>
     );
   }
@@ -855,14 +852,11 @@ function CostCard({ taskId }: { taskId: number }) {
   // 接口失败：不占位
   if (summary === null) return null;
 
-  // 16.4 空态：无执行记录 → 明确文案，不显示 0 值数字
+  // 16.4 空态：无执行记录 → 一行提示，不占位
   if (summary.runs === 0) {
     return (
-      <div className="qs-card p-4">
-        <h3 className="font-display mb-3 text-[15px] font-semibold">执行与成本</h3>
-        <div className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-          尚无执行记录
-        </div>
+      <div className="qs-meta px-1 py-1.5" style={{ color: 'var(--color-ink-faint)' }}>
+        执行与成本：尚无执行记录
       </div>
     );
   }

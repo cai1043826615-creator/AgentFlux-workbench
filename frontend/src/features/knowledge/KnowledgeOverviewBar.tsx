@@ -139,8 +139,8 @@ export function KnowledgeOverviewBar({ status, stats, health, islandOnly, onTogg
       {/* 星图缩略预览（点击进入知识星图） */}
       <GraphThumbnail refreshToken={stats?.indexedAt ?? ''} onOpen={() => setView('knowledge-graph')} />
 
-      {/* 最近更新（前 min(M,8) 条，点击在阅读区打开该文档） */}
-      <div className="min-w-0 flex-1">
+      {/* 最近更新（前 min(M,8) 条，点击在阅读区打开该文档；40：收窄约 20%，避免过度抢占横向空间） */}
+      <div className="min-w-0 flex-1 max-w-[260px]">
         <div className="qs-meta mb-1.5 text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>
           最近更新
         </div>

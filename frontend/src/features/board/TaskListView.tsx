@@ -13,12 +13,25 @@ import { Avatar, Badge, Btn, Empty } from '../../components/ui.tsx';
 
 const PLATFORM_OPTIONS = ['天猫', '京东', '拼多多', '抖音小店', '小红书', '其他'];
 const COL_LABEL: Record<string, string> = { planned: '规划中', progress: '进行中', awaiting: '待确认', done: '已完成' };
-const SORT_OPTIONS: { key: TaskFilters['sort']; label: string }[] = [
-  { key: 'createdAt', label: '创建时间' },
-  { key: 'updatedAt', label: '最近更新' },
-  { key: 'progress', label: '进度' },
-];
 const HIT_FIELD_LABEL: Record<string, string> = { title: '标题', point: '卖点', keyword: '关键词', imageName: '图片名' };
+
+/** 34：相对时间（列表 / 日志统一口径） */
+export function fmtRelative(iso?: string | Date): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const diff = Date.now() - d.getTime();
+  const min = 60_000;
+  const hr = 3_600_000;
+  const day = 86_400_000;
+  const p = (n: number) => String(n).padStart(2, '0');
+  if (diff < min) return '刚刚';
+  if (diff < hr) return `${Math.floor(diff / min)} 分钟前`;
+  if (diff < day) return `${Math.floor(diff / hr)} 小时前`;
+  if (diff < 2 * day) return `昨天 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+  return `${d.getMonth() + 1}-${d.getDate()}`;
+}
 
 /** 关联资料失效角标（B6 · 9.1/9.2：kbRefsInvalid > 0 才显示，无失效不显示） */
 export function KbInvalidBadge({ task, compact }: { task: TaskWithMeta; compact?: boolean }) {
@@ -100,20 +113,7 @@ export function TaskFilterBar() {
         <span className="qs-meta">关键字</span>
         <input className="qs-input" style={{ width: 140 }} placeholder="标题 / 描述" value={filters.q} onChange={(e) => set('q', e.target.value)} />
       </label>
-      <label className="flex items-center gap-1.5 text-[12px]">
-        <span className="qs-meta">排序</span>
-        <select className="qs-input" style={{ width: 'auto' }} value={filters.sort} onChange={(e) => set('sort', e.target.value as TaskFilters['sort'])}>
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <select className="qs-input" style={{ width: 'auto' }} value={filters.order} onChange={(e) => set('order', e.target.value as TaskFilters['order'])}>
-          <option value="desc">降序</option>
-          <option value="asc">升序</option>
-        </select>
-      </label>
+      {/* 33：排序已移至列表表头（点击列头切换），筛选栏不再重复排序下拉 */}
       {active ? (
         <Btn size="sm" variant="ghost" onClick={clearFilters}>
           清除筛选
@@ -125,17 +125,21 @@ export function TaskFilterBar() {
 
 /** 任务列表表格（B5 · 5.1：行视图，含 id/标题/状态/阶段/负责人/平台/创建时间/操作） */
 export function TaskListTable({ tasks, onOpen }: { tasks: TaskWithMeta[]; onOpen: (id: number) => void }) {
-  const { openTask } = useWorkbench();
+  const { openTask, filters, setFilters } = useWorkbench();
   const handleOpen = (t: TaskWithMeta) => {
     onOpen(t.id);
     openTask(t.id);
   };
+  /** 33：点击表头切换排序（同列再点切换升/降） */
+  const sortBy = (key: TaskFilters['sort']) =>
+    setFilters({ ...filters, sort: key, order: filters.sort === key && filters.order === 'desc' ? 'asc' : 'desc' });
+  const sortMark = (key: TaskFilters['sort']) => (filters.sort === key ? (filters.order === 'desc' ? '▼' : '▲') : '↕');
   if (tasks.length === 0) {
     return <Empty text="无匹配任务 · 可调整上方筛选条件" />;
   }
   return (
     <div className="qs-card overflow-x-auto">
-      <table className="w-full min-w-[780px] border-collapse text-[13px]">
+      <table className="w-full min-w-[880px] border-collapse text-[13px]">
         <thead>
           <tr className="qs-meta text-left" style={{ borderBottom: '1px solid var(--color-line)', color: 'var(--color-ink-faint)' }}>
             <th className="px-3 py-2 font-normal">#</th>
@@ -144,7 +148,18 @@ export function TaskListTable({ tasks, onOpen }: { tasks: TaskWithMeta[]; onOpen
             <th className="px-3 py-2 font-normal">当前阶段</th>
             <th className="px-3 py-2 font-normal">负责人</th>
             <th className="px-3 py-2 font-normal">平台</th>
-            <th className="px-3 py-2 font-normal">创建时间</th>
+            <th className="px-3 py-2 font-normal">
+              <button type="button" className="qs-clickable inline-flex items-center gap-1" title="按创建时间排序" onClick={() => sortBy('createdAt')}>
+                创建时间
+                <span style={{ color: filters.sort === 'createdAt' ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}>{sortMark('createdAt')}</span>
+              </button>
+            </th>
+            <th className="px-3 py-2 font-normal">
+              <button type="button" className="qs-clickable inline-flex items-center gap-1" title="按最近更新排序" onClick={() => sortBy('updatedAt')}>
+                最近更新
+                <span style={{ color: filters.sort === 'updatedAt' ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}>{sortMark('updatedAt')}</span>
+              </button>
+            </th>
             <th className="px-3 py-2 font-normal">操作</th>
           </tr>
         </thead>
@@ -170,7 +185,12 @@ export function TaskListTable({ tasks, onOpen }: { tasks: TaskWithMeta[]; onOpen
                 </span>
               </td>
               <td className="qs-meta px-3 py-2">{(t.platforms ?? []).join(' / ') || t.platform || '—'}</td>
-              <td className="qs-meta px-3 py-2 tabular">{new Date(t.createdAt).toLocaleString('zh-CN', { hour12: false })}</td>
+              <td className="qs-meta px-3 py-2 tabular" title={new Date(t.createdAt).toLocaleString('zh-CN', { hour12: false })}>
+                {fmtRelative(t.createdAt)}
+              </td>
+              <td className="qs-meta px-3 py-2 tabular" title={t.updatedAt ? new Date(t.updatedAt).toLocaleString('zh-CN', { hour12: false }) : ''}>
+                {fmtRelative(t.updatedAt)}
+              </td>
               <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                 <span className="flex items-center gap-1.5">
                   <KbInvalidBadge task={t} compact />

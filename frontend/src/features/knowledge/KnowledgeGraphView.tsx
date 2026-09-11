@@ -789,13 +789,11 @@ export function KnowledgeGraphView() {
           </div>
         </div>
 
-        {/* 节点详情（点击节点） */}
+        {/* 节点详情（36：仅选中节点时展开，未选中时收起把宽度让给画布） */}
+        {detail ? (
         <aside className="qs-card h-fit w-[280px] shrink-0 p-4">
           <h3 className="font-display mb-3 text-[15px] font-semibold">节点详情</h3>
-          {!detail ? (
-            <Empty text="点击图中节点查看关联" />
-          ) : (
-            <div className="space-y-3">
+          <div className="space-y-3">
               <div>
                 <Badge tone={detail.node.kind === 'doc' ? 'signal' : 'default'}>{detail.node.kind === 'doc' ? '文档' : '标签'}</Badge>
                 <div className="mt-1.5 text-[13px] font-medium leading-snug">{detail.node.label}</div>
@@ -849,8 +847,8 @@ export function KnowledgeGraphView() {
                 </div>
               ))}
             </div>
-          )}
         </aside>
+        ) : null}
       </div>
     </div>
   );

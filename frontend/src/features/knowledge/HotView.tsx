@@ -192,12 +192,14 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setTasks(null);
     setSelected(null);
     setError(null);
+    setSearch('');
     void api
       .listTasks()
       .then((r) => setTasks(r.tasks))
@@ -205,6 +207,9 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
   }, [open]);
 
   if (!open || !item) return null;
+
+  const kw = search.trim().toLowerCase();
+  const filteredTasks = (tasks ?? []).filter((t) => t.title.toLowerCase().includes(kw));
 
   const attach = async () => {
     if (selected == null) return;
@@ -250,18 +255,36 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
       ) : tasks.length === 0 ? (
         <Empty text="暂无任务" />
       ) : (
-        <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-1">
-          {tasks.map((t) => (
-            <label
-              key={t.id}
-              className="flex cursor-pointer items-center gap-2 rounded-[4px] border px-2.5 py-2 text-[13px]"
-              style={{ borderColor: selected === t.id ? 'var(--color-signal)' : 'var(--color-line)', background: selected === t.id ? 'var(--color-signal-soft)' : 'transparent' }}
-            >
-              <input type="radio" className="accent-[var(--color-signal)]" checked={selected === t.id} onChange={() => setSelected(t.id)} />
-              <span className="min-w-0 truncate">#{t.id} {t.title}</span>
-            </label>
-          ))}
-        </div>
+        <>
+          {/* 43：任务数 > 8 时提供搜索，避免靠肉眼在长列表里找 */}
+          {tasks.length > 8 ? (
+            <input
+              className="qs-input mb-2"
+              placeholder="搜索任务（按标题）…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+            />
+          ) : null}
+          <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-1">
+            {filteredTasks.length === 0 ? (
+              <div className="qs-meta px-2 py-3 text-center" style={{ color: 'var(--color-ink-faint)' }}>
+                无匹配任务
+              </div>
+            ) : (
+              filteredTasks.map((t) => (
+                <label
+                  key={t.id}
+                  className="flex cursor-pointer items-center gap-2 rounded-[4px] border px-2.5 py-2 text-[13px]"
+                  style={{ borderColor: selected === t.id ? 'var(--color-signal)' : 'var(--color-line)', background: selected === t.id ? 'var(--color-signal-soft)' : 'transparent' }}
+                >
+                  <input type="radio" className="accent-[var(--color-signal)]" checked={selected === t.id} onChange={() => setSelected(t.id)} />
+                  <span className="min-w-0 truncate">#{t.id} {t.title}</span>
+                </label>
+              ))
+            )}
+          </div>
+        </>
       )}
       {error ? (
         <p className="qs-meta mt-2" style={{ color: 'var(--color-danger)' }}>
@@ -595,6 +618,8 @@ export function HotView() {
   const [configOpen, setConfigOpen] = useState(false);
   const [attachItem, setAttachItem] = useState<HotItem | null>(null);
   const [attachedTip, setAttachedTip] = useState<string | null>(null);
+  // 37：「其他」分组默认折叠，避免大量未命中关注域的信息抢占首屏
+  const [collapsedOther, setCollapsedOther] = useState(true);
 
   const load = useCallback(async (refresh: boolean) => {
     setLoading(true);
@@ -614,6 +639,13 @@ export function HotView() {
   }, [load]);
 
   const tiers: HotTier[] = ['mustRead', 'browse', 'other'];
+
+  // 37：卡片序号跨分组全局连续（不受分组折叠影响）
+  const seqById = new Map<string, number>();
+  {
+    let n = 0;
+    for (const t of tiers) for (const item of panel?.tiers[t] ?? []) seqById.set(item.id, n++);
+  }
 
   return (
     <div className="space-y-4">
@@ -665,10 +697,16 @@ export function HotView() {
         <Empty text={KB_EMPTY_STATES.hotEmptyNone.text} hint={KB_EMPTY_STATES.hotEmptyNone.hint} emptyKey={KB_EMPTY_STATES.hotEmptyNone.key} />
       ) : (
         <>
-          {/* 5.1 三枚统计药丸 */}
-          <div className="flex flex-wrap gap-2" data-hot-pills>
+          {/* 5.1 三枚统计药丸（42：今日必看为 0 时降级为一行灰字，不放大号 0 误导） */}
+          <div className="flex flex-wrap items-center gap-2" data-hot-pills>
             <Pill label="多源热点" value={panel.counts.upstream} />
-            <Pill label="今日必看" value={panel.counts.mustRead} />
+            {panel.counts.mustRead > 0 ? (
+              <Pill label="今日必看" value={panel.counts.mustRead} />
+            ) : (
+              <span className="qs-meta rounded-[4px] border px-2 py-1" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-faint)' }}>
+                今日暂无多源共振事件
+              </span>
+            )}
             <button
               type="button"
               className="qs-clickable inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] leading-none"
@@ -683,6 +721,22 @@ export function HotView() {
           {tiers.map((tier) => {
             const list = panel.tiers[tier];
             if (list.length === 0) return null;
+            // 37：「其他」分组默认折叠为一行，点击展开
+            if (tier === 'other' && collapsedOther) {
+              return (
+                <button
+                  key={tier}
+                  type="button"
+                  className="qs-clickable qs-meta flex items-center gap-1.5 text-left text-[13px]"
+                  style={{ color: 'var(--color-ink-soft)' }}
+                  onClick={() => setCollapsedOther(false)}
+                  data-hot-tier={tier}
+                >
+                  <span aria-hidden="true">▸</span>
+                  {TIER_LABEL[tier]}（{list.length} 条） · {TIER_HINT[tier]}
+                </button>
+              );
+            }
             return (
               <section key={tier} className="space-y-2.5" data-hot-tier={tier}>
                 <div className="flex items-baseline gap-2 border-b pb-1.5" style={{ borderColor: 'var(--color-line)' }}>
@@ -692,11 +746,16 @@ export function HotView() {
                   <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
                     {list.length} 条 · {TIER_HINT[tier]}
                   </span>
+                  {tier === 'other' ? (
+                    <button type="button" className="qs-clickable qs-meta ml-auto" style={{ color: 'var(--color-signal)' }} onClick={() => setCollapsedOther(true)}>
+                      收起
+                    </button>
+                  ) : null}
                 </div>
-                {/* 5.6 响应式多栏网格 */}
+                {/* 5.6 响应式多栏网格（37：序号全局连续） */}
                 <div className="hot-grid">
-                  {list.map((item, i) => (
-                    <HotCard key={item.id} item={item} index={i} onAttach={setAttachItem} />
+                  {list.map((item) => (
+                    <HotCard key={item.id} item={item} index={seqById.get(item.id) ?? 0} onAttach={setAttachItem} />
                   ))}
                 </div>
               </section>

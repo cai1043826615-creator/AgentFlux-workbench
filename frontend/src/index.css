@@ -378,6 +378,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 39：禁止 flex 收缩，避免窄屏时 rail 图标被压缩重叠 */
+  flex: none;
   width: 32px;
   height: 32px;
   border-radius: 4px;
