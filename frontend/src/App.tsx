@@ -1,7 +1,7 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import type { AgentOnlineStatus } from '@workbench/shared';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import type { AgentOnlineStatus, TaskKbRefInput } from '@workbench/shared';
 import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
-import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter } from './components/ui.tsx';
+import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter, type GlyphName } from './components/ui.tsx';
 import { api } from './lib/api.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
 import { ChatPanel } from './features/chat/ChatPanel.tsx';
@@ -9,6 +9,10 @@ import { WorkstationBar } from './features/workstation/WorkstationBar.tsx';
 import { BoardView } from './features/board/BoardView.tsx';
 import { TaskDetailView } from './features/status/TaskDetailView.tsx';
 import { ObservabilityView } from './features/observability/ObservabilityView.tsx';
+import { KnowledgeView } from './features/knowledge/KnowledgeView.tsx';
+import { KnowledgeGraphView } from './features/knowledge/KnowledgeGraphView.tsx';
+import { HotView } from './features/knowledge/HotView.tsx';
+import { KbRefPicker } from './features/knowledge/KbRefPicker.tsx';
 import { ToastHost } from './components/Toast.tsx';
 
 /** 折叠态头像列：状态点/文案映射（与 ChatPanel 顶部头像一致） */
@@ -66,16 +70,51 @@ function TopBar() {
 /** 可选目标平台（多选） */
 const PLATFORM_OPTIONS = ['天猫', '京东', '拼多多', '抖音小店', '小红书', '其他'];
 
-/** 新建任务：两步弹窗（第1步 表单：标题+资料+平台多选+参考图；第2步 确认摘要 → 确认并开工） */
-function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { createTask } = useWorkbench();
-  const [step, setStep] = useState<'form' | 'confirm'>('form');
+/**
+ * 折叠态图标列单项：与展开态左栏的选项逐项一一对应。
+ * disabled 用于占位项（直播带货上架 / 跨境选品）——展示位置但不可点，与展开态的置灰占位一致。
+ */
+function RailIcon({ glyph, title, active, disabled, onClick }: { glyph: GlyphName; title: string; active?: boolean; disabled?: boolean; onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`qs-rail-icon ${active ? 'active' : ''}`}
+      title={title}
+      aria-label={title}
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Glyph name={glyph} size={18} />
+    </button>
+  );
+}
+
+/** 新建任务：三步弹窗（第1步 表单 → 第2步 关联知识库资料 → 第3步 确认摘要 → 确认并开工）
+ *  第2步是板块 A/B 的唯一耦合点；知识库未连接时该步骤仅提示并可跳过，流程与既有完全一致。 */
+function NewTaskModal() {
+  const { createTask, newTask, closeNewTask } = useWorkbench();
+  const open = newTask.open;
+  const [step, setStep] = useState<'form' | 'kb' | 'confirm'>('form');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [refDataUrl, setRefDataUrl] = useState<string | null>(null);
+  const [kbRefs, setKbRefs] = useState<TaskKbRefInput[]>([]);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 打开时重置并应用预填（热点「创建任务」→ 预填标题/摘要，仍需人工补全并确认）
+  useEffect(() => {
+    if (!open) return;
+    setStep('form');
+    setTitle(newTask.prefill?.title ?? '');
+    setDesc(newTask.prefill?.description ?? '');
+    setPlatforms([]);
+    setRefDataUrl(null);
+    setKbRefs([]);
+    if (fileRef.current) fileRef.current.value = '';
+  }, [open, newTask.prefill]);
 
   const canNext = title.trim() !== '' && platforms.length > 0 && refDataUrl !== null;
 
@@ -85,8 +124,9 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
     setDesc('');
     setPlatforms([]);
     setRefDataUrl(null);
+    setKbRefs([]);
     if (fileRef.current) fileRef.current.value = '';
-    onClose();
+    closeNewTask();
   };
 
   const togglePlatform = (p: string) =>
@@ -111,7 +151,7 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
       } catch (err) {
         console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
       }
-      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage });
+      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage, kbRefs });
       reset();
     } finally {
       setBusy(false);
@@ -119,8 +159,9 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
   };
 
   if (!open) return null;
+  const stepTitle = step === 'form' ? '新建任务' : step === 'kb' ? '关联知识库资料' : '确认任务内容';
   return (
-    <Modal open title={step === 'form' ? '新建任务' : '确认任务内容'} onClose={reset} width={460}>
+    <Modal open title={stepTitle} onClose={reset} width={460}>
       {step === 'form' ? (
         <>
           <Field label="任务标题">
@@ -190,7 +231,20 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
           )}
           <ModalFooter>
             <Btn onClick={reset}>取消</Btn>
-            <Btn variant="primary" onClick={() => setStep('confirm')} disabled={!canNext}>
+            <Btn variant="primary" onClick={() => setStep('kb')} disabled={!canNext}>
+              下一步：关联知识库资料
+            </Btn>
+          </ModalFooter>
+        </>
+      ) : step === 'kb' ? (
+        <>
+          <KbRefPicker value={kbRefs} onChange={setKbRefs} />
+          <p className="qs-meta mt-3" style={{ color: 'var(--color-ink-faint)' }}>
+            关联的资料会在 Agent 生成时作为只读事实参考注入上下文；本步骤可选，直接跳过不影响开工。
+          </p>
+          <ModalFooter>
+            <Btn onClick={() => setStep('form')}>返回修改</Btn>
+            <Btn variant="primary" onClick={() => setStep('confirm')}>
               下一步：确认内容
             </Btn>
           </ModalFooter>
@@ -209,12 +263,20 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
                 <span className="qs-meta" style={{ color: 'var(--color-danger)' }}>未上传</span>
               )}
             </div>
+            <div className="text-[13px]">
+              <b>关联资料：</b>
+              {kbRefs.length === 0 ? (
+                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>未关联</span>
+              ) : (
+                <span>{kbRefs.length} 份（{kbRefs.map((r) => (r.anchor ? `章节「${r.anchor}」` : '整篇')).join(' / ')}）</span>
+              )}
+            </div>
           </div>
           <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
             确认后 AI 将开始工作（未确认前不会启动任何 Agent）
           </p>
           <ModalFooter>
-            <Btn onClick={() => setStep('form')}>返回修改</Btn>
+            <Btn onClick={() => setStep('kb')}>返回修改</Btn>
             <Btn variant="primary" onClick={submit} disabled={busy}>{busy ? '开工中…' : '确认并开工'}</Btn>
           </ModalFooter>
         </>
@@ -224,13 +286,12 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 function Shell() {
-  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView } = useWorkbench();
+  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask } = useWorkbench();
   const [showLeft, setShowLeft] = useState(true);
   const [showRight, setShowRight] = useState(true);
   const [leftWidth, setLeftWidth] = useState(220);
   const [rightWidth, setRightWidth] = useState(280);
   const [settingsSignal, setSettingsSignal] = useState(0);
-  const [newOpen, setNewOpen] = useState(false);
 
   /** 拖拽改栏宽（pointerdown 后挂 document 级 move/up，主区自适应，夹 120~420） */
   const startResize = (side: 'left' | 'right') => (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -267,6 +328,18 @@ function Shell() {
     setView('observability');
     setShowLeft(true);
   };
+  const openLeftKnowledge = () => {
+    setView('knowledge');
+    setShowLeft(true);
+  };
+  const openLeftKnowledgeGraph = () => {
+    setView('knowledge-graph');
+    setShowLeft(true);
+  };
+  const openLeftHot = () => {
+    setView('hot');
+    setShowLeft(true);
+  };
   const openLeftSettings = () => {
     setShowLeft(true);
     setSettingsSignal((n) => n + 1);
@@ -286,11 +359,11 @@ function Shell() {
     <div className="flex h-screen flex-col overflow-hidden">
       <TopBar />
       <div className="flex flex-1 min-h-0">
-        {/* 左栏（工作流 + 通用）；展开态可拖宽，折叠态为图标列（保持分组） */}
+        {/* 左栏（知识库 + 工作流 + 通用）；展开态可拖宽，折叠态为图标列（分组顺序与展开态一致） */}
         {showLeft ? (
           <aside className="relative flex shrink-0 flex-col border-r" style={{ borderColor: 'var(--color-line)', width: leftWidth }}>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <LeftPanel onNew={() => setNewOpen(true)} onBack={backToBoard} openSettingsSignal={settingsSignal} />
+              <LeftPanel onNew={() => openNewTask()} onBack={backToBoard} openSettingsSignal={settingsSignal} />
             </div>
             <button
               type="button"
@@ -303,20 +376,23 @@ function Shell() {
             <div className="qs-resize-handle" style={{ right: -3 }} title="拖动调整左栏宽度" onPointerDown={startResize('left')} />
           </aside>
         ) : (
-          <div className="flex w-12 shrink-0 flex-col items-center border-r py-3" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="flex w-12 shrink-0 flex-col items-center overflow-y-auto border-r py-3" style={{ borderColor: 'var(--color-line)' }}>
             <div className="flex flex-col items-center gap-1">
+              {/* 知识库分区：与展开态逐项对应 */}
+              <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>知识库</span>
+              <RailIcon glyph="box" title="知识库 · 浏览与检索" active={view === 'knowledge'} onClick={openLeftKnowledge} />
+              <RailIcon glyph="graph" title="知识星图 · 知识关联图谱" active={view === 'knowledge-graph'} onClick={openLeftKnowledgeGraph} />
+              <RailIcon glyph="trend" title="每日热点 · 电商关注域" active={view === 'hot'} onClick={openLeftHot} />
+              <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
+              {/* 工作流分区（占位项展示但不可点，与展开态一致） */}
               <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>工作流</span>
-              <button type="button" className={`qs-rail-icon ${workflowActive ? 'active' : ''}`} title="电商工作流 · 看板" onClick={openLeftFlow}>
-                <Glyph name="flow" size={18} />
-              </button>
+              <RailIcon glyph="flow" title="电商工作流 · 看板" active={workflowActive} onClick={openLeftFlow} />
+              <RailIcon glyph="box" title="直播带货上架（占位）" disabled />
+              <RailIcon glyph="box" title="跨境选品（占位）" disabled />
               <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
               <span className="qs-meta mb-0.5" style={{ color: 'var(--color-ink-faint)' }}>通用</span>
-              <button type="button" className={`qs-rail-icon ${view === 'observability' ? 'active' : ''}`} title="Agent 状态" onClick={openLeftObservability}>
-                <Glyph name="pulse" size={18} />
-              </button>
-              <button type="button" className="qs-rail-icon" title="设置 · 编排模式" onClick={openLeftSettings}>
-                <Glyph name="gear" size={18} />
-              </button>
+              <RailIcon glyph="pulse" title="Agent 状态" active={view === 'observability'} onClick={openLeftObservability} />
+              <RailIcon glyph="gear" title="设置 · 编排模式" onClick={openLeftSettings} />
             </div>
             <button
               type="button"
@@ -335,11 +411,14 @@ function Shell() {
         <main className="flex flex-1 min-w-0 flex-col p-4">
           {view === 'board' && <WorkstationBar />}
           <div className="flex-1 min-h-0 overflow-auto">
-            {view === 'board' && <BoardView onOpen={openTask} onNew={() => setNewOpen(true)} />}
+            {view === 'board' && <BoardView onOpen={openTask} onNew={() => openNewTask()} />}
             {view === 'task' && selectedTaskId != null && (
               <TaskDetailView key={selectedTaskId} taskId={selectedTaskId} onBack={backToBoard} onNotFound={backToBoard} />
             )}
             {view === 'observability' && <ObservabilityView />}
+            {view === 'knowledge' && <KnowledgeView />}
+            {view === 'knowledge-graph' && <KnowledgeGraphView />}
+            {view === 'hot' && <HotView />}
           </div>
         </main>
 
@@ -407,7 +486,7 @@ function Shell() {
           </div>
         )}
       </div>
-      <NewTaskModal open={newOpen} onClose={() => setNewOpen(false)} />
+      <NewTaskModal />
       <ToastHost />
     </div>
   );

@@ -387,6 +387,15 @@ body {
   background: var(--color-signal-soft);
   color: var(--color-signal-strong);
 }
+/* 占位项：展示位置但不可点（与展开态左栏的置灰占位一致） */
+.qs-rail-icon:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.qs-rail-icon:disabled:hover {
+  background: transparent;
+  color: var(--color-ink-soft);
+}
 
 /* ===== P7 视效升级（gpt-taste 克制动效 + Aceternity/21st.dev 微交互适度借鉴；不改功能、不动图片头像） ===== */
 

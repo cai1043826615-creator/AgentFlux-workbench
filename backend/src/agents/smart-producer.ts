@@ -9,6 +9,7 @@ import { generateImage, ImageChannelUnavailableError } from './imagegen.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
 import { MockProducer, type ReviewIssue, type ReviewReport, type StageProducer, setProducer } from './producer.ts';
 import { readFileContent, readSkillContent } from './skills.ts';
+import { buildKnowledgeContext } from '../knowledge/refs.ts';
 import * as delivery from '../delivery/store.ts';
 
 /** 上传目录（与 routes/tasks.ts UPLOAD_DIR 一致） */
@@ -139,15 +140,32 @@ export async function buildSystemPrompt(agentId: string, base: string): Promise<
 }
 
 /**
+ * 组装 producer 最终 system prompt：基础 system + 挂载技能/文件 + 关联知识库资料。
+ * taskId 无关联资料时知识库段为空串，最终 prompt 与既有完全一致（板块独立性）。
+ */
+export async function buildProducerSystemPrompt(agentId: string, base: string, taskId?: number): Promise<string> {
+  const withMounts = await buildSystemPrompt(agentId, base);
+  const kb = await buildKnowledgeContext(taskId);
+  return kb ? `${withMounts}\n\n${kb}` : withMounts;
+}
+
+/**
  * 智能 Producer：真实 LLM / 生图渠道优先，不可用或失败时自动降级为内置 mock
  * （design.md D9 mock 降级开关；渠道来自 .env.local 默认或设置面板）。
  */
 export class SmartProducer implements StageProducer {
   private mock = new MockProducer();
 
-  private async withLlm<T>(agentId: string, system: string, user: string, fallback: () => Promise<T>, parser: (text: string) => T | null): Promise<T> {
+  private async withLlm<T>(
+    agentId: string,
+    system: string,
+    user: string,
+    fallback: () => Promise<T>,
+    parser: (text: string) => T | null,
+    taskId?: number,
+  ): Promise<T> {
     try {
-      const finalSystem = await buildSystemPrompt(agentId, system);
+      const finalSystem = await buildProducerSystemPrompt(agentId, system, taskId);
       const text = await callLlm({ agentId, system: finalSystem, user });
       const parsed = parser(text);
       if (parsed) return parsed;
@@ -167,6 +185,7 @@ export class SmartProducer implements StageProducer {
       `产品资料：${task.description || task.title}\n目标平台：${task.platform || '未指定'}\n请输出上架需求单摘要（结构化产品信息 + 卖点素材池 + 视觉风格参考要点）。`,
       () => this.mock.produceRequirement(task),
       (text) => ({ summary: text.trim().slice(0, 300) }),
+      task.id,
     );
   }
 
@@ -188,6 +207,7 @@ export class SmartProducer implements StageProducer {
           keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
         };
       },
+      task.id,
     );
   }
 
@@ -266,6 +286,7 @@ export class SmartProducer implements StageProducer {
             issues: Array.isArray(parsed.issues) ? parsed.issues.slice(0, 3).map((i) => ({ targetStage: String(i.targetStage ?? 'main-image'), note: String(i.note ?? '') })) : [],
           };
         },
+        task.id,
       );
 
     const baseline = (await resolveReferenceImage(task, false)) || (await resolveReferenceImage(task, true)) || task.referenceImage;
@@ -332,6 +353,7 @@ export class SmartProducer implements StageProducer {
         if (!parsed?.packName || !Array.isArray(parsed.entries)) return null;
         return { packName: parsed.packName, entries: parsed.entries };
       },
+      task.id,
     );
   }
 }

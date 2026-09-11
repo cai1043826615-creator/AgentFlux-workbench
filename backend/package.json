@@ -8,7 +8,7 @@
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node src/engine/__tests__/executor.smoke.ts",
+    "test": "node src/engine/__tests__/executor.smoke.ts && node src/knowledge/__tests__/knowledge.test.ts && node src/knowledge/__tests__/workflow-context.test.ts && node src/knowledge/__tests__/api.smoke.ts",
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {

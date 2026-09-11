@@ -1,6 +1,7 @@
 /**
  * 核心共享类型 —— 前后端契约（OpenSpec multi-agent-ecom-workbench · 契约先行冻结）
  */
+import type { TaskKbRefInput } from './knowledge.ts';
 
 // ===== 看板列 =====
 export type BoardColumn = 'planned' | 'progress' | 'awaiting' | 'done';
@@ -75,6 +76,8 @@ export interface TaskCreateInput {
   /** 参考图（必填）：dataURL 或 /uploads/xxx.png */
   referenceImage?: string;
   workflowId?: string;
+  /** 关联知识库资料（板块 A/B 唯一耦合点：文档或章节片段，最多 6 份） */
+  kbRefs?: TaskKbRefInput[];
 }
 
 // ===== 任务事件（活动日志 + 群聊通知来源） =====

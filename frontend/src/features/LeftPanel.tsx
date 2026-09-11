@@ -62,10 +62,26 @@ export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: ()
 
   return (
     <div className="flex flex-col gap-0.5 p-3">
-      <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-faint)' }}>工作流</div>
-      <WorkflowItem active={workflowActive} count={tasks.length} onClick={onBack} />
-      <PlaceholderItem label="直播带货上架" />
-      <PlaceholderItem label="跨境选品" />
+      <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-faint)' }}>知识库</div>
+      <button type="button" className={`qs-nav-item ${view === 'knowledge' ? 'active' : ''}`} onClick={() => setView('knowledge')}>
+        <Glyph name="box" size={14} className="shrink-0" />
+        <span className="flex-1 truncate">知识库</span>
+      </button>
+      <button type="button" className={`qs-nav-item ${view === 'knowledge-graph' ? 'active' : ''}`} onClick={() => setView('knowledge-graph')}>
+        <Glyph name="graph" size={14} className="shrink-0" />
+        <span className="flex-1 truncate">知识星图</span>
+      </button>
+      <button type="button" className={`qs-nav-item ${view === 'hot' ? 'active' : ''}`} onClick={() => setView('hot')}>
+        <Glyph name="trend" size={14} className="shrink-0" />
+        <span className="flex-1 truncate">每日热点</span>
+      </button>
+
+      <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
+        <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-faint)' }}>工作流</div>
+        <WorkflowItem active={workflowActive} count={tasks.length} onClick={onBack} />
+        <PlaceholderItem label="直播带货上架" />
+        <PlaceholderItem label="跨境选品" />
+      </div>
 
       <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
         <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-faint)' }}>通用</div>

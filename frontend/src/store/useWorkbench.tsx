@@ -3,9 +3,15 @@ import type { Agent, Deliverable, Message, Task, TaskCreateInput, TaskEvent } fr
 import { api } from '../lib/api.ts';
 import { connectWs } from '../lib/ws.ts';
 
-export type WorkbenchView = 'board' | 'task' | 'observability';
+export type WorkbenchView = 'board' | 'task' | 'observability' | 'knowledge' | 'knowledge-graph' | 'hot';
 export type TaskTab = 'detail' | 'deliver';
 export type ChatTarget = { kind: 'group'; to: string } | { kind: 'private'; to: string };
+
+/** 新建任务弹窗状态：prefill 供「热点 → 创建任务」预填标题/摘要（人工确认，不自动创建） */
+export interface NewTaskState {
+  open: boolean;
+  prefill: { title: string; description: string } | null;
+}
 
 export interface TaskWithMeta extends Task {
   ownerName: string;
@@ -29,6 +35,12 @@ interface WorkbenchState {
   approvalQueue: { taskId: number; stage: string; title: string }[];
   settings: Record<string, unknown>;
   loading: boolean;
+  /** 知识库阅读定位（星图/任务详情跳转原文用） */
+  kbDocPath: string | null;
+  /** 星图选中节点 id */
+  kbNodeId: string | null;
+  /** 新建任务弹窗（含热点预填） */
+  newTask: NewTaskState;
   refresh: () => Promise<void>;
   createTask: (input: TaskCreateInput) => Promise<Task>;
   confirmTask: (id: number) => Promise<void>;
@@ -38,13 +50,18 @@ interface WorkbenchState {
   restoreTask: (id: number) => Promise<void>;
   sendChat: (body: string) => void;
   selectChat: (target: ChatTarget) => void;
-  setView: (v: 'board' | 'observability') => void;
+  setView: (v: WorkbenchView) => void;
+  /** 打开知识库并定位到指定文档阅读 */
+  openKbDoc: (path: string | null) => void;
+  setKbNodeId: (id: string | null) => void;
+  openNewTask: (prefill?: { title: string; description: string }) => void;
+  closeNewTask: () => void;
   openTask: (id: number) => void;
   backToBoard: () => void;
   setTaskTab: (t: TaskTab) => void;
 }
 
-const VIEWS: WorkbenchView[] = ['board', 'task', 'observability'];
+const VIEWS: WorkbenchView[] = ['board', 'task', 'observability', 'knowledge', 'knowledge-graph', 'hot'];
 function viewFromHash(): { view: WorkbenchView; taskId: number | null } {
   const h = location.hash.replace('#/', '');
   if (h.startsWith('task/')) {
@@ -71,6 +88,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [approvalQueue, setApprovalQueue] = useState<{ taskId: number; stage: string; title: string }[]>([]);
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(true);
+  const [kbDocPath, setKbDocPath] = useState<string | null>(null);
+  const [kbNodeId, setKbNodeId] = useState<string | null>(null);
+  const [newTask, setNewTask] = useState<NewTaskState>({ open: false, prefill: null });
   const wsRef = useRef<(() => void) | null>(null);
 
   const upsertTask = useCallback((task: Task) => {
@@ -242,10 +262,27 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setTaskTabState(t);
   }, []);
 
-  const setView = useCallback((v: 'board' | 'observability') => {
+  const setView = useCallback((v: WorkbenchView) => {
     setViewState(v);
     if (v === 'board') setSelectedTaskId(null);
-    location.hash = `/${v}`;
+    location.hash = `#/${v}`;
+  }, []);
+
+  /** 打开知识库阅读指定文档（星图节点 / 任务关联资料跳转用） */
+  const openKbDoc = useCallback(
+    (path: string | null) => {
+      setKbDocPath(path);
+      setView('knowledge');
+    },
+    [setView],
+  );
+
+  const openNewTask = useCallback((prefill?: { title: string; description: string }) => {
+    setNewTask({ open: true, prefill: prefill ?? null });
+  }, []);
+
+  const closeNewTask = useCallback(() => {
+    setNewTask({ open: false, prefill: null });
   }, []);
 
   /** 归档任务（归档≠删除：数据保留，看板不显示；WS task:update 同步各端） */
@@ -281,6 +318,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       approvalQueue,
       settings,
       loading,
+      kbDocPath,
+      kbNodeId,
+      newTask,
       refresh,
       createTask,
       confirmTask,
@@ -291,11 +331,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       sendChat,
       selectChat,
       setView,
+      openKbDoc,
+      setKbNodeId,
+      openNewTask,
+      closeNewTask,
       openTask,
       backToBoard,
       setTaskTab,
     }),
-    [tasks, agents, connected, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, refresh, createTask, confirmTask, decide, review, archiveTask, restoreTask, sendChat, selectChat, setView, openTask, backToBoard, setTaskTab],
+    [tasks, agents, connected, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, refresh, createTask, confirmTask, decide, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

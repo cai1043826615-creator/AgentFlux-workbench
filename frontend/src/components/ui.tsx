@@ -189,10 +189,28 @@ const GLYPH_PATHS: Record<string, ReactNode> = {
       <path d="M3 5.2l5 2.6 5-2.6M8 7.8v5.6" />
     </>
   ),
+  /* 知识星图：节点网络（与 flow 的四宫格区分） */
+  graph: (
+    <>
+      <circle cx="4" cy="4.4" r="1.9" />
+      <circle cx="12.2" cy="6.4" r="1.9" />
+      <circle cx="6.4" cy="12" r="1.9" />
+      <path d="M5.7 5.1 10.5 5.8M5.1 6.2 5.9 10.2M10.9 7.9 7.9 10.7" />
+    </>
+  ),
+  /* 每日热点：趋势折线 + 箭头（与 pulse 的心跳折线区分） */
+  trend: (
+    <>
+      <path d="M1.8 12 5.8 7.6l2.5 2.3 4.1-5.1" />
+      <path d="M9.4 4.8h3v3" />
+    </>
+  ),
   chevron: <path d="M10.5 3.5 5 8l5.5 4.5" />,
 };
 
-export function Glyph({ name, size = 14, className = '' }: { name: 'flow' | 'pulse' | 'gear' | 'box' | 'chevron'; size?: number; className?: string }) {
+export type GlyphName = 'flow' | 'pulse' | 'gear' | 'box' | 'chevron' | 'graph' | 'trend';
+
+export function Glyph({ name, size = 14, className = '' }: { name: GlyphName; size?: number; className?: string }) {
   return (
     <svg
       width={size}

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { APPROVAL_POINT_STAGES, STAGE_OWNER_ROLE, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Agent, type TaskEvent, type TaskEventType } from '@workbench/shared';
+import { APPROVAL_POINT_STAGES, STAGE_OWNER_ROLE, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Agent, type TaskEvent, type TaskEventType, type TaskKbRef } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Spinner, Tabs } from '../../components/ui.tsx';
-import { parseCopy, parseImages } from '../../lib/api.ts';
+import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
@@ -283,6 +283,73 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
   );
 }
 
+/** 任务关联的知识库资料（板块 A/B 唯一耦合点，6.3）：标题 / 路径 / 片段范围 + 跳转原文 + 失效标记 */
+function KbRefsPanel({ taskId }: { taskId: number }) {
+  const { openKbDoc } = useWorkbench();
+  const [refs, setRefs] = useState<TaskKbRef[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .taskKbRefs(taskId)
+      .then((r) => {
+        if (!cancelled) setRefs(r.refs);
+      })
+      .catch(() => {
+        if (!cancelled) setRefs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  if (refs === null) return null;
+  // 未关联资料时不占用任务详情空间（知识库未连接时的既有体验保持一致）
+  if (refs.length === 0) return null;
+
+  const invalidCount = refs.filter((r) => !r.valid).length;
+  return (
+    <div className="qs-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="font-display text-[15px] font-semibold">关联知识库资料</h3>
+        <span className="qs-meta" style={{ color: invalidCount > 0 ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
+          {refs.length} 份{invalidCount > 0 ? ` · ${invalidCount} 份已失效` : ''}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {refs.map((r) => (
+          <div key={r.id} className="rounded-[4px] border px-2.5 py-2" style={{ borderColor: r.valid ? 'var(--color-line)' : 'var(--color-danger-soft)', background: r.valid ? 'transparent' : 'var(--color-danger-soft)' }}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium" style={{ color: r.valid ? 'var(--color-ink)' : 'var(--color-danger)' }}>
+                  {r.title}
+                  {!r.valid ? <span className="qs-meta ml-1.5">失效（Vault 中已不存在）</span> : null}
+                </div>
+                <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
+                  {r.docPath}
+                  {r.anchor ? ` · 片段「${r.anchor}」` : ' · 整篇'}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 cursor-pointer text-[12px] hover:underline"
+                style={{ color: r.valid ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}
+                onClick={() => openKbDoc(r.docPath)}
+                title="跳转到知识库阅读原文"
+              >
+                阅读原文
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
+        关联资料以只读方式作为 Agent 生成的事实参考，不会写回知识库。
+      </p>
+    </div>
+  );
+}
+
 /** 任务详情（对齐线框 renderTask：面包屑 + task-head + 阶段条 + tabs + 属性面板 / 内容交付） */
 export function TaskDetailView({
   taskId,
@@ -411,6 +478,9 @@ export function TaskDetailView({
                 </div>
               ) : null}
             </div>
+
+            {/* 关联知识库资料（有则显示，无则不占位） */}
+            <KbRefsPanel taskId={task.id} />
 
             {/* 活动日志 */}
             <div className="qs-card p-4">

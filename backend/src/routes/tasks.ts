@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import type { TaskKbRefInput } from '@workbench/shared';
 import { service } from '../engine/service.ts';
+import { KbRefInvalidError, KbRefLimitError, setTaskKbRefs, validateTaskKbRefs } from '../knowledge/refs.ts';
 
 /** 上传图片存放目录（gitignore 的 backend/data/ 下） */
 const UPLOAD_DIR = join(import.meta.dirname, '..', '..', 'data', 'uploads');
@@ -14,12 +16,25 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     return { tasks };
   });
 
-  // 创建任务（未确认，进入规划中；platforms 多选必填，referenceImage 参考图）
-  app.post<{ Body: { title: string; description: string; platforms?: string[]; referenceImage?: string; workflowId?: string } }>('/api/tasks', async (req, reply) => {
-    const { title, description, platforms, referenceImage, workflowId } = req.body ?? {};
+  // 创建任务（未确认，进入规划中；platforms 多选必填，referenceImage 参考图；
+  // kbRefs 为知识库关联资料——板块 A/B 唯一耦合点，先校验再建任务，避免半成品）
+  app.post<{
+    Body: { title: string; description: string; platforms?: string[]; referenceImage?: string; workflowId?: string; kbRefs?: TaskKbRefInput[] };
+  }>('/api/tasks', async (req, reply) => {
+    const { title, description, platforms, referenceImage, workflowId, kbRefs } = req.body ?? {};
     if (!title) return reply.code(400).send({ error: 'title required' });
     if (!Array.isArray(platforms) || platforms.length === 0) return reply.code(400).send({ error: 'platforms required (at least one)' });
+    const refs = Array.isArray(kbRefs) ? kbRefs : [];
+    if (refs.length > 0) {
+      try {
+        validateTaskKbRefs(refs);
+      } catch (err) {
+        if (err instanceof KbRefLimitError || err instanceof KbRefInvalidError) return reply.code(400).send({ error: err.message });
+        throw err;
+      }
+    }
     const task = service.createTask({ title, description: description ?? '', platforms, referenceImage, workflowId });
+    if (refs.length > 0) setTaskKbRefs(task.id, refs);
     return { task };
   });
 
