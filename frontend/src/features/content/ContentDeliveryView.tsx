@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Deliverable, Task } from '@workbench/shared';
+import type { CopyPackage, Deliverable, DeliverableDiff, DeliverableVersion, ProvenanceResult, Task } from '@workbench/shared';
 import { BOARD_COLUMNS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { Badge, Btn, Card, Empty, SectionTitle, Spinner, Tabs } from '../../components/ui.tsx';
-import { parseCopy, parseImages } from '../../lib/api.ts';
+import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 
 /* ===== 内容交付视图（组7 · 任务 7.1-7.6：左右等宽分栏 + 逐张审批 + 终审回退） ===== */
@@ -64,7 +64,12 @@ interface ParsedImg {
   url: string;
   status: string;
   note?: string;
+  error?: string;
+  attempts?: number;
 }
+
+/** 生图失败最大尝试次数（与后端 MAX_IMAGE_ATTEMPTS 对齐；界面据此决定是否还可重试） */
+const MAX_IMAGE_ATTEMPTS = 3;
 
 /** 合并某阶段全部 image 交付物中的图片条目（同一阶段可能多个交付物/多版本） */
 function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] {
@@ -151,7 +156,7 @@ function RefThumb({ src, name, onZoom }: { src: string; name: string; onZoom: ()
 }
 
 export function ContentDeliveryView({ taskId }: { taskId: number }) {
-  const { tasks, deliverablesByTask, openTask, decide, review } = useWorkbench();
+  const { tasks, deliverablesByTask, openTask, decide, retryImage, review } = useWorkbench();
   const [imageTab, setImageTab] = useState<'main' | 'detail'>('main');
   const [rejectingCopy, setRejectingCopy] = useState(false);
   const [copyNote, setCopyNote] = useState('');
@@ -160,8 +165,12 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const [rollbackStage, setRollbackStage] = useState('copy');
   const [reviewNote, setReviewNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   /** 大图预览（缩略图 hover 放大 / 参考图点击） */
   const [preview, setPreview] = useState<{ url: string; name: string; status: string } | null>(null);
+  /** 产出溯源结果（B1）：未关联资料时 hasRefs=false 触发「参数由模型生成，请人工核对」警示 */
+  const [provenance, setProvenance] = useState<ProvenanceResult | null>(null);
 
   const task = useMemo(() => tasks.find((t) => t.id === taskId) ?? null, [tasks, taskId]);
 
@@ -169,6 +178,26 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   useEffect(() => {
     openTask(taskId);
   }, [taskId, openTask]);
+
+  // B1 · 2.7：内容交付视图加载溯源结果（未关联资料时展示核对警示；无 provenance 行时静默）
+  useEffect(() => {
+    if (taskId == null) {
+      setProvenance(null);
+      return;
+    }
+    let alive = true;
+    void api
+      .taskProvenance(taskId)
+      .then((r) => {
+        if (alive) setProvenance(r.provenance);
+      })
+      .catch(() => {
+        if (alive) setProvenance(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [taskId]);
 
   const deliverables = useMemo(() => (taskId != null ? deliverablesByTask[taskId] ?? [] : []), [deliverablesByTask, taskId]);
 
@@ -191,7 +220,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const reviewDeliverables = useMemo(() => deliverables.filter((d) => d.stage === 'review' && d.kind === 'copy'), [deliverables]);
   const reviewOutline = parseCopy(reviewDeliverables[reviewDeliverables.length - 1])?.outline;
 
-  const doDecide = async (kind: 'copy' | 'image', decision: 'approve' | 'reject', imageId?: string, note?: string) => {
+  const doDecide = async (kind: 'copy' | 'image', decision: 'approve' | 'reject' | 'skip', imageId?: string, note?: string) => {
     if (!task || busy) return;
     setBusy(true);
     try {
@@ -202,6 +231,20 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
       console.warn('[内容交付] decide 失败', err);
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** 单张图片重试（B11 · 4.10）：只重新生成目标 failed 图；错误（非失败图/已达上限）以行内警示展示 */
+  const doRetry = async (imageId: string) => {
+    if (!task || busy || retrying) return;
+    setRetrying(imageId);
+    setRetryError(null);
+    try {
+      await retryImage(task.id, imageId);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : '重试失败');
+    } finally {
+      setRetrying(null);
     }
   };
 
@@ -270,6 +313,9 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
         {copyDeliverable ? (
           <div className="qs-meta mt-1">版本 v{copyDeliverable.version} · {new Date(copyDeliverable.updatedAt).toLocaleString('zh-CN')}</div>
         ) : null}
+
+        {/* B3 · 3.8：版本切换与差异对照（追加式；仅有多版本才出现「与上一版对比」，不承诺可回溯任意历史版本） */}
+        {task ? <CopyVersionPanel taskId={task.id} /> : null}
 
         <ol className="mt-4 space-y-2">
           {copy.points.map((p, i) => (
@@ -349,66 +395,114 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
 
   const renderGrid = (imgs: ParsedImg[], canDecide: boolean) => {
     if (imgs.length === 0) return <Empty text="该板块图片尚未产出" />;
+    const failedImgs = imgs.filter((i) => i.status === 'failed');
+    const allFailed = failedImgs.length === imgs.length;
     return (
-      <div className="grid grid-cols-3 gap-2">
-        {imgs.map((img) => {
-          const failed = img.status === 'failed';
-          return (
-            <div key={img.id} className="border p-1.5" style={{ borderColor: failed ? 'var(--color-danger)' : 'var(--color-line)' }}>
-              {/* failed 图不可放大；svg 模拟占位由 Thumb 内部识别为占位样式 */}
-              <Thumb src={img.url} name={img.name} onZoom={failed ? undefined : () => setPreview({ url: img.url, name: img.name, status: img.status })} />
-              <div className="mt-1.5 flex items-center justify-between gap-1">
-                <span className="truncate text-[11px]" title={img.name}>
-                  {img.name}
-                </span>
-                <Badge tone={failed ? 'no' : img.status === 'approved' ? 'ok' : img.status === 'rejected' ? 'no' : canDecide ? 'signal' : 'default'}>
-                  {failed ? '生成失败' : img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回' : canDecide ? '待确认' : '未决'}
-                </Badge>
-              </div>
-              {failed ? (
-                <div className="qs-meta mt-1" style={{ color: 'var(--color-danger)' }}>
-                  渠道生成失败 · 可打回让设计师重新产出
+      <div>
+        {/* B11 · 4.5/4.6 界面警示：失败图片不阻塞拍板点，但必须可见 */}
+        {failedImgs.length > 0 ? (
+          <div
+            className="mb-2 flex items-start gap-2 rounded-[4px] border px-3 py-2 text-[12px]"
+            style={{ borderColor: 'var(--color-danger)', background: 'var(--color-danger-soft)', color: 'var(--color-ink-soft)' }}
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>
+              {allFailed ? '全部图片生成失败 · 可按「跳过」不触发返工地推进，或「打回」让设计师重新产出' : `${failedImgs.length} 张图片生成失败 · 不影响其他图片决策，可「跳过」或「打回」`}
+            </span>
+          </div>
+        ) : null}
+        {retryError ? (
+          <div
+            className="mb-2 rounded-[4px] border px-3 py-2 text-[12px]"
+            style={{ borderColor: 'var(--color-danger)', background: 'var(--color-danger-soft)', color: 'var(--color-danger)' }}
+          >
+            重试失败：{retryError}
+          </div>
+        ) : null}
+        <div className="grid grid-cols-3 gap-2">
+          {imgs.map((img) => {
+            const failed = img.status === 'failed';
+            const skipped = img.status === 'skipped';
+            return (
+              <div key={img.id} className="border p-1.5" style={{ borderColor: failed ? 'var(--color-danger)' : 'var(--color-line)' }}>
+                {/* failed 图不可放大；svg 模拟占位由 Thumb 内部识别为占位样式 */}
+                <Thumb src={img.url} name={img.name} onZoom={failed ? undefined : () => setPreview({ url: img.url, name: img.name, status: img.status })} />
+                <div className="mt-1.5 flex items-center justify-between gap-1">
+                  <span className="truncate text-[11px]" title={img.name}>
+                    {img.name}
+                  </span>
+                  <Badge
+                    tone={failed ? 'no' : skipped ? 'default' : img.status === 'approved' ? 'ok' : img.status === 'rejected' ? 'no' : canDecide ? 'signal' : 'default'}
+                  >
+                    {failed ? '生成失败' : skipped ? '已跳过' : img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回' : canDecide ? '待确认' : '未决'}
+                  </Badge>
                 </div>
-              ) : null}
-              {img.status === 'rejected' && img.note ? <div className="qs-meta mt-1">原因 · {img.note}</div> : null}
-              {/* failed 图允许打回（触发返工重产出），不提供采纳；不阻塞其他图决策 */}
-              {canDecide && (img.status === 'pending' || failed) ? (
-                <div className="mt-1.5">
-                  {rejectingImg === img.id ? (
-                    <div className="space-y-1.5">
-                      <input
-                        className="qs-input"
-                        autoFocus
-                        placeholder="打回原因（将发给设计师重新输出）…"
-                        value={imgNotes[img.id] ?? ''}
-                        onChange={(e) => setImgNotes((p) => ({ ...p, [img.id]: e.target.value }))}
-                      />
-                      <div className="flex gap-1.5">
-                        <Btn variant="ghost" size="sm" onClick={() => setRejectingImg(null)}>
-                          取消
-                        </Btn>
-                        <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('image', 'reject', img.id, imgNotes[img.id])}>
-                          确认打回
+                {failed ? (
+                  <div className="qs-meta mt-1" style={{ color: 'var(--color-danger)' }}>
+                    生成失败 · 已尝试 {(img.attempts ?? MAX_IMAGE_ATTEMPTS).toLocaleString('zh-CN')}/{MAX_IMAGE_ATTEMPTS} 次
+                  </div>
+                ) : null}
+                {failed && img.error ? (
+                  <div className="qs-meta mt-0.5 truncate" title={img.error}>
+                    {img.error}
+                  </div>
+                ) : null}
+                {img.status === 'rejected' && img.note ? <div className="qs-meta mt-1">原因 · {img.note}</div> : null}
+                {/* 操作区：pending → 采纳/打回；failed → 重试（未超限）/跳过/打回；skipped 已决策不提供操作 */}
+                {canDecide && !skipped && (img.status === 'pending' || failed) ? (
+                  <div className="mt-1.5">
+                    {rejectingImg === img.id ? (
+                      <div className="space-y-1.5">
+                        <input
+                          className="qs-input"
+                          autoFocus
+                          placeholder="打回原因（将发给设计师重新输出）…"
+                          value={imgNotes[img.id] ?? ''}
+                          onChange={(e) => setImgNotes((p) => ({ ...p, [img.id]: e.target.value }))}
+                        />
+                        <div className="flex gap-1.5">
+                          <Btn variant="ghost" size="sm" onClick={() => setRejectingImg(null)}>
+                            取消
+                          </Btn>
+                          <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('image', 'reject', img.id, imgNotes[img.id])}>
+                            确认打回
+                          </Btn>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {!failed ? (
+                          <Btn size="sm" variant="primary" disabled={busy} onClick={() => void doDecide('image', 'approve', img.id)}>
+                            采纳
+                          </Btn>
+                        ) : null}
+                        {failed ? (
+                          <>
+                            {(img.attempts ?? 0) < MAX_IMAGE_ATTEMPTS ? (
+                              <Btn size="sm" variant="signal" disabled={busy || retrying !== null} onClick={() => void doRetry(img.id)}>
+                                {retrying === img.id ? '重试中…' : '重试'}
+                              </Btn>
+                            ) : (
+                              <span className="qs-meta self-center text-[10px]" title="该图已连续 3 次生成失败，达到重试上限">
+                                已达上限
+                              </span>
+                            )}
+                            <Btn size="sm" variant="ghost" disabled={busy} onClick={() => void doDecide('image', 'skip', img.id)}>
+                              跳过
+                            </Btn>
+                          </>
+                        ) : null}
+                        <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejectingImg(img.id)}>
+                          打回
                         </Btn>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex gap-1.5">
-                      {!failed ? (
-                        <Btn size="sm" variant="primary" disabled={busy} onClick={() => void doDecide('image', 'approve', img.id)}>
-                          采纳
-                        </Btn>
-                      ) : null}
-                      <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejectingImg(img.id)}>
-                        打回
-                      </Btn>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -544,6 +638,19 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             </div>
           </div>
 
+          {/* B1 · 2.7 未关联资料的核对警示（内容交付视图）：明确提示参数由模型生成、不展示溯源率数值 */}
+          {provenance?.hasRefs === false ? (
+            <div
+              className="flex items-center gap-2 rounded-[4px] border px-3 py-2 text-[12px]"
+              style={{ borderColor: 'var(--color-warn)', background: 'var(--color-warn-soft)', color: 'var(--color-ink-soft)' }}
+            >
+              <span aria-hidden="true">⚠</span>
+              <span>
+                本任务未关联任何知识库资料 · <strong>参数由模型生成，请人工核对</strong>
+              </span>
+            </div>
+          ) : null}
+
           {/* 两卡等高：grid items-stretch + 每 Card 内部 grid 行撑满 */}
           <div className="grid grid-cols-2 items-stretch gap-4">
             <Card className="grid grid-rows-[auto_1fr]" title="卖点文案" extra={copyBadge}>
@@ -572,9 +679,184 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             </button>
             <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
               {preview.name} ·{' '}
-              {preview.status === 'approved' ? '已采纳' : preview.status === 'rejected' ? '已打回' : preview.status === 'ref' ? '参考图' : '待确认'}
+              {preview.status === 'approved' ? '已采纳' : preview.status === 'rejected' ? '已打回' : preview.status === 'skipped' ? '已跳过' : preview.status === 'ref' ? '参考图' : '待确认'}
             </div>
           </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ===== B3 · 3.8 文案版本切换与差异对照（追加式） ===== */
+
+function parseCopyVersion(content: string): CopyPackage | null {
+  try {
+    return JSON.parse(content) as CopyPackage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 版本下拉（含版本号与产出时间）+ 选中版本内容 + 「与上一版对比」面板：
+ * 新增/删除/保留卖点行分组、标题/大纲/关键词变化；仅有 v1 时显示「无上一版可对比」。
+ */
+function CopyVersionPanel({ taskId }: { taskId: number }) {
+  const [versions, setVersions] = useState<DeliverableVersion[] | null>(null);
+  const [sel, setSel] = useState<number | null>(null);
+  const [diff, setDiff] = useState<DeliverableDiff | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setVersions(null);
+    setDiff(null);
+    void api
+      .deliverableVersions(taskId, 'copy')
+      .then((r) => {
+        if (!alive) return;
+        setVersions(r.versions);
+        setSel(r.versions[r.versions.length - 1]?.version ?? null);
+      })
+      .catch(() => {
+        if (alive) setVersions([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [taskId]);
+
+  if (!versions || versions.length === 0) return null;
+
+  const cur = versions.find((v) => v.version === sel) ?? versions[versions.length - 1];
+  const curCopy = cur ? parseCopyVersion(cur.content) : null;
+
+  const loadDiff = async () => {
+    setDiffLoading(true);
+    try {
+      const r = await api.deliverableDiff(taskId, 'copy');
+      setDiff(r.diff);
+    } catch {
+      setDiff(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t pt-2.5" style={{ borderColor: 'var(--color-line)' }}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+          历史版本
+        </span>
+        <select
+          className="qs-input"
+          style={{ width: 'auto' }}
+          value={sel ?? ''}
+          onChange={(e) => setSel(Number(e.target.value))}
+          title="切换查看历史版本内容"
+        >
+          {versions.map((v) => (
+            <option key={v.version} value={v.version}>
+              v{v.version} · {new Date(v.createdAt).toLocaleString('zh-CN')}
+            </option>
+          ))}
+        </select>
+        <Btn size="sm" variant="ghost" disabled={diffLoading} onClick={() => void loadDiff()}>
+          {diffLoading ? '对比中…' : '与上一版对比'}
+        </Btn>
+      </div>
+
+      {curCopy ? (
+        <div className="mt-2 rounded-[4px] border p-2.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
+          <div className="qs-meta mb-1 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+            v{cur.version} 内容预览
+          </div>
+          <div className="text-[13px] font-semibold">{curCopy.title}</div>
+          <ol className="mt-1 space-y-0.5">
+            {curCopy.points.map((p, i) => (
+              <li key={i} className="text-[12px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
+                · {p}
+              </li>
+            ))}
+          </ol>
+          {curCopy.outline ? (
+            <div className="qs-meta mt-1 text-[12px]" style={{ color: 'var(--color-ink-faint)' }}>
+              大纲：{curCopy.outline}
+            </div>
+          ) : null}
+          {curCopy.keywords.length > 0 ? (
+            <div className="qs-meta mt-1 text-[12px]" style={{ color: 'var(--color-ink-faint)' }}>
+              关键词：{curCopy.keywords.join('、')}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {diff ? (
+        <div className="mt-2 rounded-[4px] border p-2.5" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="qs-meta mb-1.5 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+            v{diff.fromVersion ?? '—'} → v{diff.toVersion} 对比
+          </div>
+          {!diff.hasPrevious ? (
+            <div className="qs-meta text-[12px]">无上一版可对比</div>
+          ) : diff.identical ? (
+            <div className="qs-meta text-[12px]">与上一版一致</div>
+          ) : (
+            <div className="space-y-1.5 text-[12px] leading-relaxed">
+              {diff.titleChanged && diff.title ? (
+                <div>
+                  标题：<span className="line-through" style={{ color: 'var(--color-danger)' }}>{diff.title.from}</span>
+                  <span className="mx-1" style={{ color: 'var(--color-ink-faint)' }}>→</span>
+                  <span style={{ color: 'var(--color-ok)' }}>{diff.title.to}</span>
+                </div>
+              ) : null}
+              {diff.outlineChanged && diff.outline ? (
+                <div>
+                  大纲：<span className="line-through" style={{ color: 'var(--color-danger)' }}>{diff.outline.from}</span>
+                  <span className="mx-1" style={{ color: 'var(--color-ink-faint)' }}>→</span>
+                  <span style={{ color: 'var(--color-ok)' }}>{diff.outline.to}</span>
+                </div>
+              ) : null}
+              {diff.addedPoints.length > 0 ? (
+                <div>
+                  新增卖点：
+                  {diff.addedPoints.map((p) => (
+                    <span key={p} className="ml-1 rounded-[3px] px-1.5 py-0.5" style={{ background: 'var(--color-ok-soft)', color: 'var(--color-ok)' }}>
+                      +{p}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {diff.removedPoints.length > 0 ? (
+                <div>
+                  删除卖点：
+                  {diff.removedPoints.map((p) => (
+                    <span
+                      key={p}
+                      className="ml-1 line-through rounded-[3px] px-1.5 py-0.5"
+                      style={{ background: 'var(--color-danger-soft)', color: 'var(--color-danger)' }}
+                    >
+                      −{p}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {diff.keptPoints.length > 0 ? (
+                <div>
+                  保留卖点：
+                  {diff.keptPoints.map((p) => (
+                    <span key={p} className="ml-1" style={{ color: 'var(--color-ink-soft)' }}>
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {diff.keywordChanges.added.length > 0 ? <div>新增关键词：{diff.keywordChanges.added.join('、')}</div> : null}
+              {diff.keywordChanges.removed.length > 0 ? <div>删除关键词：{diff.keywordChanges.removed.join('、')}</div> : null}
+            </div>
+          )}
         </div>
       ) : null}
     </div>

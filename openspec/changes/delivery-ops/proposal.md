@@ -16,9 +16,9 @@
 - **B4 交付包打包下载**：新增 `GET /api/tasks/:id/deliverable-package`，流式返回 zip（文案 Markdown/JSON + **全部已采纳**图片原图，含 dataURL 与 http URL 两种来源）；归档任务在看板/任务详情提供「下载交付包」入口。零新增运行时依赖：用 `node:zlib` + 手写 CRC32 组装 ZIP。
 - **B5 任务列表视图 + 检索**：看板页新增「看板 / 列表」视图切换（同一数据源），列表视图按 **平台 / 负责人 / 时间 / 关键字** 筛选 + 排序；`GET /api/tasks` 支持对应 query 参数（服务端单一筛选口径）；新增 `GET /api/deliverables/search?q=` 交付物全局搜索（命中文案标题/卖点/关键词与图片名称，返回任务 id、阶段、版本与命中片段，可跳转任务）。
 - **B6 关联资料失效告警**：`GET /api/tasks` 每条任务附带 `kbRefsTotal` / `kbRefsInvalid`（由板块 B 侧新增的**只读**批量聚合函数产出，板块 A 不直连板块 B 表）；看板卡片、任务列表行、任务详情头部展示「N 份关联资料已失效」角标并可跳转。**`task_kb_refs` 表结构与其既有读写行为完全不变**。
-- **B8 渠道健康检查**：新增 `POST /api/agents/:id/channel-test`，用该 Agent 的生效渠道发一次**最小请求**（短 prompt + 最小 `max_tokens`），返回 `{ ok, latencyMs, model, error }`；设置面板加「测试渠道」按钮，展示红/绿 + 延迟 + **区分「渠道配置错误」与「Agent 问题」**的失败原因；健康检查不写 `agent_executions`、不改 Agent 在线状态、不回显 apiKey。
+- **B8 渠道健康检查**：新增 `POST /api/agents/:id/channel-test`，用该 Agent 的生效渠道发一次**最小请求**（短 prompt + 最小 `max_tokens`），返回 `{ ok, latencyMs, model, baseUrlHost, error, recentFailedRuns? }`（`model`/`baseUrlHost` 在未发起请求时为 `null`）；设置面板加「测试渠道」按钮，展示红/绿 + 延迟 + **区分「渠道配置错误」与「Agent 问题」**的失败原因；健康检查不写 `agent_executions`、不改 Agent 在线状态、不回显 apiKey。
 - **B9 待确认浏览器通知**：前端在 WS 收到 `approval:prompt` 且页面不可见时，通过浏览器 `Notification` 推送一条本地通知（纯前端，无需服务端改动，复用既有 `approval:prompt` 广播）；**未授权/不支持时静默降级不报错**，页面角标照常；同一 (任务, 阶段) 只通知一次。
-- **B12 任务级成本/耗时统计**：`agent_executions` 新增 `input_tokens` / `output_tokens` 两列（幂等 `ALTER TABLE`），`callLlm` 回传渠道 `usage`（未回传时按字符数估算并标记 `estimated`）；新增 `GET /api/tasks/:id/cost` 聚合阶段耗时、执行次数、涉及模型与 token；**仅当配置了单价表**（`settings.modelPricing`）才计算估算费用，否则只展示 token 数与耗时；任务详情新增汇总卡片。
+- **B12 任务级成本/耗时统计**：`agent_executions` 新增 `input_tokens` / `output_tokens` / `tokens_estimated` 三列（幂等 `ALTER TABLE`，第三列为估算标记，见验证记录偏差 #1），`callLlm` 回传渠道 `usage`（未回传时按字符数估算并标记 `estimated`）；新增 `GET /api/tasks/:id/cost` 聚合阶段耗时、执行次数、涉及模型与 token；**仅当配置了单价表**（`settings.modelPricing`）才计算估算费用，否则只展示 token 数与耗时；任务详情新增汇总卡片。
 
 ## Capabilities
 
@@ -37,7 +37,7 @@
 ## Impact
 
 - **后端（板块 A）**：
-  - `backend/src/db/ensure.ts`：新增 `deliverable_versions` 表与 `agent_executions.input_tokens/output_tokens` 幂等迁移；`backend/src/db/schema.ts` 补行类型
+  - `backend/src/db/ensure.ts`：新增 `deliverable_versions` 表与 `agent_executions.input_tokens/output_tokens/tokens_estimated` 幂等迁移；`backend/src/db/schema.ts` 补行类型
   - `backend/src/delivery/store.ts`：产出前留档 + 版本历史读取；新增 `backend/src/delivery/versions.ts`（历史读写与回填）、`backend/src/delivery/diff.ts`（版本差异）、`backend/src/delivery/package.ts`（ZIP 组装）
   - `backend/src/routes/tasks.ts`：`GET /api/tasks` 扩展 query（筛选/排序/聚合计数）、新增 `GET /api/tasks/:id/deliverable-package`、`GET /api/tasks/:id/cost`、`GET /api/deliverables/search`
   - `backend/src/routes/agents.ts`：新增 `POST /api/agents/:id/channel-test`

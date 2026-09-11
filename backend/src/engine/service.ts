@@ -1,8 +1,12 @@
-import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_LABELS, type BoardColumn, type CopyPackage, type DeliverableDecisionInput, type ImageItem, type Task, type TaskEvent } from '@workbench/shared';
+import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_LABELS, type BoardColumn, type CopyPackage, type Deliverable, type DeliverableDecisionInput, type ImageItem, type ProvenanceResult, type ReworkInfo, type Task, type TaskEvent } from '@workbench/shared';
 import { MockProducer, getProducer, type ReviewReport } from '../agents/producer.ts';
+import { MAX_IMAGE_ATTEMPTS } from '../agents/smart-producer.ts';
 import { logExecution } from '../agents/execution-logger.ts';
+import { setLlmUsageSink, type LlmUsage } from '../agents/llm.ts';
 import { markBusy, markIdle, effectiveModel } from '../agents/runtime.ts';
 import * as delivery from '../delivery/store.ts';
+import { buildProvenanceResult, getProvenanceResult } from '../delivery/provenance.ts';
+import { getReworkInfo } from './rework.ts';
 import { get } from '../db/client.ts';
 import { ensureSchema } from '../db/ensure.ts';
 import { bus } from './bus.ts';
@@ -11,6 +15,22 @@ import { getOrchestrationMode } from '../db/seed.ts';
 
 // 服务单例创建前保证表存在（幂等）
 ensureSchema();
+
+/** 单张图片重试已达累计上限（B11 · 4.9：路由层转 400 返回可见错误） */
+export class RetryLimitError extends Error {
+  constructor(max: number) {
+    super(`该图片已达重试上限（${max} 次），无法再次重试`);
+    this.name = 'RetryLimitError';
+  }
+}
+
+/** 单张图片重试被拒绝（非失败图 / 未找到 / 该阶段无交付物；B11 · 4.8） */
+export class RetryNotAllowedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RetryNotAllowedError';
+  }
+}
 
 const AGENT_NAMES: Record<string, string> = {
   'agent-copy': '美美',
@@ -31,6 +51,17 @@ const STAGE_AGENT: Record<string, string> = {
 /** 长文本摘要截断 */
 function brief(text: string, max = 100): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** 某阶段图片交付物的图片总数（推进警示「全部失败」判定用；无交付物返回 0） */
+function deliveryImageTotal(taskId: number, stage: string): number {
+  const d = delivery.getDeliverable(taskId, stage, 'image');
+  if (!d) return 0;
+  try {
+    return (JSON.parse(d.content) as ImageItem[]).length;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -84,6 +115,14 @@ export class WorkflowService {
         case 'copy': {
           const cp = (await this.runStage(task, node.id, () => producer.produceCopy(task), (r) => `文案标题：${(r as CopyPackage).title}`)) as CopyPackage;
           delivery.saveDeliverable(t.id, node.id, 'copy', cp);
+          // B1 · 2.4：文案产出后立即生成并持久化溯源结果（kind='provenance'，同一任务重复产出时版本递增）
+          try {
+            const result = await buildProvenanceResult(t.id, cp);
+            delivery.saveDeliverable(t.id, node.id, 'provenance', result);
+          } catch (err) {
+            // 溯源失败不阻塞文案产出（板块 B 异常降级：板块 A 照常执行）
+            console.warn(`[provenance] 任务 #${t.id} 溯源结果生成失败，跳过：${err instanceof Error ? err.message : err}`);
+          }
           t = this.executor.onStageCompleted(t.id, node.id);
           break;
         }
@@ -136,6 +175,8 @@ export class WorkflowService {
       status: r.ok ? 'pending' : 'failed',
       note: r.error,
       error: r.ok ? undefined : r.error,
+      // B11 · 4.2：累计尝试次数（含自动重试；失败路径记满上限）
+      attempts: r.attempts ?? (r.ok ? 1 : MAX_IMAGE_ATTEMPTS),
     }));
     delivery.saveDeliverable(task.id, stageId, 'image', images);
     return results.length;
@@ -159,9 +200,17 @@ export class WorkflowService {
 
     markBusy(agentId, WORKFLOW_STAGE_LABELS[stage] ?? stage);
     const started = performance.now();
+    // B12 token 采集：阶段执行前注册 usage sink，执行后读取（阶段内 LLM 调用均为顺序）
+    const collected: LlmUsage[] = [];
+    setLlmUsageSink((u) => collected.push(u));
     try {
       const result = await producerCall();
       const durationMs = Math.round(performance.now() - started);
+      const hasReal = collected.length > 0;
+      // 生图阶段（main-image/detail-image）不产生 token：两列显式写 0，不计入汇总口径
+      const isImageStage = stage === 'main-image' || stage === 'detail-image';
+      const inputTokens = isImageStage ? 0 : hasReal ? collected.reduce((s, u) => s + u.promptTokens, 0) : undefined;
+      const outputTokens = isImageStage ? 0 : hasReal ? collected.reduce((s, u) => s + u.completionTokens, 0) : undefined;
       logExecution({
         agentId,
         taskId: task.id,
@@ -171,10 +220,15 @@ export class WorkflowService {
         inputSummary: task.title,
         outputSummary: isMock ? `${summarize(result)} (mock)` : summarize(result),
         durationMs,
+        inputTokens,
+        outputTokens,
+        tokensEstimated: isImageStage ? false : !hasReal,
       });
       return result;
     } catch (err) {
       const durationMs = Math.round(performance.now() - started);
+      const hasReal = collected.length > 0;
+      const isImageStage = stage === 'main-image' || stage === 'detail-image';
       logExecution({
         agentId,
         taskId: task.id,
@@ -185,9 +239,13 @@ export class WorkflowService {
         outputSummary: '',
         error: err instanceof Error ? err.message : String(err),
         durationMs,
+        inputTokens: isImageStage ? 0 : hasReal ? collected.reduce((s, u) => s + u.promptTokens, 0) : undefined,
+        outputTokens: isImageStage ? 0 : hasReal ? collected.reduce((s, u) => s + u.completionTokens, 0) : undefined,
+        tokensEstimated: isImageStage ? false : !hasReal,
       });
       throw err;
     } finally {
+      setLlmUsageSink(null);
       markIdle(agentId);
     }
   }
@@ -213,18 +271,78 @@ export class WorkflowService {
       return this.advance(taskId);
     }
 
-    // image：逐张决策（按当前阶段定位：main-image / detail-image）
-    delivery.updateDeliverableStatus(taskId, stage, 'image', input.imageId, decision === 'approve' ? 'approved' : 'rejected');
+    // image：逐张决策（按当前阶段定位：main-image / detail-image；kind 在此处已窄化为非 copy）
+    if (decision === 'skip' && !input.imageId) throw new Error('skip 仅支持逐张图片（需指定 imageId）');
+    // 推进警示用「决策前」失败数：本张决策可能把 failed 改为 approved/skipped，统计口径为「该阶段曾失败的图片数」
+    const failedBefore = delivery.countFailedImages(taskId, stage);
+    const st: 'approved' | 'rejected' | 'skipped' = decision === 'approve' ? 'approved' : decision === 'skip' ? 'skipped' : 'rejected';
+    delivery.updateDeliverableStatus(taskId, stage, 'image', input.imageId, st);
     const task = this.executor.getTask(taskId)!;
     if (task.column !== 'awaiting' || !APPROVAL_POINT_STAGES.includes(task.stage)) return task;
-    if (!delivery.allImagesDecided(taskId, task.stage)) return task; // 尚有未决策图片，等待
+    if (!delivery.allImagesDecided(taskId, task.stage)) return task; // 尚有未决策图片（pending），等待
 
     if (delivery.anyImageRejected(taskId, task.stage)) {
+      // 打回优先：failed 不掩盖 rejected（B11 · 4.7）
       this.executor.reject(taskId, note ?? '图片被打回，请返工');
     } else {
-      this.executor.approve(taskId);
+      // 推进：failed 不阻塞拍板点（B11 · 4.5/4.6）；推进事件记录失败图片数供界面警示
+      const meta =
+        failedBefore > 0
+          ? {
+              failedCount: failedBefore,
+              note:
+                failedBefore === deliveryImageTotal(taskId, task.stage)
+                  ? `全部图片生成失败（${failedBefore} 张），已按可跳过处理推进`
+                  : `${failedBefore} 张图片生成失败，已按可跳过处理推进`,
+            }
+          : undefined;
+      this.executor.approve(taskId, meta);
     }
     return this.advance(taskId);
+  }
+
+  /**
+   * 单张图片重试（B11 · 4.8/4.9）：只重新生成目标 failed 图。
+   * - 非 failed / 未找到 / 无交付物 → RetryNotAllowedError
+   * - 累计尝试已达 MAX_IMAGE_ATTEMPTS → RetryLimitError（不发出第 4 次请求）
+   */
+  async retryImage(taskId: number, imageId: string): Promise<{ deliverable: Deliverable; image: ImageItem }> {
+    const task = this.executor.getTask(taskId);
+    if (!task) throw new Error(`task ${taskId} not found`);
+    const stage = task.stage;
+    const del = delivery.getDeliverable(taskId, stage, 'image');
+    if (!del) throw new RetryNotAllowedError('该阶段没有图片交付物');
+    let images: ImageItem[];
+    try {
+      images = JSON.parse(del.content) as ImageItem[];
+    } catch {
+      throw new RetryNotAllowedError('交付物内容损坏，无法重试');
+    }
+    const img = images.find((i) => i.id === imageId);
+    if (!img) throw new RetryNotAllowedError('未找到该图片');
+    if (img.status !== 'failed') throw new RetryNotAllowedError('仅失败的图片可重试');
+    const attempts = img.attempts ?? 0;
+    if (attempts >= MAX_IMAGE_ATTEMPTS) throw new RetryLimitError(MAX_IMAGE_ATTEMPTS);
+
+    const producer = getProducer();
+    if (!producer.retryImage) throw new RetryNotAllowedError('当前执行模式不支持单张重试');
+    const r = await producer.retryImage(task, img.id);
+    const newAttempts = attempts + 1;
+    if (r.ok) {
+      img.status = 'pending';
+      img.url = r.dataUrl ?? '';
+      img.error = undefined;
+      img.note = undefined;
+      img.attempts = newAttempts;
+    } else {
+      img.status = 'failed';
+      img.url = '';
+      img.error = r.error ?? '生图失败';
+      img.attempts = newAttempts;
+    }
+    const updated = delivery.updateImageItems(taskId, stage, images);
+    if (!updated) throw new Error('更新交付物失败');
+    return { deliverable: updated, image: img };
   }
 
   /** 主管校对人工决策（pass / rollback） */
@@ -263,6 +381,14 @@ export class WorkflowService {
   }
   deliverables(taskId: number) {
     return delivery.listDeliverables(taskId);
+  }
+  /** 产出溯源结果（无 kind='provenance' 行时返回 null；hasRefs 由结果内给出） */
+  provenance(taskId: number): ProvenanceResult | null {
+    return getProvenanceResult(taskId);
+  }
+  /** 返工信息（任务累计返工次数与记录；无返工 count=0、records=[]） */
+  rework(taskId: number): ReworkInfo {
+    return getReworkInfo(taskId);
   }
   ownerNameOf(agentId: string | null): string {
     return agentId ? AGENT_NAMES[agentId] ?? this.executor.ownerNameOf(agentId) : '待分配';

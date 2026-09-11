@@ -1,21 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Agent, Deliverable, Message, Task, TaskCreateInput, TaskEvent } from '@workbench/shared';
+import { WORKFLOW_STAGE_LABELS, type Agent, type Deliverable, type Message, type Task, type TaskCreateInput, type TaskEvent } from '@workbench/shared';
 import { api } from '../lib/api.ts';
 import { connectWs } from '../lib/ws.ts';
+import { mergeTaskUpdate, taskWithMeta, type TaskWithMeta } from '../lib/taskMerge.ts';
+import type { TaskFilters } from '../lib/taskFilters.ts';
+import { DEFAULT_FILTERS } from '../lib/taskFilters.ts';
+import { handleApprovalPrompt, syncPendingTaskIds } from '../lib/approval-notify.ts';
+
+export type { TaskWithMeta } from '../lib/taskMerge.ts';
 
 export type WorkbenchView = 'board' | 'task' | 'observability' | 'knowledge' | 'knowledge-graph' | 'hot';
 export type TaskTab = 'detail' | 'deliver';
 export type ChatTarget = { kind: 'group'; to: string } | { kind: 'private'; to: string };
+/** 看板 / 列表 视图切换（B5 · 5.1） */
+export type BoardMode = 'board' | 'list';
 
-/** 新建任务弹窗状态：prefill 供「热点 → 创建任务」预填标题/摘要（人工确认，不自动创建） */
+/** 新建任务弹窗状态（打开/关闭；表单内容由弹窗内部管理，无外部预填） */
 export interface NewTaskState {
   open: boolean;
-  prefill: { title: string; description: string } | null;
-}
-
-export interface TaskWithMeta extends Task {
-  ownerName: string;
-  stageLabel: string;
 }
 
 /** Agent 渠道配置状态（后端 isAgentConfigured 权威判定：面板 key 或 .env 默认渠道回退） */
@@ -41,11 +43,16 @@ interface WorkbenchState {
   kbNodeId: string | null;
   /** 新建任务弹窗（含热点预填） */
   newTask: NewTaskState;
+  /** 看板/列表 视图与筛选（B5；跨视图保留，5.3） */
+  boardMode: BoardMode;
+  filters: TaskFilters;
   refresh: () => Promise<void>;
   createTask: (input: TaskCreateInput) => Promise<Task>;
   confirmTask: (id: number) => Promise<void>;
-  decide: (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject', imageId?: string, note?: string) => Promise<void>;
+  decide: (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject' | 'skip', imageId?: string, note?: string) => Promise<void>;
   review: (taskId: number, decision: 'pass' | 'rollback', targetStage?: string, note?: string) => Promise<void>;
+  /** 单张图片重试（B11）：只重新生成目标 failed 图；错误（非失败图/超上限）抛给调用方展示 */
+  retryImage: (taskId: number, imageId: string) => Promise<void>;
   archiveTask: (id: number) => Promise<void>;
   restoreTask: (id: number) => Promise<void>;
   sendChat: (body: string) => void;
@@ -54,11 +61,14 @@ interface WorkbenchState {
   /** 打开知识库并定位到指定文档阅读 */
   openKbDoc: (path: string | null) => void;
   setKbNodeId: (id: string | null) => void;
-  openNewTask: (prefill?: { title: string; description: string }) => void;
+  openNewTask: () => void;
   closeNewTask: () => void;
   openTask: (id: number) => void;
   backToBoard: () => void;
   setTaskTab: (t: TaskTab) => void;
+  setBoardMode: (m: BoardMode) => void;
+  setFilters: (f: TaskFilters) => void;
+  clearFilters: () => void;
 }
 
 const VIEWS: WorkbenchView[] = ['board', 'task', 'observability', 'knowledge', 'knowledge-graph', 'hot'];
@@ -90,19 +100,25 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [kbDocPath, setKbDocPath] = useState<string | null>(null);
   const [kbNodeId, setKbNodeId] = useState<string | null>(null);
-  const [newTask, setNewTask] = useState<NewTaskState>({ open: false, prefill: null });
+  const [newTask, setNewTask] = useState<NewTaskState>({ open: false });
+  const [boardMode, setBoardModeState] = useState<BoardMode>('board');
+  const [filters, setFiltersState] = useState<TaskFilters>(DEFAULT_FILTERS);
   const wsRef = useRef<(() => void) | null>(null);
+  /** 供 WS 回调读取最新任务列表（避免闭包过期）：取任务标题用于通知与 Toast */
+  const tasksRef = useRef<TaskWithMeta[]>([]);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   const upsertTask = useCallback((task: Task) => {
     setTasks((prev) => {
-      const meta = { ...task, ownerName: '', stageLabel: task.stage } as TaskWithMeta;
       const idx = prev.findIndex((t) => t.id === task.id);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = { ...next[idx], ...meta };
+        next[idx] = mergeTaskUpdate(next[idx], task);
         return next;
       }
-      return [meta, ...prev];
+      return [taskWithMeta(task), ...prev];
     });
   }, []);
 
@@ -147,6 +163,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
             break;
           case 'approval:prompt': {
             setApprovalQueue((prev) => (prev.some((x) => x.taskId === msg.taskId && x.stage === msg.stage) ? prev : [...prev, { taskId: msg.taskId, stage: msg.stage, title: `任务 #${msg.taskId}` }]));
+            // B9 · 12.x：待确认浏览器通知（发送判定/标题闪烁降级在模块内完成）
+            const t = tasksRef.current.find((x) => x.id === msg.taskId);
+            handleApprovalPrompt({ taskId: msg.taskId, stage: msg.stage, taskTitle: t?.title }, (id) => openTaskRef.current(id));
             break;
           }
           case 'error':
@@ -161,6 +180,23 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     void refresh();
     return () => wsRef.current?.();
   }, [refresh, upsertTask]);
+
+  // B9 · 12.8：待确认集合变化 → 同步模块计数（清空即停闪烁复位标题）
+  useEffect(() => {
+    syncPendingTaskIds(approvalQueue.map((x) => x.taskId));
+  }, [approvalQueue]);
+
+  const setBoardMode = useCallback((m: BoardMode) => {
+    setBoardModeState(m);
+  }, []);
+
+  const setFilters = useCallback((f: TaskFilters) => {
+    setFiltersState(f);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setFiltersState(DEFAULT_FILTERS);
+  }, []);
 
   const loadTaskDetail = useCallback(async (taskId: number) => {
     const [d, e] = await Promise.all([api.taskDeliverables(taskId), api.taskEvents(taskId)]);
@@ -188,7 +224,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   );
 
   const decide = useCallback(
-    async (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject', imageId?: string, note?: string) => {
+    async (taskId: number, kind: 'copy' | 'image', decision: 'approve' | 'reject' | 'skip', imageId?: string, note?: string) => {
       // 决策后移除该任务对应阶段的待确认条目（copy 决策移除 copy；image 决策移除图片确认阶段）
       const removeQueue = (prev: { taskId: number; stage: string; title: string }[]) =>
         prev.filter((x) => x.taskId !== taskId || (kind === 'copy' ? x.stage !== 'copy' : x.stage !== 'main-image' && x.stage !== 'detail-image'));
@@ -198,10 +234,19 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       const { task, deliverables } = await api.decideDeliverable(taskId, kind, decision, imageId, note);
       upsertTask(task);
       setDeliverablesByTask((prev) => ({ ...prev, [taskId]: deliverables }));
-      // 采纳（approve）→ 响应后移除（任务已推进/处理完毕）
-      if (decision === 'approve') setApprovalQueue(removeQueue);
+      // 采纳/跳过（approve/skip）→ 响应后移除（任务已推进/处理完毕）
+      if (decision === 'approve' || decision === 'skip') setApprovalQueue(removeQueue);
     },
     [upsertTask],
+  );
+
+  const retryImage = useCallback(
+    async (taskId: number, imageId: string) => {
+      const { deliverables } = await api.retryImage(taskId, imageId);
+      setDeliverablesByTask((prev) => ({ ...prev, [taskId]: deliverables }));
+      void loadTaskDetail(taskId);
+    },
+    [loadTaskDetail],
   );
 
   const review = useCallback(
@@ -252,6 +297,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     void loadTaskDetail(id);
   }, [loadTaskDetail]);
 
+  /** 供 WS 回调使用 openTask（通知点击跳转；WS effect 依赖稳定，故经 ref 间接调用避免重连） */
+  const openTaskRef = useRef<(id: number) => void>(openTask);
+  useEffect(() => {
+    openTaskRef.current = openTask;
+  }, [openTask]);
+
   const backToBoard = useCallback(() => {
     setViewState('board');
     setSelectedTaskId(null);
@@ -277,12 +328,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     [setView],
   );
 
-  const openNewTask = useCallback((prefill?: { title: string; description: string }) => {
-    setNewTask({ open: true, prefill: prefill ?? null });
+  const openNewTask = useCallback(() => {
+    setNewTask({ open: true });
   }, []);
 
   const closeNewTask = useCallback(() => {
-    setNewTask({ open: false, prefill: null });
+    setNewTask({ open: false });
   }, []);
 
   /** 归档任务（归档≠删除：数据保留，看板不显示；WS task:update 同步各端） */
@@ -321,10 +372,13 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       kbDocPath,
       kbNodeId,
       newTask,
+      boardMode,
+      filters,
       refresh,
       createTask,
       confirmTask,
       decide,
+      retryImage,
       review,
       archiveTask,
       restoreTask,
@@ -338,8 +392,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       openTask,
       backToBoard,
       setTaskTab,
+      setBoardMode,
+      setFilters,
+      clearFilters,
     }),
-    [tasks, agents, connected, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, refresh, createTask, confirmTask, decide, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab],
+    [tasks, agents, connected, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -3,6 +3,7 @@ import type { AgentOnlineStatus, TaskKbRefInput } from '@workbench/shared';
 import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter, type GlyphName } from './components/ui.tsx';
 import { api } from './lib/api.ts';
+import { isAlertsEnabled, notificationPermission, onWindowFocus, requestNotificationPermission, setAlertsEnabled } from './lib/approval-notify.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
 import { ChatPanel } from './features/chat/ChatPanel.tsx';
 import { WorkstationBar } from './features/workstation/WorkstationBar.tsx';
@@ -33,7 +34,50 @@ const AGENT_STATUS: Record<AgentOnlineStatus, string> = {
 const PANEL_MIN = 120;
 const PANEL_MAX = 420;
 
-/** 顶栏（对齐线框 topbar：logo + 任务信号点 + 在岗 + 连接） */
+/** 通知开关 + 权限入口（B9 · 13.1/12.5：状态存 localStorage；仅显式点击才申请权限） */
+function NotifyControl() {
+  const [enabled, setEnabled] = useState(() => isAlertsEnabled());
+  const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>(() => notificationPermission());
+  const request = async () => {
+    const r = await requestNotificationPermission();
+    if (r) setPerm(r);
+  };
+  return (
+    <span className="flex items-center gap-2">
+      <label
+        className="qs-meta flex cursor-pointer select-none items-center gap-1.5"
+        title="待确认浏览器通知（本地保存，不落库）"
+      >
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 accent-[var(--color-signal)]"
+          checked={enabled}
+          onChange={(e) => {
+            const v = e.target.checked;
+            setAlertsEnabled(v);
+            setEnabled(v);
+          }}
+        />
+        通知
+      </label>
+      {perm === 'default' ? (
+        <Btn size="sm" variant="ghost" onClick={() => void request()}>
+          开启通知
+        </Btn>
+      ) : perm === 'granted' ? (
+        <Badge tone="ok">已授权</Badge>
+      ) : perm === 'denied' ? (
+        <Badge tone="no">已拒绝</Badge>
+      ) : (
+        <span className="qs-meta hidden md:inline" style={{ color: 'var(--color-ink-faint)' }}>
+          浏览器不支持
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** 顶栏（对齐线框 topbar：logo + 任务信号点 + 在岗 + 连接 + 通知开关） */
 function TopBar() {
   const { approvalQueue, connected, agents, backToBoard } = useWorkbench();
   const busyCount = agents.filter((a) => a.onlineStatus === 'busy').length;
@@ -45,6 +89,8 @@ function TopBar() {
       </span>
       <span className="qs-meta hidden md:inline">MULTI-AGENT E-COMMERCE</span>
       <div className="flex-1" />
+      {/* B9 · 12.5/13.1：通知开关与权限入口（「任务」按钮附近） */}
+      <NotifyControl />
       <button type="button" className="qs-btn sm ghost" onClick={backToBoard} style={{ position: 'relative' }}>
         任务
         {approvalQueue.length > 0 ? (
@@ -104,17 +150,17 @@ function NewTaskModal() {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 打开时重置并应用预填（热点「创建任务」→ 预填标题/摘要，仍需人工补全并确认）
+  // 打开时重置表单（无任何预填——热点不得预填新建任务表单）
   useEffect(() => {
     if (!open) return;
     setStep('form');
-    setTitle(newTask.prefill?.title ?? '');
-    setDesc(newTask.prefill?.description ?? '');
+    setTitle('');
+    setDesc('');
     setPlatforms([]);
     setRefDataUrl(null);
     setKbRefs([]);
     if (fileRef.current) fileRef.current.value = '';
-  }, [open, newTask.prefill]);
+  }, [open]);
 
   const canNext = title.trim() !== '' && platforms.length > 0 && refDataUrl !== null;
 
@@ -292,6 +338,13 @@ function Shell() {
   const [leftWidth, setLeftWidth] = useState(220);
   const [rightWidth, setRightWidth] = useState(280);
   const [settingsSignal, setSettingsSignal] = useState(0);
+
+  // B9 · 12.7/12.8：窗口聚焦 → 复位标题并停止闪烁定时器
+  useEffect(() => {
+    const onFocus = () => onWindowFocus();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   /** 拖拽改栏宽（pointerdown 后挂 document 级 move/up，主区自适应，夹 120~420） */
   const startResize = (side: 'left' | 'right') => (e: ReactPointerEvent<HTMLDivElement>) => {

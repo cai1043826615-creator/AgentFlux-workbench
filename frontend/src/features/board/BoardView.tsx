@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { BoardColumn } from '@workbench/shared';
 import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
+import { applyTaskFilters } from '../../lib/taskFilters.ts';
 import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { ArchivedTasksModal } from './ArchivedTasksModal.tsx';
+import { DeliverableSearch, DownloadButton, KbInvalidBadge, TaskFilterBar, TaskListTable } from './TaskListView.tsx';
 
 /** 看板列定义（对齐线框 columns） */
 const COLUMNS: { key: BoardColumn; label: string }[] = [
@@ -35,7 +37,7 @@ function Tag({ task }: { task: TaskWithMeta }) {
   return <span className="qs-badge">需求对齐</span>;
 }
 
-/** 看板卡片（对齐线框 tcard：#id 标题 / stageNote / tag / 负责人 / flowbar） */
+/** 看板卡片（对齐线框 tcard：#id 标题 / stageNote / tag / 负责人 / flowbar；B6·9.1 失效角标 / B4·4.10 下载入口） */
 function TaskCard({
   task,
   onOpen,
@@ -67,7 +69,11 @@ function TaskCard({
         </p>
       ) : null}
 
-      <Tag task={task} />
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <Tag task={task} />
+        {/* B6 · 9.1 看板卡片失效角标（kbRefsInvalid > 0 才显示） */}
+        <KbInvalidBadge task={task} />
+      </div>
 
       {/* 6 段 flowbar（对齐线框 flowbar；意见5 视觉降级版，颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰；
           确认点（APPROVAL_POINT_STAGES，含 detail-image）仅在 hover title 标注「确认点」，不再渲染微标 */}
@@ -124,6 +130,8 @@ function TaskCard({
           </span>
         ) : null}
         <div className="flex-1" />
+        {/* B4 · 4.10 交付包下载入口（未归档任务也允许下载；无交付物时展示 409 中文原因） */}
+        <DownloadButton taskId={task.id} />
         {/* 归档（归档≠删除：数据保留，看板隐藏，可在「已归档任务」中恢复回原列） */}
         <Btn size="sm" variant="ghost" title="归档（归档≠删除，可在「已归档任务」中恢复）" onClick={() => onArchive(task.id)}>
           归档
@@ -133,10 +141,14 @@ function TaskCard({
   );
 }
 
-/** 任务看板（对齐线框 renderBoard：标题行 + ＋新建任务 + 四列） */
+/** 任务看板（对齐线框 renderBoard：标题行 + 看板/列表切换 + 筛选 + 搜索 + ＋新建任务 + 四列） */
 export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onNew: () => void }) {
-  const { tasks, loading, confirmTask, openTask, archiveTask } = useWorkbench();
+  const { tasks, loading, confirmTask, openTask, archiveTask, boardMode, setBoardMode, filters } = useWorkbench();
   const [archiveOpen, setArchiveOpen] = useState(false);
+
+  // 两视图共用同一数据源：未归档 + 筛选/排序（B5 · 5.2/5.4）
+  const visible = useMemo(() => applyTaskFilters(tasks, filters), [tasks, filters]);
+  const archivedCount = useMemo(() => tasks.filter((t) => t.archived).length, [tasks]);
 
   if (loading && tasks.length === 0) {
     return (
@@ -151,18 +163,33 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
     openTask(task.id);
   };
 
-  // 归档≠删除：看板只展示未归档任务
-  const activeTasks = tasks.filter((t) => !t.archived);
-  const archivedCount = tasks.length - activeTasks.length;
-
   return (
     <div className="flex h-full flex-col">
-      {/* 标题行（对齐线框 board-title-row） */}
-      <div className="mb-3.5 flex items-center gap-3">
+      {/* 标题行（对齐线框 board-title-row；B5：看板/列表切换 + 交付物搜索） */}
+      <div className="mb-3.5 flex flex-wrap items-center gap-3">
         <span className="font-display text-xl font-bold">任务看板</span>
         <span className="qs-meta hidden sm:inline" style={{ color: 'var(--color-ink-faint)' }}>
-          {activeTasks.length}个任务{archivedCount > 0 ? ` · ${archivedCount} 个已归档` : ''}
+          {visible.length}个任务{archivedCount > 0 ? ` · ${archivedCount} 个已归档` : ''}
         </span>
+        <div className="flex items-center gap-1 rounded-[4px] border p-0.5" style={{ borderColor: 'var(--color-line)' }}>
+          <button
+            type="button"
+            className={`cursor-pointer rounded-[3px] px-3 py-1 text-[12px] transition-colors ${boardMode === 'board' ? 'font-semibold' : 'qs-meta'}`}
+            style={boardMode === 'board' ? { background: 'var(--color-signal-soft)', color: 'var(--color-signal-strong)' } : undefined}
+            onClick={() => setBoardMode('board')}
+          >
+            看板
+          </button>
+          <button
+            type="button"
+            className={`cursor-pointer rounded-[3px] px-3 py-1 text-[12px] transition-colors ${boardMode === 'list' ? 'font-semibold' : 'qs-meta'}`}
+            style={boardMode === 'list' ? { background: 'var(--color-signal-soft)', color: 'var(--color-signal-strong)' } : undefined}
+            onClick={() => setBoardMode('list')}
+          >
+            列表
+          </button>
+        </div>
+        <DeliverableSearch />
         <div className="flex-1" />
         {/* 已归档任务入口（新建任务左边）→ 弹窗查看 + 恢复 */}
         <Btn variant="ghost" onClick={() => setArchiveOpen(true)} title="查看与恢复已归档任务">
@@ -171,12 +198,23 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
         <Btn onClick={onNew}>＋ 新建任务</Btn>
       </div>
 
-      {activeTasks.length === 0 ? (
-        <Empty text={archivedCount > 0 ? '看板暂无任务，已归档任务可在「已归档任务」中查看' : '暂无任务，点击右上角「＋ 新建任务」'} />
+      {/* 筛选栏（B5 · 6.7；列表/看板共用，返回后保留 —— 状态存 store） */}
+      <TaskFilterBar />
+
+      {visible.length === 0 ? (
+        <Empty
+          text={
+            archivedCount > 0
+              ? '当前筛选无匹配任务 · 已归档任务可在「已归档任务」中查看'
+              : '暂无任务，点击右上角「＋ 新建任务」'
+          }
+        />
+      ) : boardMode === 'list' ? (
+        <TaskListTable tasks={visible} onOpen={onOpen} />
       ) : (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto">
           {COLUMNS.map((col) => {
-            const list = activeTasks.filter((t) => t.column === col.key);
+            const list = visible.filter((t) => t.column === col.key);
             return (
               <section key={col.key} className="qs-card flex min-w-[248px] flex-1 flex-col overflow-hidden">
                 <header className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ borderColor: 'var(--color-line)' }}>

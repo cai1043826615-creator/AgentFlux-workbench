@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import type { AgentOnlineStatus, AgentUpdateInput, ExecutionStats, StageStat } from '@workbench/shared';
+import type { AgentOnlineStatus, AgentUpdateInput, ChannelTestResult, ExecutionStats, StageStat } from '@workbench/shared';
 import { all, get, run } from '../db/client.ts';
 import type { AgentExecutionRow, AgentRow } from '../db/schema.ts';
 import { toAgent, isAgentConfigured, effectiveModel } from '../agents/runtime.ts';
 import { listFiles, listSkills, saveFileContent } from '../agents/skills.ts';
+import { testAgentChannel } from '../agents/channel-test.ts';
 
 /** PUT 请求体：AgentUpdateInput 基础上扩展工位在线状态字段（shared 冻结，本地扩展） */
 type AgentUpdateBody = AgentUpdateInput & { onlineStatus?: AgentOnlineStatus; activity?: string };
@@ -124,4 +125,32 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     if (!exists) return reply.code(404).send({ error: `agent ${id} not found` });
     return { stats: executionStats(id) };
   });
+
+  // 渠道健康检查（B8）：不写库、不改状态；未配置 → ok:false + not_configured
+  app.post<{ Params: { id: string }; Body: { baseUrl?: string; apiKey?: string; model?: string } }>(
+    '/api/agents/:id/channel-test',
+    async (req, reply) => {
+      const id = req.params.id;
+      const exists = get<{ id: string }>('SELECT id FROM agents WHERE id = ?', [id]);
+      if (!exists) return reply.code(404).send({ error: `agent ${id} not found` });
+
+      const body = req.body ?? {};
+      const override: { baseUrl?: string; apiKey?: string; model?: string } = {};
+      if (body.baseUrl !== undefined) {
+        if (typeof body.baseUrl !== 'string') return reply.code(400).send({ error: 'baseUrl 必须是字符串' });
+        override.baseUrl = body.baseUrl;
+      }
+      if (body.apiKey !== undefined) {
+        if (typeof body.apiKey !== 'string') return reply.code(400).send({ error: 'apiKey 必须是字符串' });
+        override.apiKey = body.apiKey;
+      }
+      if (body.model !== undefined) {
+        if (typeof body.model !== 'string') return reply.code(400).send({ error: 'model 必须是字符串' });
+        override.model = body.model;
+      }
+
+      const result: ChannelTestResult = await testAgentChannel(id, Object.keys(override).length > 0 ? override : undefined);
+      return { result };
+    },
+  );
 }

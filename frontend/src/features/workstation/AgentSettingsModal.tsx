@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import type { Agent, AgentSkillInfo, LlmChannelConfig } from '@workbench/shared';
+import type { Agent, AgentSkillInfo, ChannelTestError, ChannelTestResult, LlmChannelConfig } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { api } from '../../lib/api.ts';
 import { Avatar, Badge, Btn, Field, Modal, ModalFooter } from '../../components/ui.tsx';
@@ -48,6 +48,40 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
   const initRef = useRef<{ key: string } | null>(null);
   // 挂载面板容器：点击面板外关闭（mousedown 监听）
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  // B8 · 11.x：测试渠道（进行中防重复；结果含归因与建议；不写入执行记录/设置）
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ChannelTestResult | null>(null);
+
+  /** 配置域错误码（11.3：归因「渠道配置错误」；成功但有失败执行则归因 Agent 侧） */
+  const CONFIG_DOMAIN: ChannelTestError['code'][] = ['not_configured', 'auth_failed', 'model_not_found', 'connect_failed', 'timeout', 'upstream_error'];
+  const SUGGESTION: Partial<Record<ChannelTestError['code'], string>> = {
+    not_configured: '请填写 API Base URL 与 API Key',
+    auth_failed: '请检查 API Key 是否复制完整',
+    model_not_found: '请检查模型名称是否与渠道支持一致',
+    connect_failed: '请检查 Base URL 与网络连接',
+    timeout: '请检查渠道响应速度（15s 超时）',
+    upstream_error: '请检查渠道服务状态',
+    unknown: '请稍后重试',
+  };
+
+  const testChannel = async () => {
+    if (testing) return; // 11.6：进行中防重复
+    setTesting(true);
+    setTestResult(null);
+    try {
+      // 11.5：以表单当前值（未保存）作为覆盖发起测试；后端不写任何持久化（11.7）
+      const r = await api.channelTest(agent.id, {
+        baseUrl: baseUrl.trim() || undefined,
+        apiKey: apiKey.trim() || undefined,
+        model: model.trim() || undefined,
+      });
+      setTestResult(r);
+    } catch {
+      setTestResult({ ok: false, latencyMs: null, model: model.trim(), baseUrlHost: '', error: { code: 'unknown', message: '无法连接测试接口' } });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   // 打开弹窗时按 agent + 已存渠道初始化表单（仅首次打开时执行一次，agent.id 变化才重新初始化）
   useEffect(() => {
@@ -254,6 +288,40 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
                   ? '已配置：使用默认渠道密钥（在此填写可换成专属密钥）'
                   : '未配置：Agent 暂时无法调用该渠道'}
             </p>
+
+            {/* B8 · 11.1-11.7：测试渠道（结果绿色延迟/模型 or 红色归因+建议；测试不写入执行记录与设置） */}
+            <div className="mt-2.5 border-t pt-2.5" style={{ borderColor: 'var(--color-line)' }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Btn size="sm" variant="ghost" disabled={testing} loading={testing} onClick={() => void testChannel()}>
+                  {testing ? '测试中…' : '测试渠道'}
+                </Btn>
+                <span className="qs-meta text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+                  测试不写入执行记录与设置
+                </span>
+              </div>
+              {testResult ? (
+                testResult.ok ? (
+                  <div className="qs-meta mt-2 text-[12px]" style={{ color: 'var(--color-ok)' }}>
+                    <span className="qs-dot ok mr-1 inline-block align-middle" />
+                    {testResult.latencyMs != null ? `延迟 ${testResult.latencyMs}ms` : '渠道可用'}
+                    {testResult.model ? ` · 模型 ${testResult.model}` : ''}
+                    {testResult.recentFailedRuns && testResult.recentFailedRuns > 0 ? ' · 渠道正常，失败原因在 Agent 侧（见执行日志）' : ''}
+                  </div>
+                ) : (
+                  <div className="qs-meta mt-2 text-[12px] leading-relaxed" style={{ color: 'var(--color-danger)' }}>
+                    <span className="qs-dot no mr-1 inline-block align-middle" />
+                    {(CONFIG_DOMAIN as string[]).includes(testResult.error?.code ?? '')
+                      ? `渠道配置错误：${testResult.error?.message ?? '未知错误'}`
+                      : `Agent 侧异常：${testResult.error?.message ?? '未知错误'}`}
+                    {testResult.error?.code ? (
+                      <span className="ml-1.5" style={{ color: 'var(--color-warn)' }}>
+                        建议：{SUGGESTION[testResult.error.code] ?? '请稍后重试'}
+                      </span>
+                    ) : null}
+                  </div>
+                )
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

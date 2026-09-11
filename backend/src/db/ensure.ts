@@ -68,6 +68,22 @@ export function ensureSchema(): void {
       updated_at TEXT NOT NULL
     );
   `);
+  // 交付物版本历史（delivery-ops B3）：每次重新产出前把上一版快照留档；(deliverable_id, version) 唯一
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS deliverable_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deliverable_id INTEGER NOT NULL,
+      task_id INTEGER NOT NULL,
+      stage TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      content TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL
+    );
+  `);
+  sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_deliverable_versions_deliv_ver ON deliverable_versions (deliverable_id, version);');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_deliverable_versions_task ON deliverable_versions (task_id);');
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +118,22 @@ export function ensureSchema(): void {
       created_at TEXT NOT NULL
     );
   `);
+  // 旧库迁移：token 列（delivery-ops B12，幂等；已存在则忽略，与 tasks.reference_image/archived 迁移写法一致）
+  try {
+    sqlite.exec('ALTER TABLE agent_executions ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    /* column already exists */
+  }
+  try {
+    sqlite.exec('ALTER TABLE agent_executions ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    /* column already exists */
+  }
+  try {
+    sqlite.exec('ALTER TABLE agent_executions ADD COLUMN tokens_estimated INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    /* column already exists */
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,

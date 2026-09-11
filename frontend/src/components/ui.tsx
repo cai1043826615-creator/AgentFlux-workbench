@@ -238,10 +238,27 @@ export function Spinner({ label = '处理中…' }: { label?: string }) {
   );
 }
 
-export function Empty({ text = '暂无数据' }: { text?: string }) {
+/**
+ * 空状态占位（knowledge-ux A5）：
+ * - 既有用法 `Empty text="..."` 行为与升级前完全一致（不产生额外节点）。
+ * - 可选 `hint`（下一步指引）与 `emptyKey`（场景标识）：text 渲染在 `data-qs-empty="<key>"` 节点上，
+ *   hint 渲染在 `data-qs-empty-next="<key>"` 节点上，供自动化断言（可见即可断言）。
+ */
+export function Empty({ text = '暂无数据', hint, emptyKey }: { text?: string; hint?: string; emptyKey?: string }) {
   return (
     <div className="py-10 text-center qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-      {text}
+      {emptyKey ? (
+        <>
+          <div data-qs-empty={emptyKey}>{text}</div>
+          {hint ? (
+            <div className="mt-1 leading-relaxed" data-qs-empty-next={emptyKey}>
+              {hint}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        text
+      )}
     </div>
   );
 }

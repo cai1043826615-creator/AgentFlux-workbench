@@ -111,7 +111,7 @@ export async function handleAgentReply(chatKind: ChatKind, to: string, body: str
     const system = buildSystemPrompt(agent, activeTask);
     let reply: string;
     try {
-      reply = (await callLlm({ agentId, system, user: body })).trim();
+      reply = (await callLlm({ agentId, system, user: body })).content.trim();
     } catch (err) {
       if (!(err instanceof LlmChannelUnavailableError)) {
         console.warn(`[chat-reply] LLM 调用失败，降级模板回复: ${err instanceof Error ? err.message : err}`);

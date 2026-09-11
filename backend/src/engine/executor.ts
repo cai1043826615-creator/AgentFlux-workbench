@@ -174,15 +174,15 @@ export class TaskExecutor {
     });
   }
 
-  /** 确认点采纳：沿 approved 边推进下一节点 */
-  approve(taskId: number): Task {
+  /** 确认点采纳：沿 approved 边推进下一节点；meta 合并进 APPROVED 事件 payload（B11：失败图片数等警示信息） */
+  approve(taskId: number, meta?: Record<string, unknown>): Task {
     return tx(() => {
       const row = getTaskRow(taskId);
       if (!row) throw new Error(`task ${taskId} not found`);
       const node = this.wf.nodes.find((n) => n.id === row.stage);
       if (!node?.approvalPoint) throw new Error(`task ${taskId} not at approval point`);
       const next = approvalEdge(this.wf, row.stage, true);
-      this.logEventSync(taskId, 'APPROVED', { stage: row.stage, stageLabel: node.label });
+      this.logEventSync(taskId, 'APPROVED', { stage: row.stage, stageLabel: node.label, ...(meta ?? {}) });
       return this.moveTo(row, next, row.stage);
     });
   }

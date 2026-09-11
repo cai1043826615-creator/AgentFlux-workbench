@@ -68,7 +68,7 @@
 - **选择**：`backend/src/delivery/package.ts` 手写 ZIP：本地文件头 + deflateRaw 数据 + 中央目录 + EOCD，文件名 UTF-8 且置 UTF-8 标志位，CRC32 用查表实现。
 - **理由**：`archiver` / `jszip` / `yazl` 均需新增运行时依赖，违反 §0.4；ZIP 的 store/deflate 子集格式固定、实现量可控，且**可单测**（写出的 zip 用 `Expand-Archive` / `unzip` 真实解开校验）。
 - **备选**：`store` 方式（不压缩）实现更短，但图片已压缩、文案文本不压缩会让包偏大；仍保留 fallback：若 deflate 失败则按 store 写该条目，保证包一定能生成。
-- **边界**：打包只读 `deliverables`（文案取 `deliver` 阶段资料包，图片取 `status = 'approved'`），不写库、不改状态。
+- **边界**：打包只读 `deliverables`（文案取 `deliver` 阶段资料包，图片取 `status = 'approved'`），不写库、不改状态。ZIP 内命名：文案 `文案/{sanitizedTitle}.md`（人读）+ `文案/{sanitizedTitle}.json`（原始 `CopyPackage`），图片 `{阶段键}/{图片名}-{id前8}.{ext}`、重名追加后缀；**SVG 占位图视为「非最终成图」不入包**（写同名 `.txt` 降级并计入 `X-Deliverable-Missing`，实现回写，见验证记录偏差 #4/#5）。
 
 ### D6. 图片入包：dataURL 解码 + 站内 `/uploads` 走本地文件 + 外链 http 走 fetch，单张失败降级
 
@@ -103,7 +103,7 @@
 
 ### D10. B12 采集真实 usage，缺失时按字符估算并**显式标注**
 
-- **选择**：`backend/src/agents/llm.ts` 的 `callLlm` 改为返回 `{ content, usage? }`（`LlmResult`），解析 `usage.prompt_tokens` / `usage.completion_tokens`；3 处调用点（`chat-reply.ts`、`smart-producer.ts` ×2）同步适配并向下透传到 `logExecution`；`agent_executions` 新增 `input_tokens` / `output_tokens`（幂等 `ALTER TABLE ... ADD COLUMN`，既有行默认 0）；`usage` 缺失时按 `Math.ceil(字符数 / 4)` 估算写入，汇总响应以 `tokensEstimated: true` 标注。
+- **选择**：`backend/src/agents/llm.ts` 的 `callLlm` 改为返回 `{ content, usage? }`（`LlmResult`），解析 `usage.prompt_tokens` / `usage.completion_tokens`；3 处调用点（`chat-reply.ts`、`smart-producer.ts` ×2）同步适配并向下透传到 `logExecution`；`agent_executions` 新增 `input_tokens` / `output_tokens` / `tokens_estimated`（幂等 `ALTER TABLE ... ADD COLUMN`，既有行默认 0，第三列为估算标记；实现回写，见验证记录偏差 #1）；`usage` 缺失时按 `Math.ceil(字符数 / 4)` 估算写入并把 `tokens_estimated` 置 1，汇总响应以 `tokensEstimated: true` 标注。
 - **理由**：DeepSeek / OpenAI 兼容接口默认返回 `usage`，真实值可拿到；生图阶段不产生 LLM token（该阶段执行记录 token 为 0），口径必须写清避免把生图算进文本 token。
 - **备选**：(a) 只估不算 —— 明明能拿真实值却报估算，浪费且不诚实；(b) 用 `tiktoken` 类库精确计数 —— 新增依赖且各家模型 tokenizer 不同，违反 §0.4，否决。
 
@@ -139,7 +139,7 @@
 
 - **建表/加列（幂等，沿用既有 `ensureSchema` 模式）**：
   - 新增表 `deliverable_versions`（含 `(deliverable_id, version)` 唯一索引、`task_id` 索引）
-  - `agent_executions` 新增列 `input_tokens INTEGER NOT NULL DEFAULT 0`、`output_tokens INTEGER NOT NULL DEFAULT 0`（`ALTER TABLE ... ADD COLUMN` 包 try/catch，与 `tasks.reference_image` / `tasks.archived` 既有迁移写法一致）
+  - `agent_executions` 新增列 `input_tokens INTEGER NOT NULL DEFAULT 0`、`output_tokens INTEGER NOT NULL DEFAULT 0`、`tokens_estimated INTEGER NOT NULL DEFAULT 0`（`ALTER TABLE ... ADD COLUMN` 包 try/catch，与 `tasks.reference_image` / `tasks.archived` 既有迁移写法一致；第三列为实现期追加，见验证记录偏差 #1）
   - `backend/src/db/schema.ts` 同步补行类型字段
 - **数据回填**：启动时对缺失当前版本记录的 `deliverables` 行写一条基线历史（见 D3）；幂等，重复启动不重复插入。token 列既有行为 0（不回填、不臆造历史 token）。
 - **无破坏性变更**：不删列、不改列语义、不改状态机；`task_kb_refs` 与板块 B 全部表结构零改动。
@@ -152,5 +152,5 @@
 2. ~~**B12 是否有可用的单价表？**~~（**已拍板，2026-09-11：用可配置单价表做估算**）落地要求：内置一份**默认单价表**（DeepSeek 与生图渠道），单价数值由**开发期查公开计价页填入**；单价表写在本地配置（`backend/data/` 已被 `.gitignore` 覆盖），**源码内不得出现价目字面量**（用 grep 断言）；`settings.modelPricing` 存在时以设置为准。**若某渠道定价不公开**（用户已确认的处理方式）→ 该模型**不进默认单价表**，其费用退化为**只展示 token 数与耗时、不给金额**；仍保留「未命中单价的模型列入 `unpricedModels`、全未命中则 `cost = null`」的既有设计，避免给出错数字。
 3. **B5 交付物全局搜索是否需要覆盖历史版本？**当前 spec 只搜「当前交付物」（`deliverables` 行）。B3 引入 `deliverable_versions` 后，历史版本里的卖点同样可搜是有价值的（用户常记得「我上一版写过 XX」）。若需要，扩成「命中历史版本时在结果中标注 `v1`」——需要你确认是否纳入本次范围。
 4. **B8 是否需要同时测生图渠道？**当前 `AgentSettingsModal.tsx` 只有 LLM 渠道（`settings.llmChannels[agentId]`）的 UI，`settings.imageChannel` 没有面板入口。本 change 只做 LLM 渠道健康检查。若要连生图一起加，需要先在设置面板补生图渠道 UI（超出 T4 条目描述的范围）。
-5. **B3 版本保留策略**：默认每交付物只保留最近 20 版（D 里提到的 N）。是否需要可配置，或按天数保留？
-6. **B4 交付包内的文案格式**：默认同时给 `文案.md`（人读）与 `文案.json`（机读，原始 `CopyPackage`）。若渠道运营只需要一种，请指定，以便精简包结构。
+5. ~~**B3 版本保留策略**~~（**已落地，2026-09-11：默认每交付物只保留最近 20 版**）`MAX_VERSIONS_PER_DELIVERABLE = 20` 常量集中定义，超出裁剪最旧；不做按天保留与可配置化（偏差表 #11）。
+6. ~~**B4 交付包内的文案格式**~~（**已落地，2026-09-11：同时给 `文案.md` 与 `文案.json`**）按默认实现（`.md` 人读 + `.json` 机读原始 `CopyPackage`），见验证记录偏差 #4。
