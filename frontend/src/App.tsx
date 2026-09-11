@@ -38,6 +38,7 @@ const PANEL_MAX = 420;
 function NotifyControl() {
   const [enabled, setEnabled] = useState(() => isAlertsEnabled());
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>(() => notificationPermission());
+  const [showDeniedHint, setShowDeniedHint] = useState(false);
   const request = async () => {
     const r = await requestNotificationPermission();
     if (r) setPerm(r);
@@ -67,19 +68,36 @@ function NotifyControl() {
       ) : perm === 'granted' ? (
         <Badge tone="ok">已授权</Badge>
       ) : perm === 'denied' ? (
-        <Badge tone="no">已拒绝</Badge>
+        <button
+          type="button"
+          className="qs-clickable"
+          title="浏览器已拒绝通知权限，点击查看如何重新开启"
+          aria-label="浏览器已拒绝通知权限，点击查看如何重新开启"
+          onClick={() => setShowDeniedHint((v) => !v)}
+        >
+          <Badge tone="no">已拒绝 · 点此开启</Badge>
+        </button>
       ) : (
         <span className="qs-meta hidden md:inline" style={{ color: 'var(--color-ink-faint)' }}>
           浏览器不支持
         </span>
       )}
+      {perm === 'denied' && showDeniedHint ? (
+        <span
+          className="qs-meta absolute right-4 top-[54px] z-[60] max-w-[360px] rounded-[4px] border px-3 py-2 text-[12px] leading-snug"
+          style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-sunken)', color: 'var(--color-ink-soft)' }}
+          role="note"
+        >
+          浏览器已拒绝通知权限，无法自动重新申请。请手动开启：点击地址栏左侧的「站点信息 / 锁形」图标 → 在「通知」一栏选择「允许」→ 刷新后回到此处点「开启通知」。
+        </span>
+      ) : null}
     </span>
   );
 }
 
 /** 顶栏（Quiet Signal 精简版：logo + 产品名 + 任务 + 通知开关 + 连接状态点） */
 function TopBar() {
-  const { approvalQueue, connected, backToBoard } = useWorkbench();
+  const { approvalQueue, connected, reconnect, backToBoard } = useWorkbench();
   return (
     <header className="flex items-center gap-3 px-4 h-[52px] border-b shrink-0" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
       <img src="/logo.png" alt="logo" className="h-7 w-7 object-contain" style={{ imageRendering: 'auto' }} />
@@ -100,8 +118,14 @@ function TopBar() {
           </span>
         ) : null}
       </button>
-      {/* 连接状态：仅保留状态点（色 + title 双通道，不依赖单一颜色） */}
-      <span className={`qs-dot ${connected ? 'ok' : 'no'}`} title={connected ? '实时连接' : '离线'} />
+      {/* 连接状态：Connected 时只留安静的状态点；断开才升级为可点击的重连徽章（与聊天框共用同一状态） */}
+      {connected ? (
+        <span className="qs-dot ok" title="实时连接" />
+      ) : (
+        <Btn size="sm" variant="danger" title="已断开 · 点击立即重连" onClick={reconnect}>
+          已断开 · 点击重连
+        </Btn>
+      )}
     </header>
   );
 }

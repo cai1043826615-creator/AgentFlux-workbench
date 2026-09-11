@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { WORKFLOW_STAGE_LABELS, type Agent, type Deliverable, type Message, type Task, type TaskCreateInput, type TaskEvent } from '@workbench/shared';
+import { WORKFLOW_STAGE_LABELS, type Agent, type Deliverable, type Message, type Task, type TaskCreateInput, type TaskEvent, type WSServerMessage } from '@workbench/shared';
 import { api } from '../lib/api.ts';
 import { connectWs } from '../lib/ws.ts';
 import { mergeTaskUpdate, taskWithMeta, type TaskWithMeta } from '../lib/taskMerge.ts';
@@ -27,6 +27,8 @@ interface WorkbenchState {
   tasks: TaskWithMeta[];
   agents: AgentWithChannel[];
   connected: boolean;
+  /** 手动重连 WS（顶栏状态徽章与聊天框共用同一 connected 状态，避免各处判断不一致） */
+  reconnect: () => void;
   view: WorkbenchView;
   selectedTaskId: number | null;
   taskTab: TaskTab;
@@ -135,53 +137,71 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  /** WS 消息处理（抽成稳定回调，便于重连时复用） */
+  const handleWsMessage = useCallback(
+    (msg: WSServerMessage) => {
+      switch (msg.type) {
+        case 'task:update':
+          upsertTask(msg.task);
+          break;
+        case 'event:new':
+          setEventsByTask((prev) => ({ ...prev, [msg.event.taskId]: [...(prev[msg.event.taskId] ?? []), msg.event] }));
+          break;
+        case 'deliverable:update':
+          setDeliverablesByTask((prev) => {
+            const list = prev[msg.deliverable.taskId] ?? [];
+            const idx = list.findIndex((d) => d.id === msg.deliverable.id);
+            const next = idx >= 0 ? list.map((d, i) => (i === idx ? msg.deliverable : d)) : [...list, msg.deliverable];
+            return { ...prev, [msg.deliverable.taskId]: next };
+          });
+          break;
+        case 'agent:status':
+          setAgents((prev) => prev.map((a) => (a.id === msg.agent.id ? { ...a, ...msg.agent, channelConfigured: a.channelConfigured } : a)));
+          break;
+        case 'chat:message':
+          setMessages((prev) => [...prev, msg.message]);
+          break;
+        case 'chat:history':
+          setMessages(msg.messages);
+          break;
+        case 'approval:prompt': {
+          setApprovalQueue((prev) => (prev.some((x) => x.taskId === msg.taskId && x.stage === msg.stage) ? prev : [...prev, { taskId: msg.taskId, stage: msg.stage, title: `任务 #${msg.taskId}` }]));
+          // B9 · 12.x：待确认浏览器通知（发送判定/标题闪烁降级在模块内完成）
+          const t = tasksRef.current.find((x) => x.id === msg.taskId);
+          handleApprovalPrompt({ taskId: msg.taskId, stage: msg.stage, taskTitle: t?.title }, (id) => openTaskRef.current(id));
+          break;
+        }
+        case 'error':
+          console.warn('[ws error]', msg.message);
+          break;
+        default:
+          break;
+      }
+    },
+    [upsertTask],
+  );
+
+  /** 建立 WS 连接（重连前先关掉旧连接，避免重复订阅） */
+  const startWs = useCallback(() => {
+    wsRef.current?.();
+    wsRef.current = connectWs(handleWsMessage, setConnected);
+  }, [handleWsMessage]);
+
   // WS 订阅
   useEffect(() => {
-    wsRef.current = connectWs(
-      (msg) => {
-        switch (msg.type) {
-          case 'task:update':
-            upsertTask(msg.task);
-            break;
-          case 'event:new':
-            setEventsByTask((prev) => ({ ...prev, [msg.event.taskId]: [...(prev[msg.event.taskId] ?? []), msg.event] }));
-            break;
-          case 'deliverable:update':
-            setDeliverablesByTask((prev) => {
-              const list = prev[msg.deliverable.taskId] ?? [];
-              const idx = list.findIndex((d) => d.id === msg.deliverable.id);
-              const next = idx >= 0 ? list.map((d, i) => (i === idx ? msg.deliverable : d)) : [...list, msg.deliverable];
-              return { ...prev, [msg.deliverable.taskId]: next };
-            });
-            break;
-          case 'agent:status':
-            setAgents((prev) => prev.map((a) => (a.id === msg.agent.id ? { ...a, ...msg.agent, channelConfigured: a.channelConfigured } : a)));
-            break;
-          case 'chat:message':
-            setMessages((prev) => [...prev, msg.message]);
-            break;
-          case 'chat:history':
-            setMessages(msg.messages);
-            break;
-          case 'approval:prompt': {
-            setApprovalQueue((prev) => (prev.some((x) => x.taskId === msg.taskId && x.stage === msg.stage) ? prev : [...prev, { taskId: msg.taskId, stage: msg.stage, title: `任务 #${msg.taskId}` }]));
-            // B9 · 12.x：待确认浏览器通知（发送判定/标题闪烁降级在模块内完成）
-            const t = tasksRef.current.find((x) => x.id === msg.taskId);
-            handleApprovalPrompt({ taskId: msg.taskId, stage: msg.stage, taskTitle: t?.title }, (id) => openTaskRef.current(id));
-            break;
-          }
-          case 'error':
-            console.warn('[ws error]', msg.message);
-            break;
-          default:
-            break;
-        }
-      },
-      setConnected,
-    );
+    startWs();
     void refresh();
-    return () => wsRef.current?.();
-  }, [refresh, upsertTask]);
+    return () => {
+      wsRef.current?.();
+      wsRef.current = null;
+    };
+  }, [refresh, startWs]);
+
+  /** 手动重连：顶栏状态徽章与聊天框共用同一个 connected 状态，断开后可立即重试 */
+  const reconnect = useCallback(() => {
+    setConnected(false);
+    startWs();
+  }, [startWs]);
 
   // B9 · 12.8：待确认集合变化 → 同步模块计数（清空即停闪烁复位标题）
   useEffect(() => {
@@ -384,6 +404,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       tasks,
       agents,
       connected,
+      reconnect,
       view,
       selectedTaskId,
       taskTab,
@@ -421,7 +442,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       setFilters,
       clearFilters,
     }),
-    [tasks, agents, connected, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters],
+    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
