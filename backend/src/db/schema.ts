@@ -52,6 +52,19 @@ export interface DeliverableRow {
   updated_at: string;
 }
 
+/** deliverable_versions 行（delivery-ops B3 版本历史留档） */
+export interface DeliverableVersionRow {
+  id: number;
+  deliverable_id: number;
+  task_id: number;
+  stage: string;
+  kind: string; // copy | image
+  version: number;
+  content: string; // JSON
+  status: string; // pending | approved | rejected
+  created_at: string;
+}
+
 export interface MessageRow {
   id: number;
   chat_kind: string; // group | private
@@ -80,6 +93,9 @@ export interface AgentExecutionRow {
   output_summary: string;
   error: string | null;
   duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  tokens_estimated: number; // 0 真实 usage / 1 按字符估算（delivery-ops B12）
   created_at: string;
 }
 
@@ -94,6 +110,7 @@ export const T = {
   tasks: 'tasks',
   taskEvents: 'task_events',
   deliverables: 'deliverables',
+  deliverableVersions: 'deliverable_versions',
   messages: 'messages',
   workflows: 'workflows',
   agentExecutions: 'agent_executions',

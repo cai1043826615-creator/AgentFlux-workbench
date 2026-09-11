@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { APPROVAL_POINT_STAGES, STAGE_OWNER_ROLE, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Agent, type TaskEvent, type TaskEventType, type TaskKbRef } from '@workbench/shared';
+import { APPROVAL_POINT_STAGES, STAGE_OWNER_ROLE, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Agent, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
-import { Avatar, Spinner, Tabs } from '../../components/ui.tsx';
+import { Avatar, Badge, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
+import { DownloadButton, KbInvalidBadge } from '../board/TaskListView.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
   TASK_CREATED: '创建任务',
@@ -350,6 +351,102 @@ function KbRefsPanel({ taskId }: { taskId: number }) {
   );
 }
 
+/** 任务背景 · 外部环境情报（hot-intel D2：列表 + 移除 + 失效标记 + 原文外链；与「关联知识库资料」并列且视觉可区分） */
+function HotRefsPanel({ taskId }: { taskId: number }) {
+  const [refs, setRefs] = useState<TaskHotRef[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .taskHotRefs(taskId)
+      .then((r) => {
+        if (!cancelled) setRefs(r.refs);
+      })
+      .catch(() => {
+        if (!cancelled) setRefs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  if (refs === null) return null;
+  // 未关联任何背景时不出现该区块（不占位）
+  if (refs.length === 0) return null;
+
+  const toInput = (r: TaskHotRef): TaskHotRefInput => ({
+    hotId: r.hotId,
+    title: r.title,
+    sourceId: r.sourceId,
+    sourceName: r.sourceName,
+    evidence: r.evidence,
+    url: r.url,
+    latestAt: r.latestAt,
+  });
+
+  const remove = async (hotId: string) => {
+    setBusy(true);
+    try {
+      const r = await api.saveTaskHotRefs(taskId, refs.filter((x) => x.hotId !== hotId).map(toInput));
+      setRefs(r.refs);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const invalidCount = refs.filter((r) => !r.valid).length;
+  return (
+    <div className="qs-card p-4" data-hot-refs-panel>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="font-display text-[15px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
+          任务背景 · 外部环境情报
+        </h3>
+        <span className="qs-meta" style={{ color: invalidCount > 0 ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
+          {refs.length} 条{invalidCount > 0 ? ` · ${invalidCount} 条已失效` : ''}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {refs.map((r) => (
+          <div
+            key={r.id}
+            className="rounded-[4px] border-l-2 px-2.5 py-2"
+            style={{ borderColor: 'var(--color-signal)', background: r.valid ? 'var(--color-signal-soft)' : 'var(--color-danger-soft)' }}
+            data-hot-ref={r.hotId}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium" style={{ color: r.valid ? 'var(--color-ink)' : 'var(--color-danger)' }}>
+                  {r.title}
+                  {!r.valid ? <span className="qs-meta ml-1.5">已失效（面板中已下线）</span> : null}
+                </div>
+                <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
+                  {r.sourceName || '外部热点'}
+                  {r.evidence ? ` · ${r.evidence === 'multi-source' ? '多源事件' : r.evidence === 'traceable' ? '可回查原文' : '单源信息'}` : ''}
+                  {r.latestAt ? ` · ${fmtTime(r.latestAt)}` : ''}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {r.url ? (
+                  <a href={r.url} target="_blank" rel="noreferrer" className="qs-meta hover:underline" style={{ color: 'var(--color-signal)' }}>
+                    原文 ↗
+                  </a>
+                ) : null}
+                <button type="button" className="qs-meta cursor-pointer hover:underline" style={{ color: 'var(--color-ink-faint)' }} onClick={() => void remove(r.hotId)} disabled={busy}>
+                  移除
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
+        外部环境情报仅作背景参考，不作为产品品类/主体/功能规格依据。
+      </p>
+    </div>
+  );
+}
+
 /** 任务详情（对齐线框 renderTask：面包屑 + task-head + 阶段条 + tabs + 属性面板 / 内容交付） */
 export function TaskDetailView({
   taskId,
@@ -420,17 +517,27 @@ export function TaskDetailView({
           <h2 className="font-display min-w-0 flex-1 text-[24px] font-bold leading-[1.15] md:text-[28px]" style={{ fontFamily: 'var(--font-display)' }}>
             {task.title}
           </h2>
-          <button
-            type="button"
-            className="shrink-0 cursor-pointer rounded-[4px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-line-strong)]"
-            onClick={onBack}
-          >
-            ← 返回任务看板
-          </button>
+          <span className="flex shrink-0 items-center gap-2">
+            {/* B4 · 4.10 交付包下载入口（未归档任务也允许下载；无交付物时展示 409 中文原因） */}
+            <DownloadButton taskId={task.id} />
+            <button
+              type="button"
+              className="shrink-0 cursor-pointer rounded-[4px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-2 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-line-strong)]"
+              onClick={onBack}
+            >
+              ← 返回任务看板
+            </button>
+          </span>
         </div>
         <div className="qs-meta mt-1.5" style={{ color: 'var(--color-ink-soft)' }}>
           {task.description || '新品上架全套物料'} · 目标平台：{task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
         </div>
+        {/* B6 · 9.3 任务详情头部角标（阶段条以上，数字与看板一致） */}
+        {task.kbRefsInvalid > 0 ? (
+          <div className="mt-2">
+            <KbInvalidBadge task={task} />
+          </div>
+        ) : null}
       </div>
 
       {/* stages（意见11：6 节点 + 确认标记 + 箭头；意见3：节点内嵌负责 Agent 头像） */}
@@ -482,6 +589,18 @@ export function TaskDetailView({
             {/* 关联知识库资料（有则显示，无则不占位） */}
             <KbRefsPanel taskId={task.id} />
 
+            {/* 任务背景 · 外部环境情报（hot-intel D2：有则显示，无则不占位） */}
+            <HotRefsPanel taskId={task.id} />
+
+            {/* 产出溯源（B1：溯源率 + 明细 + 未关联警示；无产出/无事实项时不占位） */}
+            <ProvenancePanel taskId={task.id} />
+
+            {/* 返工记录（B2：第 N 次返工 · 意见；无返工时不占位） */}
+            <ReworkPanel taskId={task.id} />
+
+            {/* 执行与成本（B12 · 16.x：耗时合计 / 执行次数 / 阶段明细 / 模型 / token / 估算金额） */}
+            <CostCard taskId={task.id} />
+
             {/* 活动日志 */}
             <div className="qs-card p-4">
               <h3 className="font-display mb-3 text-[15px] font-semibold">活动日志</h3>
@@ -516,6 +635,256 @@ export function TaskDetailView({
           </aside>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ===== 产出溯源（B1 · 2.6/2.7） ===== */
+const FACT_TYPE_LABELS: Record<string, string> = { number: '数值', cert: '认证', material: '材质', textual: '文本' };
+
+function ProvenancePanel({ taskId }: { taskId: number }) {
+  const [provenance, setProvenance] = useState<ProvenanceResult | null | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    setProvenance(undefined);
+    void api
+      .taskProvenance(taskId)
+      .then((r) => {
+        if (alive) setProvenance(r.provenance);
+      })
+      .catch(() => {
+        if (alive) setProvenance(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [taskId]);
+
+  // 文案未产出 / 加载失败：不占位
+  if (provenance === undefined) return null;
+
+  // 无 kind='provenance' 行（老任务或文案未产出过）：提示重新产出后生效（spec 2.6）
+  if (provenance === null) {
+    return (
+      <div className="qs-card p-4">
+        <h3 className="font-display mb-2 text-[15px] font-semibold">产出溯源</h3>
+        <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
+          尚未生成溯源结果（重新产出后生效）
+        </div>
+      </div>
+    );
+  }
+
+  // 未关联资料：明确警示，不展示溯源率数值（spec 2.7）
+  if (!provenance.hasRefs) {
+    return (
+      <div
+        className="flex items-center gap-2 rounded-[4px] border px-3 py-2 text-[12px]"
+        style={{ borderColor: 'var(--color-warn)', background: 'var(--color-warn-soft)', color: 'var(--color-ink-soft)' }}
+      >
+        <span aria-hidden="true">⚠</span>
+        <span>
+          本任务未关联任何知识库资料 · <strong>参数由模型生成，请人工核对</strong>
+        </span>
+      </div>
+    );
+  }
+
+  // 无实质事实项：不显示 0%/100% 误导数值
+  if (provenance.noFacts) {
+    return (
+      <div className="qs-card p-4">
+        <h3 className="font-display mb-2 text-[15px] font-semibold">产出溯源</h3>
+        <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
+          无实质事实项（文案中未抽取到可核对的事实）
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="qs-card p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h3 className="font-display text-[15px] font-semibold">产出溯源</h3>
+        <Badge tone={provenance.percent !== null && provenance.percent >= 80 ? 'ok' : provenance.percent !== null && provenance.percent >= 50 ? 'warn' : 'no'}>
+          {provenance.percent}%（{provenance.tracedCount}/{provenance.totalCount}）
+        </Badge>
+        {provenance.untracedCount > 0 ? (
+          <Badge tone="warn">{provenance.untracedCount} 项未溯源</Badge>
+        ) : null}
+        <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+          可溯源事实项 ÷ 全部事实项 · 核对 {provenance.refCount} 份资料
+        </span>
+      </div>
+      <div className="max-h-56 space-y-1 overflow-y-auto">
+        {provenance.facts.map((f) => (
+          <div key={f.id} className="flex items-baseline gap-2 rounded-[3px] px-1.5 py-1 text-[12px]" style={{ background: f.traced ? 'var(--color-ok-soft)' : 'var(--color-danger-soft)' }}>
+            <span className="shrink-0 font-medium" style={{ color: f.traced ? 'var(--color-ok)' : 'var(--color-danger)' }}>
+              {f.traced ? '已溯源' : '未溯源'}
+            </span>
+            <span className="min-w-0 flex-1 truncate" title={f.text}>
+              [{FACT_TYPE_LABELS[f.type] ?? f.type}] {f.text}
+            </span>
+            {f.sources.length > 0 ? (
+              <span className="qs-meta shrink-0 truncate" style={{ maxWidth: '40%', color: 'var(--color-ink-faint)' }} title={f.sources.join(' / ')}>
+                来自 {f.sources.join(' / ')}
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ===== 返工记录（B2 · 3.7：第 N 次返工 · 意见，含阶段与时间；不依赖知识库连接） ===== */
+function ReworkPanel({ taskId }: { taskId: number }) {
+  const [rework, setRework] = useState<ReworkInfo | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void api
+      .taskRework(taskId)
+      .then((r) => {
+        if (alive) setRework(r.rework);
+      })
+      .catch(() => {
+        if (alive) setRework(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [taskId]);
+
+  // 无返工记录：不显示返工区块（spec 3.6）
+  if (!rework || rework.count === 0 || rework.records.length === 0) return null;
+
+  // 最新在前展示（后端升序返回）
+  const records = [...rework.records].reverse();
+  return (
+    <div className="qs-card p-4">
+      <h3 className="font-display mb-3 text-[15px] font-semibold">返工记录</h3>
+      <div className="space-y-2">
+        {records.map((r, i) => (
+          <div key={`${r.stage}-${r.at}-${i}`} className="rounded-[4px] border p-2.5" style={{ borderColor: 'var(--color-line)' }}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[12px] font-bold" style={{ color: 'var(--color-danger)' }}>
+                第 {rework.count - i} 次返工 · 意见：{r.note || '（未填写意见）'}
+              </span>
+            </div>
+            <div className="qs-meta mt-1 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+              {WORKFLOW_STAGE_LABELS[r.stage] ?? r.stage} · {fmtFull(r.at)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ===== 执行与成本卡片（B12 · 16.x） ===== */
+
+/** 人类可读耗时：<1s 用 ms，<60s 用 s，否则 m/s */
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r > 0 ? `${m}m ${r}s` : `${m}m`;
+}
+
+function fmtMoney(amount: number, currency: string): string {
+  const symbol = currency === 'CNY' ? '¥' : currency === 'USD' ? 'US$' : '';
+  return `${symbol}${amount.toFixed(2)} ${currency}`;
+}
+
+function CostStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="qs-meta text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+        {label}
+      </div>
+      <div className="mt-0.5 text-[13px] font-medium">{value}</div>
+    </div>
+  );
+}
+
+/** 16.1-16.4：总耗时/执行次数（成功/失败）/按阶段耗时明细/模型/token 与（cost != null 时）估算金额 */
+function CostCard({ taskId }: { taskId: number }) {
+  const [summary, setSummary] = useState<TaskCostSummary | null | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    setSummary(undefined);
+    void api
+      .taskCost(taskId)
+      .then((r) => {
+        if (alive) setSummary(r.summary);
+      })
+      .catch(() => {
+        if (alive) setSummary(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [taskId]);
+
+  // 加载中 / 接口失败：不占位
+  if (summary === undefined || summary === null) return null;
+
+  // 16.4 空态：无执行记录 → 明确文案，不显示 0 值数字
+  if (summary.runs === 0) {
+    return (
+      <div className="qs-card p-4">
+        <h3 className="font-display mb-3 text-[15px] font-semibold">执行与成本</h3>
+        <div className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+          尚无执行记录
+        </div>
+      </div>
+    );
+  }
+
+  const { cost, tokens } = summary;
+  // 16.2 标注估算：估算记录存在 → 文案含「估算」；全部真实 → 标注「实测」；均不用「消耗」等确定性措辞
+  const tokenText = tokens.tokensEstimated
+    ? `约 ${tokens.total.toLocaleString()}（估算）`
+    : `${tokens.total.toLocaleString()}（实测）`;
+
+  return (
+    <div className="qs-card p-4">
+      <h3 className="font-display mb-3 flex items-center justify-between text-[15px] font-semibold">
+        <span>执行与成本</span>
+        {/* 16.3：无单价表（cost=null）时不出现任何金额 */}
+        {cost ? (
+          <span className="qs-badge" title={cost.note} style={{ background: 'var(--color-ok-soft)', color: 'var(--color-ok)' }}>
+            估算费用 {fmtMoney(cost.amount, cost.currency)}
+          </span>
+        ) : null}
+      </h3>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+        <CostStat label="总耗时" value={fmtDuration(summary.totalDurationMs)} />
+        <CostStat label="执行次数" value={`${summary.runs} 次 · 成功 ${summary.successRuns} / 失败 ${summary.failedRuns}`} />
+        <CostStat label="涉及模型" value={summary.models.join('、') || '—'} />
+        <CostStat label="Token" value={tokenText} />
+      </div>
+
+      {summary.byStage.length > 0 ? (
+        <div className="mt-3 border-t pt-2.5" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-faint)' }}>
+            按阶段耗时
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            {summary.byStage.map((s) => (
+              <span key={s.stage} className="qs-meta text-[12px]">
+                {s.stageLabel}：<span style={{ color: 'var(--color-ink)' }}>{fmtDuration(s.durationMs)}</span>（{s.runs} 次）
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

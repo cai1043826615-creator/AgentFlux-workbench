@@ -68,7 +68,7 @@
 - **备选**：无资料也显示 0%（误导且与实测编造风险不成正比）
 
 ### D7. 返工上下文读取复用 `task_events`，不建新表、不改 `reject` 签名
-新增 `backend/src/engine/rework.ts`（目录级落点，函数名实现期可调），读取该任务的 `REJECTED` / `REVIEW_ROLLBACK` 事件，产出 `{ count, latest: { stage, note, at } }`。
+新增 `backend/src/engine/rework.ts`，实际 API：`readReworkEvents(taskId)`（REJECTED 取 `payload.stage`、REVIEW_ROLLBACK 取 `payload.targetStage`，按时间升序）、`getReworkInfo(taskId)` → `{ count, records }`、`getPendingRework(taskId, currentStage?)`（阶段匹配 + 产出后失效）、`assembleReworkText(stage, stageCount, note)`（上限 `MAX_REWORK_NOTE_LEN = 500`，截断标注「已截断」）；读取该任务的 `REJECTED` / `REVIEW_ROLLBACK` 事件，产出 `{ count, latest: { stage, note, at } }`。
 - **理由**：note 已经持久化在事件 payload（`executor.reject` / `reviewRollback` 均已写）；建新表会与「不改既有表、不重复存储」的约束冲突
 - **备选**：新增 `task_rework` 表（多一处数据源，易与事件日志漂移）
 
@@ -87,13 +87,14 @@
 - **理由**：事件接口 `listEvents` 已被活动日志消费（前端按 type + stage 分组渲染），改 payload 会牵动既有日志展示；独立查询使返工区块可独立加载、不受知识库连接状态影响
 - **备选**：前端自行从 `eventsByTask` 过滤（依赖事件已在本地加载，且与活动日志耦合）
 
-### D11. `allImagesDecided` 只认 `approved / rejected / skipped`
-判定改为 `every(i => ['approved','rejected','skipped'].includes(i.status))`；`failed` 不再阻塞。推进规则保持既有：存在 `rejected` → 触发返工；否则 → 推进（`approve`）。仅整批全 `failed` 时，在推进的事件 payload 中记录失败图片数，并在界面显示警示。
+### D11. `allImagesDecided` 判定只看是否存在「待确认」；`failed` 不参与、不阻塞
+判定改为「不存在待确认（pending）图」：`!images.some(i => i.status === 'pending')`；`approved`/`rejected`/`skipped` 为终态，`failed` 不参与判定（仅剩 `failed` 时拍板点仍可推进，不卡死）。推进规则保持既有：存在 `rejected` → 触发返工；否则 → 推进（`approve`）。推进时若该阶段存在失败图片（决策前统计），在推进事件的 payload 中记录失败图片数与警示文案（部分失败与整批全失败均记录），并在界面显示警示。
 - **理由**：直接消除实测卡死路径，且不改变既有决策语义；即使全部失败也允许推进，是「不得卡死」准则的必然结果（已有单张重试作为质量兜底手段）
 - **备选**：要求「至少一张 approved 才可推进」（会引入新的死锁：全失败时仍无法推进）；把 `failed` 自动转成 `rejected`（会误触发整批返工与返工计数）
+- **实现注记**：早期实现曾按「`every` 三种终态」判定，导致 [approved, approved, failed] 被误判为未决策（复现 spec 卡死场景），已按 spec 场景修正为「无 pending 即全部决策」
 
 ### D12. 图片重试/跳过的数据结构与端点
-`ImageItem` 增补 `attempts?: number` 与 `skipped` 状态；新增 `POST /api/tasks/:id/deliverables/images/:imageId/retry` 单张重试（服务层调用既有生图通道，只更新该图）；跳过复用既有 decide 端点，`decision: 'skip'`，服务层按「仅该图标记 skipped」处理，不触发 `reject`/`approve` 联动。
+`ImageItem` 增补 `attempts?: number` 与 `skipped` 状态；新增 `POST /api/tasks/:id/deliverables/images/:imageId/retry` 单张重试（服务层调用既有生图通道，只更新该图；重试计数计入 `attempts`，累计上限 `MAX_IMAGE_ATTEMPTS = 3`，超限返回可见错误）；跳过复用既有 decide 端点，`decision: 'skip'`，服务层按「仅该图标记 skipped」处理，不触发该阶段返工；单张 skip 本身不立即联动状态机，整批全部决策（含 skip）后按既有规则推进。
 - **理由**：重试是「重新执行」不是「决策」，与 decide 语义不同，需独立端点；跳过是决策，复用端点可少一处接口
 - **备选**：复用 decide 传 `decision: 'retry'`（把执行动作混入决策语义，易误触发状态机）；前端直接调生图（绕过服务层，无法复用重试上限与事件记录）
 
