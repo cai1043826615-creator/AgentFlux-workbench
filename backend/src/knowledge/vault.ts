@@ -11,6 +11,8 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { KnowledgeVaultConfigInput } from '@workbench/shared';
+import { KB_GRAPH_PRESETS } from '@workbench/shared';
 import { get, run, sqlite } from '../db/client.ts';
 
 /** 设置表中 Vault 配置的键名 */
@@ -21,6 +23,12 @@ export const VAULT_ENV_KEY = 'WORKBENCH_VAULT_ROOT';
 
 /** 默认排除目录（Obsidian / 版本库 / 依赖 / 回收站） */
 export const DEFAULT_EXCLUDE_DIRS = ['.git', '.obsidian', '.trash', 'node_modules', '.pnpm-store', 'dist', '.DS_Store'];
+
+/** 业务预设依据目录的内置默认（与共享常量 KB_GRAPH_PRESETS 同源） */
+export const DEFAULT_PRESET_DIRS = {
+  products: KB_GRAPH_PRESETS.find((p) => p.id === 'products')?.dir ?? '10_raw/products',
+  brand: KB_GRAPH_PRESETS.find((p) => p.id === 'brand')?.dir ?? 'wiki/brand',
+} as const;
 
 /** 只读边界被违反时抛出 */
 export class VaultReadOnlyError extends Error {
@@ -53,6 +61,8 @@ export interface VaultConfig {
   root: string | null;
   includeDirs: string[];
   excludeDirs: string[];
+  /** 业务预设依据目录（设置缺失/非法时回退内置默认，不报错） */
+  presetDirs: { products: string; brand: string };
   /** settings 设置面板 / env 环境变量 / none 未配置 */
   source: 'settings' | 'env' | 'none';
   /** 未连接原因（中文，source=none 或路径无效时） */
@@ -64,11 +74,25 @@ interface VaultSettingsValue {
   root?: unknown;
   includeDirs?: unknown;
   excludeDirs?: unknown;
+  presetDirs?: unknown;
 }
 
 function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.map((x) => String(x ?? '').trim()).filter(Boolean);
+}
+
+/** 解析业务预设依据目录：非法/缺失回退内置默认 */
+function parsePresetDirs(v: unknown): { products: string; brand: string } {
+  const fallback = { products: DEFAULT_PRESET_DIRS.products, brand: DEFAULT_PRESET_DIRS.brand };
+  if (!v || typeof v !== 'object') return fallback;
+  const o = v as Record<string, unknown>;
+  const products = typeof o.products === 'string' ? normalizeRel(o.products) : '';
+  const brand = typeof o.brand === 'string' ? normalizeRel(o.brand) : '';
+  return {
+    products: products || fallback.products,
+    brand: brand || fallback.brand,
+  };
 }
 
 /** 归一化相对路径：统一 / 分隔、去掉首尾斜杠与 ./ 前缀 */
@@ -103,36 +127,40 @@ export function resolveVaultConfig(): VaultConfig {
   const envRoot = (process.env[VAULT_ENV_KEY] ?? '').trim();
   const includeDirs = asStringArray(settings?.includeDirs).map(normalizeRel).filter(Boolean);
   const excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...asStringArray(settings?.excludeDirs).map(normalizeRel).filter(Boolean)])];
+  const presetDirs = parsePresetDirs(settings?.presetDirs);
 
   const rawRoot = settingsRoot || envRoot;
   const source: VaultConfig['source'] = settingsRoot ? 'settings' : envRoot ? 'env' : 'none';
   if (!rawRoot) {
-    return { root: null, includeDirs, excludeDirs, source: 'none', reason: '未配置 Vault 路径（设置面板或环境变量 WORKBENCH_VAULT_ROOT）' };
+    return { root: null, includeDirs, excludeDirs, presetDirs, source: 'none', reason: '未配置 Vault 路径（设置面板或环境变量 WORKBENCH_VAULT_ROOT）' };
   }
 
   const abs = resolve(rawRoot);
   if (!existsSync(abs)) {
-    return { root: null, includeDirs, excludeDirs, source, reason: `Vault 目录不存在：${abs}` };
+    return { root: null, includeDirs, excludeDirs, presetDirs, source, reason: `Vault 目录不存在：${abs}` };
   }
   let real: string;
   try {
     real = realpathSync(abs);
   } catch {
-    return { root: null, includeDirs, excludeDirs, source, reason: `Vault 目录不可读：${abs}` };
+    return { root: null, includeDirs, excludeDirs, presetDirs, source, reason: `Vault 目录不可读：${abs}` };
   }
   if (!statSync(real).isDirectory()) {
-    return { root: null, includeDirs, excludeDirs, source, reason: `Vault 路径不是目录：${real}` };
+    return { root: null, includeDirs, excludeDirs, presetDirs, source, reason: `Vault 路径不是目录：${real}` };
   }
-  return { root: real, includeDirs, excludeDirs, source };
+  return { root: real, includeDirs, excludeDirs, presetDirs, source };
 }
 
 /** 保存 Vault 配置到设置表（设置面板调用；root 为空表示断开连接） */
-export function saveVaultConfig(input: { root?: string; includeDirs?: string[]; excludeDirs?: string[] }): void {
-  const value = {
+export function saveVaultConfig(input: KnowledgeVaultConfigInput): void {
+  const value: VaultSettingsValue = {
     root: String(input.root ?? '').trim(),
     includeDirs: asStringArray(input.includeDirs).map(normalizeRel).filter(Boolean),
     excludeDirs: asStringArray(input.excludeDirs).map(normalizeRel).filter(Boolean),
   };
+  if (input.presetDirs) {
+    value.presetDirs = { products: normalizeRel(input.presetDirs.products), brand: normalizeRel(input.presetDirs.brand) };
+  }
   const json = JSON.stringify(value);
   let exists: { key: string } | undefined;
   try {

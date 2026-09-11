@@ -7,6 +7,7 @@
 import type { KnowledgeDocSummary, KnowledgeGraphData, KnowledgeGraphEdge, KnowledgeGraphNode, KnowledgeNodeDetail } from '@workbench/shared';
 import { all, get } from '../db/client.ts';
 import { listAllDocs, rowToSummary, summariesOf } from './docs.ts';
+import { islandDocPaths } from './health.ts';
 import { KT, ensureKnowledgeSchema } from './schema.ts';
 import { normalizeRel } from './vault.ts';
 import type { KnowledgeDocRow } from './schema.ts';
@@ -43,6 +44,7 @@ export function graphData(): KnowledgeGraphData {
   const degree = new Map<string, number>();
   const edges: KnowledgeGraphEdge[] = [];
   const usedTags = new Set<string>();
+  const islands = new Set(islandDocPaths());
 
   for (const l of links) {
     const source = docNodeId(l.source_path);
@@ -69,6 +71,8 @@ export function graphData(): KnowledgeGraphData {
     path: d.path,
     tags: d.tags,
     degree: degree.get(docNodeId(d.path)) ?? 0,
+    // 孤岛标记与健康度接口共用同一计算函数（tasks 2.9），保证两处计数一致；仅文档节点携带
+    isolated: islands.has(d.path),
   }));
 
   for (const tag of [...usedTags].sort((a, b) => a.localeCompare(b, 'zh-CN'))) {

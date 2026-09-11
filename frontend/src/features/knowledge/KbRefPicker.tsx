@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KB_REF_LIMIT, type KnowledgeSearchHit, type KnowledgeStatus, type TaskKbRefInput } from '@workbench/shared';
 import { Badge, Btn, Empty } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
+import { KB_EMPTY_STATES } from './kbEmpty.ts';
 
 /**
  * 「关联知识库资料」步骤（板块 A/B 唯一耦合点，spec workflow-context）：
@@ -13,7 +14,6 @@ export function KbRefPicker({ value, onChange }: { value: TaskKbRefInput[]; onCh
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<KnowledgeSearchHit[] | null>(null);
-  const [hint, setHint] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   /** docPath → 展示标题（勾选时记录，避免额外请求） */
   const [titles, setTitles] = useState<Record<string, string>>({});
@@ -42,7 +42,6 @@ export function KbRefPicker({ value, onChange }: { value: TaskKbRefInput[]; onCh
     try {
       const r = await api.kbSearch(q, 20);
       setHits(r.hits);
-      setHint(r.hint);
       setTitles((prev) => {
         const next = { ...prev };
         for (const h of r.hits) next[h.path] = h.title;
@@ -150,7 +149,7 @@ export function KbRefPicker({ value, onChange }: { value: TaskKbRefInput[]; onCh
 
       {hits ? (
         hits.length === 0 ? (
-          <Empty text={hint ?? '无命中资料'} />
+          <Empty text={KB_EMPTY_STATES.kbRefSearchEmpty.text} hint={KB_EMPTY_STATES.kbRefSearchEmpty.hint} emptyKey={KB_EMPTY_STATES.kbRefSearchEmpty.key} />
         ) : (
           <div className="max-h-[210px] space-y-1 overflow-y-auto pr-1">
             {hits.map((h) => {

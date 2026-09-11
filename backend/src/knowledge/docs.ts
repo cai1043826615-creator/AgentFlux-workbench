@@ -40,6 +40,7 @@ export function knowledgeStatus(): KnowledgeStatus {
     source: cfg.source,
     range: { includeDirs: cfg.includeDirs, excludeDirs: cfg.excludeDirs },
     indexing: isIndexing(),
+    presets: { type: 'dir', products: cfg.presetDirs.products, brand: cfg.presetDirs.brand },
   };
 }
 

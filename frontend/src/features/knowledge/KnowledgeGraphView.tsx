@@ -1,25 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KnowledgeGraphData, KnowledgeGraphNode, KnowledgeNodeDetail } from '@workbench/shared';
+import { KB_GRAPH_PRESETS, type KnowledgeGraphData, type KnowledgeGraphEdge, type KnowledgeGraphIsolationFilter, type KnowledgeGraphPreset, type KnowledgeNodeDetail } from '@workbench/shared';
 import { Badge, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
+import { KB_EMPTY_STATES } from './kbEmpty.ts';
+import { drawGraph, hitTest as kernelHitTest, layoutInitial, screenToWorld as kernelScreenToWorld, type GraphSimNode, type GraphView } from './graphCanvas.ts';
 
-/** 参与模拟的节点（含布局状态） */
-interface SimNode extends KnowledgeGraphNode {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  /** 拖拽中锁定位置 */
-  pinned: boolean;
-  /** 搜索命中高亮 */
-  highlight: boolean;
-  /** 与当前选中节点直接相连 */
-  neighbor: boolean;
-}
-
-const DOC_RADIUS = (degree: number) => Math.min(16, 5 + Math.sqrt(degree) * 2.2);
-const TAG_RADIUS = (degree: number) => Math.min(11, 4 + Math.sqrt(degree) * 1.6);
+/** 模拟节点（布局/视觉状态由渲染内核 graphCanvas.ts 提供，此处仅别名） */
+type SimNode = GraphSimNode;
 
 /**
  * 知识星图（design.md D4）：自绘 canvas 力导向布局，不引入重型图库。
@@ -35,6 +23,12 @@ export function KnowledgeGraphView() {
   const [query, setQuery] = useState('');
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  /** 缩放百分比显示（与 viewRef.zoom 同步；滚轮/按钮/适配/重置视图后均更新） */
+  const [zoomPct, setZoomPct] = useState(100);
+  /** 图谱透镜过滤（仅影响前端渲染集合）：目录 / 标签 / 孤立状态三维度取交集 */
+  const [filters, setFilters] = useState<{ dir: string | null; tag: string | null; isolation: KnowledgeGraphIsolationFilter }>({ dir: null, tag: null, isolation: 'all' });
+  /** 当前生效的业务预设 id（null = 无预设；手动修改任一过滤维度时置 null 取消高亮） */
+  const [preset, setPreset] = useState<KnowledgeGraphPreset['id'] | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -42,7 +36,7 @@ export function KnowledgeGraphView() {
   const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   /** 模拟节点与视图变换存 ref，避免每帧触发 React 渲染 */
   const nodesRef = useRef<SimNode[]>([]);
-  const edgesRef = useRef<{ source: string; target: string; kind: string }[]>([]);
+  const edgesRef = useRef<KnowledgeGraphEdge[]>([]);
   const indexRef = useRef(new Map<string, SimNode>());
   const viewRef = useRef({ zoom: 1, panX: 0, panY: 0 });
   const alphaRef = useRef(1);
@@ -56,25 +50,12 @@ export function KnowledgeGraphView() {
     try {
       const { graph: g } = await api.kbGraph();
       setGraph(g);
-      // 初始化布局：文档环形 + 标签散布，避免全部重叠
-      const docs = g.nodes.filter((n) => n.kind === 'doc');
-      const tags = g.nodes.filter((n) => n.kind === 'tag');
-      const nodes: SimNode[] = [
-        ...docs.map((n, i) => {
-          const a = (i / Math.max(1, docs.length)) * Math.PI * 2;
-          const r = docs.length > 1 ? 150 + (i % 3) * 30 : 0;
-          return { ...n, x: Math.cos(a) * r, y: Math.sin(a) * r, vx: 0, vy: 0, pinned: false, highlight: false, neighbor: false };
-        }),
-        ...tags.map((n, i) => {
-          const a = (i / Math.max(1, tags.length)) * Math.PI * 2 + 0.4;
-          const r = tags.length > 1 ? 60 + (i % 4) * 22 : 0;
-          return { ...n, x: Math.cos(a) * r, y: Math.sin(a) * r, vx: 0, vy: 0, pinned: false, highlight: false, neighbor: false };
-        }),
-      ];
-      nodesRef.current = nodes;
+      // 初始化布局：由渲染内核提供（文档环形 + 标签散布），避免全部重叠
+      nodesRef.current = layoutInitial(g.nodes);
       edgesRef.current = g.edges;
-      indexRef.current = new Map(nodes.map((n) => [n.id, n]));
+      indexRef.current = new Map(nodesRef.current.map((n) => [n.id, n]));
       viewRef.current = { zoom: 1, panX: 0, panY: 0 };
+      setZoomPct(100);
       alphaRef.current = 1;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -188,96 +169,164 @@ export function KnowledgeGraphView() {
     alphaRef.current = alpha * 0.985;
   }, []);
 
-  /** 绘制一帧 */
+  /**
+   * 收敛「设置 zoom/pan」为单一入口（3.2）：clamp zoom 0.25–3 后写 viewRef，
+   * 并同步百分比显示。滚轮缩放、按钮缩放、适配、重置视图均经此函数。
+   */
+  const applyView = useCallback((next: Partial<GraphView>) => {
+    const prev = viewRef.current;
+    const zoom = Math.min(3, Math.max(0.25, next.zoom ?? prev.zoom));
+    viewRef.current = { zoom, panX: next.panX ?? prev.panX, panY: next.panY ?? prev.panY };
+    setZoomPct(Math.round(zoom * 100));
+  }, []);
+
+  /**
+   * 当前过滤条件下的可见节点（3.4 图谱透镜）：
+   * - 目录：文档目录等于所选目录或其子孙目录（与 listDocsByDir 递归语义一致，dir = 路径去掉文件名）
+   * - 标签：声明该标签的文档 + 该标签节点（比较前 trim）
+   * - 孤立：'linked' = 至少一条 kind==='link' 文档间链接边；'island' = isolated === true 的文档
+   * - 交集：三维度同时生效取交集
+   * - 标签节点：目录/孤岛过滤下保留「至少被一个可见文档使用的标签节点」；标签过滤下仅保留该标签节点
+   */
+  const getVisibleNodes = useCallback((): SimNode[] => {
+    const all = nodesRef.current;
+    const { dir, tag, isolation } = filters;
+    if (!dir && !tag && isolation === 'all' && !preset) return all;
+    let docs = all.filter((n) => n.kind === 'doc');
+    if (dir) {
+      const target = dir;
+      docs = docs.filter((d) => {
+        const p = d.path ?? '';
+        const i = p.lastIndexOf('/');
+        const dd = i < 0 ? '' : p.slice(0, i);
+        return dd === target || dd.startsWith(`${target}/`);
+      });
+    }
+    if (tag) {
+      const t = tag.trim();
+      docs = docs.filter((d) => d.tags.some((x) => x.trim() === t));
+    }
+    if (isolation === 'linked') {
+      const linked = new Set<string>();
+      for (const e of edgesRef.current) {
+        if (e.kind === 'link') {
+          linked.add(e.source);
+          linked.add(e.target);
+        }
+      }
+      docs = docs.filter((d) => linked.has(d.id));
+    } else if (isolation === 'island') {
+      docs = docs.filter((d) => d.isolated === true);
+    }
+    let tags: SimNode[] = [];
+    if (tag) {
+      const t = tag.trim();
+      if (docs.length > 0) tags = all.filter((n) => n.kind === 'tag' && n.label.trim() === t);
+    } else {
+      const used = new Set<string>();
+      for (const d of docs) for (const t0 of d.tags) used.add(t0.trim());
+      tags = all.filter((n) => n.kind === 'tag' && used.has(n.label.trim()));
+    }
+    return [...docs, ...tags];
+  }, [filters, preset]);
+
+  /** 当前过滤条件下的可见边：仅两端均可见时保留（3.4） */
+  const getVisibleEdges = useCallback((): KnowledgeGraphEdge[] => {
+    const ids = new Set(getVisibleNodes().map((n) => n.id));
+    return edgesRef.current.filter((e) => ids.has(e.source) && ids.has(e.target));
+  }, [getVisibleNodes]);
+
+  /** 适配（3.3）：只作用于可见节点——包围盒（含内边距）→ zoom = clamp(min(w/bw, h/bh)) → pan 使包围盒中心对齐画布中心 */
+  const fitView = useCallback(() => {
+    const visible = getVisibleNodes();
+    if (visible.length === 0) return;
+    const { w, h } = sizeRef.current;
+    const pad = 40;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of visible) {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    const bw = Math.max(1, maxX - minX);
+    const bh = Math.max(1, maxY - minY);
+    const zoom = Math.min(3, Math.max(0.25, Math.min((w - pad * 2) / bw, (h - pad * 2) / bh)));
+    applyView({ zoom, panX: -(minX + maxX) / 2, panY: -(minY + maxY) / 2 });
+    alphaRef.current = Math.max(alphaRef.current, 0.3);
+  }, [applyView, getVisibleNodes]);
+
+  const zoomIn = useCallback(() => applyView({ zoom: viewRef.current.zoom * 1.2 }), [applyView]);
+  const zoomOut = useCallback(() => applyView({ zoom: viewRef.current.zoom / 1.2 }), [applyView]);
+
+  /** 手动修改任一过滤维度 → 预设高亮取消（3.7 预设与手动条件互斥） */
+  const updateFilters = (next: Partial<{ dir: string | null; tag: string | null; isolation: KnowledgeGraphIsolationFilter }>) => {
+    setHover(null);
+    setPreset(null);
+    setFilters((prev) => ({ ...prev, ...next }));
+  };
+
+  /** 清除全部过滤（含预设）→ 图谱恢复全量 */
+  const clearFilters = () => {
+    setHover(null);
+    setPreset(null);
+    setFilters({ dir: null, tag: null, isolation: 'all' });
+  };
+
+  /** 解析预设依据目录（3.7）：优先 status.presets（连接设置可改），未配置/未连接时回退共享常量 KB_GRAPH_PRESETS */
+  const resolvePresetDir = useCallback(async (id: KnowledgeGraphPreset['id']): Promise<string | undefined> => {
+    const fallback = KB_GRAPH_PRESETS.find((p) => p.id === id)?.dir;
+    try {
+      const { status } = await api.kbStatus();
+      const dir = status.presets?.[id];
+      return dir && dir.trim() ? dir.trim() : fallback;
+    } catch {
+      return fallback;
+    }
+  }, []);
+
+  /** 应用业务预设：覆盖 filters（dir = 预设目录，tag = null，isolation = 'all'）并记录 preset id */
+  const applyPreset = useCallback(
+    async (id: KnowledgeGraphPreset['id']) => {
+      const dir = await resolvePresetDir(id);
+      if (!dir) return;
+      setHover(null);
+      setPreset(id);
+      setFilters({ dir, tag: null, isolation: 'all' });
+    },
+    [resolvePresetDir],
+  );
+
+  /** 工具栏「K 孤岛」入口（3.9）：进入仅孤岛过滤态并取消预设高亮 */
+  const goIsland = () => {
+    setHover(null);
+    setPreset(null);
+    setFilters((prev) => ({ ...prev, isolation: 'island' }));
+  };
+
+  /** 绘制一帧（渲染内核 graphCanvas.drawGraph；主视图与缩略预览共用同一绘制） */
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const { w, h } = sizeRef.current;
-    const { zoom, panX, panY } = viewRef.current;
     const dpr = window.devicePixelRatio || 1;
-    const nodes = nodesRef.current;
-    const idx = indexRef.current;
-
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const cx = w / 2;
-    const cy = h / 2;
-    const toScreen = (wx: number, wy: number) => ({ x: cx + (wx + panX) * zoom, y: cy + (wy + panY) * zoom });
-
-    // 边
-    for (const e of edgesRef.current) {
-      const s = idx.get(e.source);
-      const t = idx.get(e.target);
-      if (!s || !t) continue;
-      const sp = toScreen(s.x, s.y);
-      const tp = toScreen(t.x, t.y);
-      const focused = kbNodeId && (e.source === kbNodeId || e.target === kbNodeId);
-      ctx.beginPath();
-      ctx.setLineDash(e.kind === 'tag' ? [3, 3] : []);
-      ctx.lineWidth = focused ? 1.8 : 0.9;
-      ctx.strokeStyle = focused ? 'rgba(124,58,237,0.85)' : e.kind === 'tag' ? 'rgba(161,161,170,0.5)' : 'rgba(82,82,91,0.32)';
-      ctx.moveTo(sp.x, sp.y);
-      ctx.lineTo(tp.x, tp.y);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-
-    // 节点
-    for (const n of nodes) {
-      const p = toScreen(n.x, n.y);
-      const base = n.kind === 'doc' ? DOC_RADIUS(n.degree) : TAG_RADIUS(n.degree);
-      const r = Math.max(2.5, base * Math.min(1.4, Math.max(0.6, zoom)));
-      const selected = kbNodeId === n.id;
-      const dim = Boolean(kbNodeId) && !selected && !n.neighbor;
-
-      if (n.highlight) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(124,58,237,0.22)';
-        ctx.fill();
-      }
-
-      ctx.globalAlpha = dim ? 0.32 : 1;
-      if (n.kind === 'doc') {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = selected ? '#7c3aed' : n.neighbor ? '#a78bfa' : '#52525b';
-        ctx.fill();
-        if (selected) {
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = '#7c3aed';
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-      } else {
-        // 标签节点：菱形
-        ctx.beginPath();
-        ctx.moveTo(p.x, p.y - r);
-        ctx.lineTo(p.x + r, p.y);
-        ctx.lineTo(p.x, p.y + r);
-        ctx.lineTo(p.x - r, p.y);
-        ctx.closePath();
-        ctx.fillStyle = selected ? '#7c3aed' : n.neighbor ? '#c4b5fd' : '#d4d4d8';
-        ctx.fill();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = '#a1a1aa';
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-
-      // 标签文字：文档节点在缩放足够或选中/邻居时绘制
-      if (n.kind === 'doc' && (zoom >= 0.8 || selected || n.neighbor || n.highlight)) {
-        ctx.font = `${selected || n.highlight ? '600 ' : ''}11px ui-sans-serif, system-ui, sans-serif`;
-        // canvas 不支持 CSS 变量，使用与 --color-ink 一致的字面色值
-        ctx.fillStyle = dim ? 'rgba(10,10,10,0.3)' : '#0a0a0a';
-        ctx.textAlign = 'center';
-        ctx.fillText(n.label.length > 12 ? `${n.label.slice(0, 12)}…` : n.label, p.x, p.y + r + 11);
-      }
-    }
-  }, [kbNodeId]);
+    // 过滤只作用于前端渲染集合：先算可见 nodes/edges 再交给渲染内核（被过滤节点不参与绘制）
+    drawGraph(ctx, {
+      nodes: getVisibleNodes(),
+      edges: getVisibleEdges(),
+      view: viewRef.current,
+      size: sizeRef.current,
+      selectedId: kbNodeId,
+      zoom: viewRef.current.zoom,
+    });
+  }, [kbNodeId, getVisibleNodes, getVisibleEdges]);
 
   /** 主循环：持续模拟 + 绘制，直到冷却且无交互（依赖 canvasEl：canvas 挂载后才启动） */
   useEffect(() => {
@@ -313,31 +362,13 @@ export function KnowledgeGraphView() {
     };
   }, [canvasEl, simulate, draw]);
 
-  /** 屏幕坐标 → 世界坐标 */
-  const screenToWorld = useCallback((sx: number, sy: number) => {
-    const { w, h } = sizeRef.current;
-    const { zoom, panX, panY } = viewRef.current;
-    return { x: (sx - w / 2) / zoom - panX, y: (sy - h / 2) / zoom - panY };
-  }, []);
+  /** 屏幕坐标 → 世界坐标（渲染内核） */
+  const screenToWorld = useCallback((sx: number, sy: number) => kernelScreenToWorld(sx, sy, viewRef.current, sizeRef.current), []);
 
-  /** 命中测试（返回最近的节点） */
-  const hitTest = useCallback((sx: number, sy: number): SimNode | null => {
-    const { zoom } = viewRef.current;
-    const { x: wx, y: wy } = screenToWorld(sx, sy);
-    let best: SimNode | null = null;
-    let bestD = Infinity;
-    for (const n of nodesRef.current) {
-      const r = Math.max(6, (n.kind === 'doc' ? DOC_RADIUS(n.degree) : TAG_RADIUS(n.degree)) * Math.min(1.4, Math.max(0.6, zoom)));
-      const d = Math.hypot(n.x - wx, n.y - wy);
-      if (d <= r + 4 && d < bestD) {
-        best = n;
-        bestD = d;
-      }
-    }
-    return best;
-  }, [screenToWorld]);
+  /** 命中测试（渲染内核；只遍历可见节点，被过滤节点不参与命中/悬停） */
+  const hitTest = useCallback((sx: number, sy: number): SimNode | null => kernelHitTest(sx, sy, getVisibleNodes(), viewRef.current, sizeRef.current), [getVisibleNodes]);
 
-  const localPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const localPos = (e: { clientX: number; clientY: number; currentTarget: HTMLCanvasElement }) => {
     const rect = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
@@ -397,6 +428,13 @@ export function KnowledgeGraphView() {
     dragRef.current = { mode: 'none', lastX: 0, lastY: 0, moved: false };
   };
 
+  /** 双击节点进入文档阅读（3.8）：命中文档节点调用 openKbDoc 切到阅读视图；标签节点不跳转（保持选中与详情） */
+  const onDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const { x, y } = localPos(e);
+    const node = hitTest(x, y);
+    if (node && node.kind === 'doc' && node.path) openKbDoc(node.path);
+  };
+
   const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -404,11 +442,11 @@ export function KnowledgeGraphView() {
     const sy = e.clientY - rect.top;
     const view = viewRef.current;
     const before = screenToWorld(sx, sy);
-    const nextZoom = Math.min(3, Math.max(0.25, view.zoom * (e.deltaY < 0 ? 1.12 : 0.89)));
-    viewRef.current = { ...view, zoom: nextZoom };
+    // 滚轮与按钮共用同一 clamp 边界（applyView 内 clamp 0.25–3）
+    applyView({ zoom: view.zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2) });
     const after = screenToWorld(sx, sy);
     // 保持光标下的世界点不动
-    viewRef.current = { ...viewRef.current, panX: viewRef.current.panX + (after.x - before.x), panY: viewRef.current.panY + (after.y - before.y) };
+    applyView({ panX: viewRef.current.panX + (after.x - before.x), panY: viewRef.current.panY + (after.y - before.y) });
   };
 
   /** 关键词搜索定位：高亮命中节点并居中到首个命中 */
@@ -428,15 +466,34 @@ export function KnowledgeGraphView() {
     alphaRef.current = Math.max(alphaRef.current, 0.2);
   };
 
-  const resetView = () => {
-    viewRef.current = { zoom: 1, panX: 0, panY: 0 };
+  const resetView = useCallback(() => {
+    applyView({ zoom: 1, panX: 0, panY: 0 });
     alphaRef.current = 1;
     for (const n of nodesRef.current) n.highlight = false;
     setMatchCount(null);
-  };
+  }, [applyView]);
 
   const nodeCount = graph?.nodes.length ?? 0;
   const hasData = useMemo(() => (graph ? graph.nodes.length > 0 : false), [graph]);
+  /** 3.9 健康度计数：N 页面（文档节点，不含标签）/ M 双链（kind==='link' 边）/ K 孤岛（isolated 文档节点） */
+  const docCount = graph?.nodes.filter((n) => n.kind === 'doc').length ?? 0;
+  const linkEdgeCount = graph?.edges.filter((e) => e.kind === 'link').length ?? 0;
+  const islandCount = graph?.nodes.filter((n) => n.kind === 'doc' && n.isolated === true).length ?? 0;
+  /** 3.4 计数：已显示 X / 共 Y 个节点 */
+  const visibleCount = useMemo(() => (hasData ? getVisibleNodes().length : 0), [hasData, getVisibleNodes, graph]);
+  /** 过滤是否生效（任一维度或预设） */
+  const filterActive = filters.dir != null || filters.tag != null || filters.isolation !== 'all' || preset != null;
+  /** 3.6 过滤后无可见节点 → 画布区空态（不渲染 canvas） */
+  const showFilterEmpty = hasData && visibleCount === 0 && filterActive;
+  /** 3.7 当前生效预设名（label 取自共享常量，不散落在视图代码内） */
+  const activePresetLabel = preset ? KB_GRAPH_PRESETS.find((p) => p.id === preset)?.label ?? null : null;
+
+  // 3.5 过滤可见性贯通：每次过滤变化后，若当前选中节点不在可见节点集合中 → 清空选中与详情
+  useEffect(() => {
+    if (!kbNodeId) return;
+    const ids = new Set(getVisibleNodes().map((n) => n.id));
+    if (!ids.has(kbNodeId)) setKbNodeId(null);
+  }, [kbNodeId, getVisibleNodes, graph]);
 
   return (
     <div className="space-y-4">
@@ -444,6 +501,7 @@ export function KnowledgeGraphView() {
         <div>
           <div className="qs-meta mb-0.5">板块 B · 知识库管理系统</div>
           <h2 className="font-display text-[20px] font-bold">知识星图</h2>
+          <p className="qs-meta mt-1">悬停看关系，点击聚焦邻居，双击进入文档</p>
           <p className="qs-meta mt-1" style={{ color: 'var(--color-ink-faint)' }}>
             节点 {nodeCount} 个 · 关系边 {graph?.edges.length ?? 0} 条 · 圆形=文档，菱形=标签，虚线=标签归属
           </p>
@@ -475,6 +533,71 @@ export function KnowledgeGraphView() {
         </p>
       ) : null}
 
+      {hasData ? (
+        /* 工具栏：交互图例 + 业务预设 + 健康度计数 + 图谱透镜过滤（3.1/3.4/3.7/3.9） */
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-line)' }}>
+          <span className="qs-meta">拖拽 · 滚轮缩放 · 双击阅读</span>
+          <span className="h-3 w-px shrink-0" style={{ background: 'var(--color-line-strong)' }} />
+          {KB_GRAPH_PRESETS.map((p) => (
+            <Btn key={p.id} size="sm" variant={preset === p.id ? 'signal' : 'ghost'} onClick={() => void applyPreset(p.id)} title={`按 ${p.label} 预设目录过滤`}>
+              {p.label}
+            </Btn>
+          ))}
+          {preset && activePresetLabel ? <Badge tone="signal">{activePresetLabel} 生效中</Badge> : null}
+          <span className="h-3 w-px shrink-0" style={{ background: 'var(--color-line-strong)' }} />
+          <span className="qs-meta">
+            {docCount} 页面 / {linkEdgeCount} 双链 /{' '}
+            <button
+              type="button"
+              className="cursor-pointer hover:underline"
+              style={{ color: 'var(--color-signal)' }}
+              onClick={goIsland}
+              title="进入仅孤岛过滤"
+            >
+              {islandCount} 孤岛
+            </button>
+          </span>
+          <span className="h-3 w-px shrink-0" style={{ background: 'var(--color-line-strong)' }} />
+          <input
+            className="qs-input w-[150px]"
+            placeholder="按目录过滤"
+            aria-label="按目录过滤"
+            value={filters.dir ?? ''}
+            onChange={(e) => {
+              const v = e.target.value.trim().replace(/\/+$/, '');
+              updateFilters({ dir: v ? v : null });
+            }}
+          />
+          <input
+            className="qs-input w-[130px]"
+            placeholder="按标签过滤"
+            aria-label="按标签过滤"
+            value={filters.tag ?? ''}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              updateFilters({ tag: v ? v : null });
+            }}
+          />
+          <div className="flex items-center gap-1">
+            <Btn size="sm" variant={filters.isolation === 'all' ? 'signal' : 'ghost'} onClick={() => updateFilters({ isolation: 'all' })}>
+              全部
+            </Btn>
+            <Btn size="sm" variant={filters.isolation === 'linked' ? 'signal' : 'ghost'} onClick={() => updateFilters({ isolation: 'linked' })}>
+              仅有链接
+            </Btn>
+            <Btn size="sm" variant={filters.isolation === 'island' ? 'signal' : 'ghost'} onClick={() => updateFilters({ isolation: 'island' })}>
+              仅孤岛
+            </Btn>
+          </div>
+          <span className="qs-meta tabular">已显示 {visibleCount} / 共 {nodeCount} 个节点</span>
+          {filterActive ? (
+            <Btn size="sm" variant="ghost" onClick={clearFilters}>
+              清除过滤
+            </Btn>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex gap-4">
         <div className="min-w-0 flex-1">
           <div ref={wrapRef} className="qs-card relative h-[62vh] overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
@@ -483,30 +606,58 @@ export function KnowledgeGraphView() {
                 <Spinner label="加载星图…" />
               </div>
             ) : !hasData ? (
-              // 4.4：无数据时渲染空图提示而非报错
+              // 4.4：无数据时渲染空图提示（文案与总览带缩略预览同源 kbEmpty.ts）
               <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
-                <Empty text="暂无图谱数据" />
-                <p className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                  知识库中没有文档，或文档之间既无 Markdown 链接也无共享标签。
-                </p>
+                <Empty text={KB_EMPTY_STATES.graphEmpty.text} hint={KB_EMPTY_STATES.graphEmpty.hint} emptyKey={KB_EMPTY_STATES.graphEmpty.key} />
+              </div>
+            ) : showFilterEmpty ? (
+              // 3.6：过滤后无可见节点（或预设无匹配）→ 空态 + 可点击清除过滤，不渲染 canvas
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <Empty
+                  text={preset ? '该预设在当前知识库中没有匹配资料' : '当前过滤条件下没有节点'}
+                  hint={preset ? '检查预设依据的目录/标签是否与 Vault 结构一致，或清除过滤' : '放宽或清除过滤条件'}
+                  emptyKey={preset ? 'graph-preset-empty' : 'graph-filter-empty'}
+                />
+                <Btn size="sm" variant="ghost" onClick={clearFilters}>
+                  清除过滤
+                </Btn>
               </div>
             ) : (
-              <canvas
-                ref={(el) => {
-                  canvasRef.current = el;
-                  setCanvasEl(el);
-                }}
-                className="block h-full w-full cursor-grab active:cursor-grabbing"
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerLeave={() => setHover(null)}
-                onWheel={onWheel}
-                role="img"
-                aria-label="知识图谱"
-              />
+              <>
+                <canvas
+                  ref={(el) => {
+                    canvasRef.current = el;
+                    setCanvasEl(el);
+                  }}
+                  className="block h-full w-full cursor-grab active:cursor-grabbing"
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onDoubleClick={onDoubleClick}
+                  onPointerLeave={() => setHover(null)}
+                  onWheel={onWheel}
+                  role="img"
+                  aria-label="知识图谱"
+                />
+                {/* 3.2 缩放控件：画布右下角，百分比 + 放大 / 缩小 / 适配 */}
+                <div
+                  className="absolute bottom-3 right-3 z-10 flex items-center gap-1 rounded-[4px] border px-2 py-1"
+                  style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-surface)' }}
+                >
+                  <span className="qs-meta tabular w-[42px] text-center">{zoomPct}%</span>
+                  <Btn size="sm" variant="ghost" onClick={zoomOut} title="缩小">
+                    缩小
+                  </Btn>
+                  <Btn size="sm" variant="ghost" onClick={zoomIn} title="放大">
+                    放大
+                  </Btn>
+                  <Btn size="sm" variant="ghost" onClick={fitView} title="适配全部可见节点">
+                    适配
+                  </Btn>
+                </div>
+              </>
             )}
-            {hover && hasData ? (
+            {hover && hasData && !showFilterEmpty ? (
               <div
                 className="pointer-events-none absolute z-10 max-w-[260px] rounded-[4px] border px-2.5 py-1.5 text-[12px] shadow-sm"
                 style={{ left: Math.min(hover.sx + 12, (sizeRef.current.w || 0) - 200), top: hover.sy + 12, borderColor: 'var(--color-line-strong)', background: 'var(--color-surface)' }}

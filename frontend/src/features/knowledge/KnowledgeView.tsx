@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KnowledgeDirInfo, KnowledgeDoc, KnowledgeDocSummary, KnowledgeSearchHit, KnowledgeStats, KnowledgeStatus, KnowledgeTagInfo } from '@workbench/shared';
+import type { KnowledgeDirInfo, KnowledgeDoc, KnowledgeDocSummary, KnowledgeHealth, KnowledgeSearchHit, KnowledgeStats, KnowledgeStatus, KnowledgeTagInfo } from '@workbench/shared';
 import { Badge, Btn, Empty, Field, Glyph, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
+import { KB_EMPTY_STATES } from './kbEmpty.ts';
+import { KnowledgeOverviewBar } from './KnowledgeOverviewBar.tsx';
 import { Markdown } from './Markdown.tsx';
 
 /** 逗号/换行分隔的目录配置 ↔ 数组 */
@@ -21,6 +23,8 @@ export function VaultConfigModal({ open, status, onClose, onSaved }: { open: boo
   const [root, setRoot] = useState('');
   const [include, setInclude] = useState('');
   const [exclude, setExclude] = useState('');
+  const [presetProducts, setPresetProducts] = useState('');
+  const [presetBrand, setPresetBrand] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,6 +33,8 @@ export function VaultConfigModal({ open, status, onClose, onSaved }: { open: boo
     setRoot(status?.root ?? '');
     setInclude((status?.range.includeDirs ?? []).join(', '));
     setExclude((status?.range.excludeDirs ?? []).filter((d) => !['.git', '.obsidian', '.trash', 'node_modules', '.pnpm-store', 'dist', '.DS_Store'].includes(d)).join(', '));
+    setPresetProducts(status?.presets?.products ?? '10_raw/products');
+    setPresetBrand(status?.presets?.brand ?? 'wiki/brand');
     setError(null);
   }, [open, status]);
 
@@ -38,7 +44,7 @@ export function VaultConfigModal({ open, status, onClose, onSaved }: { open: boo
     setBusy(true);
     setError(null);
     try {
-      await api.kbSaveConfig({ root: nextRoot, includeDirs: parseDirs(include), excludeDirs: parseDirs(exclude) });
+      await api.kbSaveConfig({ root: nextRoot, includeDirs: parseDirs(include), excludeDirs: parseDirs(exclude), presetDirs: { products: presetProducts.trim(), brand: presetBrand.trim() } });
       onSaved();
       onClose();
     } catch (err) {
@@ -63,6 +69,16 @@ export function VaultConfigModal({ open, status, onClose, onSaved }: { open: boo
         </Field>
         <Field label="额外排除目录（可选，逗号分隔）">
           <input className="qs-input" value={exclude} onChange={(e) => setExclude(e.target.value)} placeholder="如：私人日记, 30_self_media" />
+        </Field>
+        <div className="my-2 border-t" style={{ borderColor: 'var(--color-line)' }} />
+        <p className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
+          业务预设依据（目录，供星图「只看产品资料 / 只看品牌规范」使用；留空回退内置默认）
+        </p>
+        <Field label="预设：产品资料目录">
+          <input className="qs-input" value={presetProducts} onChange={(e) => setPresetProducts(e.target.value)} placeholder="如：10_raw/products" />
+        </Field>
+        <Field label="预设：品牌规范目录">
+          <input className="qs-input" value={presetBrand} onChange={(e) => setPresetBrand(e.target.value)} placeholder="如：wiki/brand" />
         </Field>
         <p className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
           默认排除：.git / .obsidian / .trash / node_modules / dist。也可用环境变量 WORKBENCH_VAULT_ROOT 兜底配置路径。
@@ -153,6 +169,8 @@ export function KnowledgeView() {
   const { kbDocPath, openKbDoc } = useWorkbench();
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
+  const [health, setHealth] = useState<KnowledgeHealth | null>(null);
+  const [islandOnly, setIslandOnly] = useState(false);
   const [dirs, setDirs] = useState<KnowledgeDirInfo[]>([]);
   const [tags, setTags] = useState<KnowledgeTagInfo[]>([]);
   const [docs, setDocs] = useState<KnowledgeDocSummary[]>([]);
@@ -160,7 +178,6 @@ export function KnowledgeView() {
   const [filter, setFilter] = useState<{ dir: string | null; tag: string | null }>({ dir: null, tag: null });
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<KnowledgeSearchHit[] | null>(null);
-  const [hint, setHint] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
@@ -175,6 +192,15 @@ export function KnowledgeView() {
     return st.status;
   }, []);
 
+  const loadHealth = useCallback(async () => {
+    try {
+      const r = await api.kbHealth();
+      setHealth(r.health);
+    } catch {
+      setHealth(null);
+    }
+  }, []);
+
   const loadDocs = useCallback(async (f: { dir: string | null; tag: string | null }) => {
     const r = await api.kbDocs({ dir: f.tag ? undefined : (f.dir ?? null), tag: f.tag ?? undefined });
     setDocs(r.docs);
@@ -182,8 +208,9 @@ export function KnowledgeView() {
 
   const reloadAll = useCallback(async () => {
     const st = await loadMeta();
+    void loadHealth();
     if (st.state === 'connected') await loadDocs(filter);
-  }, [loadMeta, loadDocs, filter]);
+  }, [loadMeta, loadDocs, filter, loadHealth]);
 
   useEffect(() => {
     void reloadAll();
@@ -229,8 +256,9 @@ export function KnowledgeView() {
   const pick = async (f: { dir: string | null; tag: string | null }) => {
     setFilter(f);
     setHits(null);
-    setHint(undefined);
     setQuery('');
+    // 切换浏览范围即退出孤岛筛选（2.6：孤岛筛选不残留）
+    setIslandOnly(false);
     await loadDocs(f);
   };
 
@@ -249,18 +277,50 @@ export function KnowledgeView() {
     }
   };
 
+  /**
+   * 孤岛一键筛选（2.6）：
+   * - 进入：清空搜索态；拉全量文档并按健康度孤岛路径过滤（条数 = 孤岛指标）；孤岛数为 0 时列表区渲染 no-islands 空态。
+   * - 取消：恢复点击前的目录/标签浏览范围（filter 原样保留，不残留孤岛筛选）。
+   */
+  const toggleIsland = async () => {
+    if (islandOnly) {
+      setIslandOnly(false);
+      await loadDocs(filter);
+      return;
+    }
+    setHits(null);
+    setQuery('');
+    let h = health;
+    if (!h) {
+      try {
+        const r = await api.kbHealth();
+        h = r.health;
+        setHealth(r.health);
+      } catch {
+        h = null;
+      }
+    }
+    const paths = new Set(h?.islands.paths ?? []);
+    if (paths.size === 0) {
+      setDocs([]);
+      setIslandOnly(true);
+      return;
+    }
+    const r = await api.kbDocs({});
+    setDocs(r.docs.filter((d) => paths.has(d.path)));
+    setIslandOnly(true);
+  };
+
   const runSearch = async () => {
     const q = query.trim();
     if (!q) {
       setHits(null);
-      setHint(undefined);
       return;
     }
     setBusy(true);
     try {
       const r = await api.kbSearch(q, 30);
       setHits(r.hits);
-      setHint(r.hint);
       setDoc(null);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
@@ -295,12 +355,14 @@ export function KnowledgeView() {
         </div>
         <div className="qs-card p-8 text-center">
           <Glyph name="box" size={28} className="mx-auto mb-3" />
-          <p className="text-[14px] font-medium">未连接 Obsidian Vault</p>
+          <p className="text-[14px] font-medium">
+            <span data-qs-empty={KB_EMPTY_STATES.kbDisconnected.key}>{KB_EMPTY_STATES.kbDisconnected.text}</span>
+          </p>
           <p className="qs-meta mx-auto mt-2 max-w-[430px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
             {status.reason ?? '尚未配置 Vault 路径。'}
           </p>
-          <p className="qs-meta mx-auto mt-1 max-w-[430px] leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
-            知识库独立于工作流：未连接时「多 Agent 工作流」全部功能照常可用。
+          <p className="qs-meta mx-auto mt-1 max-w-[430px] leading-relaxed" style={{ color: 'var(--color-ink-faint)' }} data-qs-empty-next={KB_EMPTY_STATES.kbDisconnected.key}>
+            {KB_EMPTY_STATES.kbDisconnected.hint}
           </p>
           <div className="mt-4 flex justify-center">
             <Btn variant="primary" onClick={() => setConfigOpen(true)}>
@@ -343,22 +405,8 @@ export function KnowledgeView() {
         </p>
       ) : null}
 
-      {/* 总览统计 */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          ['文档', stats?.docCount ?? 0],
-          ['标签', stats?.tagCount ?? 0],
-          ['目录', stats?.dirCount ?? 0],
-          ['关联边', stats?.edgeCount ?? 0],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="qs-card px-4 py-3">
-            <div className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-              {label}
-            </div>
-            <div className="font-display tabular text-[22px] font-bold leading-tight">{value}</div>
-          </div>
-        ))}
-      </div>
+      {/* 总览带：统计 + 星图缩略预览 + 最近更新 + 健康度小指标（2.2–2.6） */}
+      <KnowledgeOverviewBar status={status} stats={stats} health={health} islandOnly={islandOnly} onToggleIsland={() => void toggleIsland()} onOpenDoc={(path) => void openDoc(path)} />
 
       {/* 搜索 */}
       <div className="qs-card p-3">
@@ -382,7 +430,6 @@ export function KnowledgeView() {
               variant="ghost"
               onClick={() => {
                 setHits(null);
-                setHint(undefined);
                 setQuery('');
               }}
             >
@@ -399,14 +446,14 @@ export function KnowledgeView() {
             <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
               目录
             </div>
-            {dirs.length === 0 ? <Empty text="暂无目录" /> : <DirTree dirs={dirs} active={filter.tag ? null : filter.dir} onPick={(dir) => void pick({ dir, tag: null })} />}
+            {dirs.length === 0 ? <Empty text={KB_EMPTY_STATES.kbNoDirs.text} hint={KB_EMPTY_STATES.kbNoDirs.hint} emptyKey={KB_EMPTY_STATES.kbNoDirs.key} /> : <DirTree dirs={dirs} active={filter.tag ? null : filter.dir} onPick={(dir) => void pick({ dir, tag: null })} />}
           </div>
           <div className="qs-card p-3">
             <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
               标签
             </div>
             {tags.length === 0 ? (
-              <Empty text="暂无标签" />
+              <Empty text={KB_EMPTY_STATES.kbNoTags.text} hint={KB_EMPTY_STATES.kbNoTags.hint} emptyKey={KB_EMPTY_STATES.kbNoTags.key} />
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {tags.map((t) => {
@@ -437,7 +484,7 @@ export function KnowledgeView() {
           <div className="qs-card max-h-[62vh] overflow-y-auto p-2">
             {hits ? (
               hits.length === 0 ? (
-                <Empty text={hint ?? '无命中结果'} />
+                <Empty text={KB_EMPTY_STATES.searchEmpty.text} hint={KB_EMPTY_STATES.searchEmpty.hint} emptyKey={KB_EMPTY_STATES.searchEmpty.key} />
               ) : (
                 <div className="space-y-1">
                   <div className="qs-meta px-1.5 py-1" style={{ color: 'var(--color-ink-faint)' }}>
@@ -463,11 +510,35 @@ export function KnowledgeView() {
                 </div>
               )
             ) : docs.length === 0 ? (
-              <Empty text="该范围内暂无文档" />
+              islandOnly ? (
+                <Empty text={KB_EMPTY_STATES.noIslands.text} hint={KB_EMPTY_STATES.noIslands.hint} emptyKey={KB_EMPTY_STATES.noIslands.key} />
+              ) : (stats?.docCount ?? 0) === 0 ? (
+                <Empty text={KB_EMPTY_STATES.kbNoDocs.text} hint={KB_EMPTY_STATES.kbNoDocs.hint} emptyKey={KB_EMPTY_STATES.kbNoDocs.key} />
+              ) : (
+                <Empty text="该范围内暂无文档" />
+              )
             ) : (
               <div className="space-y-0.5">
-                <div className="qs-meta px-1.5 py-1" style={{ color: 'var(--color-ink-faint)' }}>
-                  {filter.tag ? `标签：${filter.tag}` : filter.dir ? `目录：${filter.dir || '根目录'}` : '全部文档'} · {docs.length} 篇
+                <div className="qs-meta flex items-center justify-between px-1.5 py-1" style={{ color: 'var(--color-ink-faint)' }}>
+                  <span>
+                    {islandOnly
+                      ? `孤岛文档 · ${docs.length} 篇`
+                      : filter.tag
+                        ? `标签：${filter.tag}`
+                        : filter.dir
+                          ? `目录：${filter.dir || '根目录'}`
+                          : '全部文档'} · {docs.length} 篇
+                  </span>
+                  {islandOnly ? (
+                    <button
+                      type="button"
+                      className="cursor-pointer rounded-[4px] px-1 text-[11px] transition-colors"
+                      style={{ color: 'var(--color-signal)' }}
+                      onClick={() => void toggleIsland()}
+                    >
+                      清除
+                    </button>
+                  ) : null}
                 </div>
                 {docs.map((d) => (
                   <button

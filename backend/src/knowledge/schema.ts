@@ -8,6 +8,7 @@
  * - knowledge_hot_cache 热点缓存（TTL）
  * - knowledge_meta      索引元信息（最近索引时间 / 构建中 / 上次错误）
  * - task_kb_refs        任务关联资料（板块 A ↔ B 唯一耦合点）
+ * - task_hot_refs       任务背景·外部环境情报（hot-intel D2，独立表，不改 task_kb_refs 结构）
  *
  * 本模块不读写板块 A 的任何表（agents/tasks/task_events/deliverables/messages/workflows/agent_executions/settings）。
  */
@@ -21,6 +22,7 @@ export const KT = {
   hotCache: 'knowledge_hot_cache',
   meta: 'knowledge_meta',
   taskRefs: 'task_kb_refs',
+  hotTaskRefs: 'task_hot_refs',
 } as const;
 
 /** 元信息键 */
@@ -128,6 +130,39 @@ export function ensureKnowledgeSchema(): void {
     );
   `);
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_task_kb_refs_task ON task_kb_refs (task_id);');
+  // hot-intel D2：任务背景·外部环境情报独立表（不改 task_kb_refs 结构）
+  // hot_id = 热点条目 id（来源内唯一）；valid 记录热点是否仍有效（来源失效/条目下线标记为失效）
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS task_hot_refs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER NOT NULL,
+      hot_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      source_id TEXT NOT NULL DEFAULT '',
+      source_name TEXT NOT NULL DEFAULT '',
+      evidence TEXT NOT NULL DEFAULT '',
+      url TEXT,
+      latest_at TEXT,
+      created_at TEXT NOT NULL,
+      valid INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_task_hot_refs_task ON task_hot_refs (task_id);');
+}
+
+/** task_hot_refs 行 */
+export interface TaskHotRefRow {
+  id: number;
+  task_id: number;
+  hot_id: string;
+  title: string;
+  source_id: string;
+  source_name: string;
+  evidence: string;
+  url: string | null;
+  latest_at: string | null;
+  created_at: string;
+  valid: number;
 }
 
 /** 读取元信息（不存在返回 null） */
