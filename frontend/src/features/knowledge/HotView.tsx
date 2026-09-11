@@ -29,6 +29,13 @@ const TIER_CAP_OPTIONS: { value: '' | HotTier; label: string }[] = [
 /** 已知适配器 id（注册表后端可扩展；新增源无需改聚合代码） */
 const KNOWN_ADAPTERS = ['pai-news', '100ec-24h', 'stats-sjjd', 'aihot'];
 
+/** 内容类型中文枚举（仅 UI 层统一展示；存储值保持不变，以免破坏后端 isEcommerceVertical() 判定） */
+const VERTICAL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'ecommerce-news', label: '电商资讯' },
+  { value: 'gov-stats', label: '政府统计' },
+  { value: 'AI 行业聚合', label: 'AI 行业' },
+];
+
 function fmtTime(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -304,8 +311,17 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
       prev ? { ...prev, sources: (prev.sources ?? []).map((s) => (s.id === id ? { ...s, ...next } : s)) } : prev,
     );
 
+  /** 展开态：关注域 / 数据源（默认折叠，收进「展开 / 管理 ▸」） */
+  const [expandedDomains, setExpandedDomains] = useState<Record<string, boolean>>({});
+  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
+
   const save = async () => {
     if (!config) return;
+    // 守卫：禁止落库永远无法命中的空域（8.6）
+    if (config.domains.some((d) => (d.keywords?.length ?? 0) === 0)) {
+      setError('有未配置关键词的关注域，请至少填写 1 个关键词再保存');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -319,159 +335,236 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     }
   };
 
+  const domainInvalid = !!config && config.domains.some((d) => (d.keywords?.length ?? 0) === 0);
+
   return (
-    <Modal open={open} title="关注域与数据源配置" onClose={onClose} width={640}>
-      <p className="qs-meta mb-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
-        分层：命中关注域且多信源 → 必看；命中但信源少 → 浏览；未命中 → 其他。排除词命中直接作废该域；同域需命中 ≥阈值个不同关键词。配置保存在本地，不入版本库。
-      </p>
+    <Modal open={open} title="情报配置" onClose={onClose} width={640}>
       {!config ? (
         <Spinner label="加载配置…" />
       ) : (
-        <div className="max-h-[48vh] space-y-3 overflow-y-auto pr-1">
-          {/* 关注域 */}
-          <div className="qs-meta font-medium" style={{ color: 'var(--color-ink-soft)' }}>
-            关注域
-          </div>
-          {config.domains.map((d) => (
-            <div key={d.id} className="rounded-[4px] border p-2.5" style={{ borderColor: 'var(--color-line)' }}>
-              <div className="flex items-center gap-2">
-                <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 accent-[var(--color-signal)]"
-                    checked={d.enabled !== false}
-                    onChange={(e) => patchDomain(d.id, { enabled: e.target.checked })}
-                  />
-                  启用
+        <div className="max-h-[52vh] space-y-4 overflow-y-auto pr-1">
+          {/* 关注域：摘要 + 展开（域名称作为可见标题，不再用空白输入框） */}
+          <section>
+            <div className="flex items-center justify-between">
+              <div className="qs-meta font-medium" style={{ color: 'var(--color-ink-soft)' }}>我关心什么（关注域）</div>
+              <Btn
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const id = `custom-${Date.now()}`;
+                  setConfig((prev) => (prev ? { ...prev, domains: [...prev.domains, { id, label: '', keywords: [], excludeKeywords: [], minKeywordHits: 2, enabled: true }] } : prev));
+                  setExpandedDomains((p) => ({ ...p, [id]: true }));
+                }}
+              >
+                + 新增
+              </Btn>
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {config.domains.map((d) => {
+                const open = expandedDomains[d.id] ?? false;
+                return (
+                  <div key={d.id} className="rounded-[4px] border" style={{ borderColor: 'var(--color-line)' }}>
+                    <div className="flex items-center gap-2 p-2.5">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 shrink-0 accent-[var(--color-signal)]"
+                        checked={d.enabled !== false}
+                        onChange={(e) => patchDomain(d.id, { enabled: e.target.checked })}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={d.label || '未命名关注域'}>
+                        {d.label || '未命名关注域'}
+                      </span>
+                      <span className="qs-meta shrink-0">灵敏度 {d.minKeywordHits ?? 2}</span>
+                      <span className="qs-meta shrink-0">关键词 {d.keywords.length} 个</span>
+                      <Btn size="sm" variant="ghost" onClick={() => setExpandedDomains((p) => ({ ...p, [d.id]: !(p[d.id] ?? false) }))}>
+                        {open ? '收起' : '展开'}
+                      </Btn>
+                      <Btn
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfig((prev) => (prev ? { ...prev, domains: prev.domains.filter((x) => x.id !== d.id) } : prev))}
+                      >
+                        删除
+                      </Btn>
+                    </div>
+                    {open ? (
+                      <div className="space-y-2 border-t p-2.5" style={{ borderColor: 'var(--color-line)' }}>
+                        <input className="qs-input" value={d.label} onChange={(e) => patchDomain(d.id, { label: e.target.value })} placeholder="关注域名称" />
+                        <input
+                          className="qs-input"
+                          value={d.keywords.join(', ')}
+                          onChange={(e) => patchDomain(d.id, { keywords: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) })}
+                          placeholder="关键词，逗号分隔（至少 1 个，否则该域无法命中）"
+                        />
+                        <input
+                          className="qs-input"
+                          value={(d.excludeKeywords ?? []).join(', ')}
+                          onChange={(e) => patchDomain(d.id, { excludeKeywords: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) })}
+                          placeholder="排除词（命中任一则该域作废），逗号分隔"
+                        />
+                        <div className="flex items-center gap-2">
+                          <span className="qs-meta shrink-0">命中≥</span>
+                          <input
+                            className="qs-input w-[52px]"
+                            type="number"
+                            min={1}
+                            max={5}
+                            value={d.minKeywordHits ?? 2}
+                            onChange={(e) => patchDomain(d.id, { minKeywordHits: Number(e.target.value) || 2 })}
+                            title="同一关注域需命中 ≥该阈值个不同关键词才成立（默认 2）"
+                          />
+                          <span className="qs-meta shrink-0">词</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            {domainInvalid ? (
+              <p className="qs-meta mt-1.5" style={{ color: 'var(--color-warn)' }}>
+                有未配置关键词的关注域，保存已禁用——请至少填写 1 个关键词
+              </p>
+            ) : null}
+          </section>
+
+          {/* 分层规则：阈值归拢，界面即规则（补回缺失的三档上限） */}
+          <section>
+            <div className="qs-meta font-medium" style={{ color: 'var(--color-ink-soft)' }}>分层规则</div>
+            <div className="mt-2 space-y-2 rounded-[4px] border p-2.5" style={{ borderColor: 'var(--color-line)' }}>
+              <p className="qs-meta leading-relaxed">
+                必看：命中关注域 且 ≥ <span className="font-semibold">不同信源</span> 报道；浏览：命中关注域、信源较少；其他：未命中任何关注域。
+              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className="qs-meta shrink-0">每档最多显示</span>
+                <label className="flex items-center gap-1">
+                  <span className="qs-meta shrink-0">必看</span>
+                  <input className="qs-input w-[52px]" type="number" min={1} value={config.mustReadLimit ?? 3} onChange={(e) => setConfig((prev) => (prev ? { ...prev, mustReadLimit: Number(e.target.value) || 1 } : prev))} />
+                  <span className="qs-meta shrink-0">条</span>
                 </label>
-                <input className="qs-input flex-1" value={d.label} onChange={(e) => patchDomain(d.id, { label: e.target.value })} placeholder="关注域名称" />
-                <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-faint)' }}>
-                  命中≥
-                </span>
+                <label className="flex items-center gap-1">
+                  <span className="qs-meta shrink-0">浏览</span>
+                  <input className="qs-input w-[52px]" type="number" min={1} value={config.browseLimit ?? 8} onChange={(e) => setConfig((prev) => (prev ? { ...prev, browseLimit: Number(e.target.value) || 1 } : prev))} />
+                  <span className="qs-meta shrink-0">条</span>
+                </label>
+                <label className="flex items-center gap-1">
+                  <span className="qs-meta shrink-0">其他</span>
+                  <input className="qs-input w-[52px]" type="number" min={1} value={config.otherLimit ?? 12} onChange={(e) => setConfig((prev) => (prev ? { ...prev, otherLimit: Number(e.target.value) || 1 } : prev))} />
+                  <span className="qs-meta shrink-0">条</span>
+                </label>
+              </div>
+              <div className="flex items-center gap-2 border-t pt-2" style={{ borderColor: 'var(--color-line)' }}>
+                <span className="qs-meta shrink-0">进入必看所需最少信源</span>
                 <input
                   className="qs-input w-[52px]"
                   type="number"
                   min={1}
                   max={20}
-                  value={d.minKeywordHits ?? 2}
-                  onChange={(e) => patchDomain(d.id, { minKeywordHits: Number(e.target.value) || 2 })}
-                  title="同一关注域需命中 ≥该阈值个不同关键词才成立（默认 2）"
+                  value={config.minimumSources ?? 2}
+                  onChange={(e) => setConfig((prev) => (prev ? { ...prev, minimumSources: Number(e.target.value) || 1 } : prev))}
                 />
-                <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-faint)' }}>
-                  词
-                </span>
-                <Btn
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setConfig((prev) => (prev ? { ...prev, domains: prev.domains.filter((x) => x.id !== d.id) } : prev))}
-                >
-                  删除
-                </Btn>
               </div>
-              <input
-                className="qs-input mt-2"
-                value={d.keywords.join(', ')}
-                onChange={(e) => patchDomain(d.id, { keywords: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) })}
-                placeholder="关键词，逗号分隔"
-              />
-              <input
-                className="qs-input mt-1.5"
-                value={(d.excludeKeywords ?? []).join(', ')}
-                onChange={(e) => patchDomain(d.id, { excludeKeywords: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) })}
-                placeholder="排除词（命中任一则该域作废），逗号分隔"
-              />
             </div>
-          ))}
-          <Btn
-            size="sm"
-            onClick={() =>
-              setConfig((prev) =>
-                prev ? { ...prev, domains: [...prev.domains, { id: `custom-${Date.now()}`, label: '新关注域', keywords: [], excludeKeywords: [], minKeywordHits: 2, enabled: true }] } : prev,
-              )
-            }
-          >
-            新增关注域
-          </Btn>
+          </section>
 
-          {/* 数据源 */}
-          <div className="qs-meta pt-1 font-medium" style={{ color: 'var(--color-ink-soft)' }}>
-            数据源（可插拔适配器；新增源无需改聚合代码）
-          </div>
-          {(config.sources ?? []).map((s) => (
-            <div key={s.id} className="rounded-[4px] border p-2.5" style={{ borderColor: 'var(--color-line)' }}>
-              <div className="flex items-center gap-2">
-                <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 accent-[var(--color-signal)]"
-                    checked={s.enabled !== false}
-                    onChange={(e) => patchSource(s.id, { enabled: e.target.checked })}
-                  />
-                  启用
-                </label>
-                <span className="qs-input w-[110px] shrink-0 bg-transparent text-[12px]">{s.id}</span>
-                <input className="qs-input flex-1" value={s.label} onChange={(e) => patchSource(s.id, { label: e.target.value })} placeholder="源名" />
-                <select
-                  className="qs-input w-[150px] shrink-0"
-                  value={s.tierCap ?? ''}
-                  onChange={(e) => patchSource(s.id, { tierCap: (e.target.value || undefined) as HotTier | undefined })}
-                  title="源分层上限"
-                >
-                  {TIER_CAP_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <Btn size="sm" variant="ghost" onClick={() => setConfig((prev) => (prev ? { ...prev, sources: (prev.sources ?? []).filter((x) => x.id !== s.id) } : prev))}>
-                  删除
-                </Btn>
-              </div>
-              <div className="mt-1.5 flex items-center gap-2">
-                <input className="qs-input w-[160px] shrink-0" value={s.adapter} onChange={(e) => patchSource(s.id, { adapter: e.target.value })} placeholder="adapter id" list="hot-adapters" />
-                <input className="qs-input flex-1" value={s.endpoint} onChange={(e) => patchSource(s.id, { endpoint: e.target.value })} placeholder="拉取端点 URL" />
-                <input className="qs-input w-[140px] shrink-0" value={s.vertical} onChange={(e) => patchSource(s.id, { vertical: e.target.value })} placeholder="垂直类别" />
-              </div>
-              {s.enterpriseCredentialRequired ? (
-                <div className="qs-meta mt-1" style={{ color: 'var(--color-warn)' }}>
-                  ⚠ 该源标记为需企业资质/账号（本期预留，未提供凭据时该源降级）
-                </div>
-              ) : null}
+          {/* 数据源：默认视图只显状态点+源名+上限，技术字段收进「管理 ▸」 */}
+          <section>
+            <div className="flex items-center justify-between">
+              <div className="qs-meta font-medium" style={{ color: 'var(--color-ink-soft)' }}>数据源（{config.sources?.length ?? 0}）</div>
+              <Btn
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const id = `src-${Date.now()}`;
+                  setConfig((prev) =>
+                    prev
+                      ? { ...prev, sources: [...(prev.sources ?? []), { id, adapter: 'pai-news', label: '新数据源', endpoint: '', vertical: 'ecommerce-news', enabled: true }] }
+                      : prev,
+                  );
+                  setExpandedSources((p) => ({ ...p, [id]: true }));
+                }}
+              >
+                + 新增
+              </Btn>
             </div>
-          ))}
-          <datalist id="hot-adapters">
-            {KNOWN_ADAPTERS.map((a) => (
-              <option key={a} value={a} />
-            ))}
-          </datalist>
-          <div className="flex items-center gap-2">
-            <Btn
-              size="sm"
-              onClick={() =>
-                setConfig((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        sources: [...(prev.sources ?? []), { id: `src-${Date.now()}`, adapter: 'pai-news', label: '新数据源', endpoint: '', vertical: 'ecommerce-news', enabled: true }],
-                      }
-                    : prev,
-                )
-              }
-            >
-              新增数据源
-            </Btn>
-            <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-              进入必看所需最少信源
-            </span>
-            <input
-              className="qs-input w-[64px]"
-              type="number"
-              min={1}
-              max={20}
-              value={config.minimumSources ?? 2}
-              onChange={(e) => setConfig((prev) => (prev ? { ...prev, minimumSources: Number(e.target.value) || 1 } : prev))}
-            />
-          </div>
+            <div className="mt-2 space-y-1.5">
+              {(config.sources ?? []).map((s) => {
+                const open = expandedSources[s.id] ?? false;
+                return (
+                  <div key={s.id} className="rounded-[4px] border" style={{ borderColor: 'var(--color-line)' }}>
+                    <div className="flex items-center gap-2 p-2.5">
+                      <span className={`qs-dot ${s.enabled !== false ? 'ok' : 'no'}`} title={s.enabled !== false ? '启用' : '已停用'} />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={s.id}>
+                        {s.label}
+                      </span>
+                      <select
+                        className="qs-input w-[150px] shrink-0"
+                        value={s.tierCap ?? ''}
+                        onChange={(e) => patchSource(s.id, { tierCap: (e.target.value || undefined) as HotTier | undefined })}
+                        title="源分层上限"
+                      >
+                        {TIER_CAP_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <Btn size="sm" variant="ghost" onClick={() => setExpandedSources((p) => ({ ...p, [s.id]: !(p[s.id] ?? false) }))}>
+                        管理 ▸
+                      </Btn>
+                      <Btn
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setConfig((prev) => (prev ? { ...prev, sources: (prev.sources ?? []).filter((x) => x.id !== s.id) } : prev))}
+                      >
+                        删除
+                      </Btn>
+                    </div>
+                    {open ? (
+                      <div className="space-y-2 border-t p-2.5" style={{ borderColor: 'var(--color-line)' }}>
+                        <div className="flex items-center gap-2">
+                          <span className="qs-meta w-[64px] shrink-0">显示名称</span>
+                          <input className="qs-input flex-1" value={s.label} onChange={(e) => patchSource(s.id, { label: e.target.value })} placeholder="显示名称" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="qs-meta w-[64px] shrink-0">抓取地址</span>
+                          <input className="qs-input flex-1" value={s.endpoint} onChange={(e) => patchSource(s.id, { endpoint: e.target.value })} placeholder="抓取地址 URL" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="qs-meta w-[64px] shrink-0">抓取方式</span>
+                          <input className="qs-input flex-1" value={s.adapter} onChange={(e) => patchSource(s.id, { adapter: e.target.value })} placeholder="抓取方式（adapter id）" list="hot-adapters" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="qs-meta w-[64px] shrink-0">内容类型</span>
+                          <select
+                            className="qs-input flex-1"
+                            value={s.vertical ?? ''}
+                            onChange={(e) => patchSource(s.id, { vertical: e.target.value || 'ecommerce-news' })}
+                          >
+                            {VERTICAL_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {s.enterpriseCredentialRequired ? (
+                          <div className="qs-meta" style={{ color: 'var(--color-warn)' }}>
+                            ⚠ 该源标记为需企业资质/账号（本期预留，未提供凭据时该源降级）
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <datalist id="hot-adapters">
+              {KNOWN_ADAPTERS.map((a) => (
+                <option key={a} value={a} />
+              ))}
+            </datalist>
+          </section>
         </div>
       )}
       {error ? (
@@ -483,7 +576,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         <Btn size="sm" onClick={onClose}>
           取消
         </Btn>
-        <Btn size="sm" variant="primary" loading={busy} disabled={!config} onClick={() => void save()}>
+        <Btn size="sm" variant="primary" loading={busy} disabled={!config || domainInvalid} onClick={() => void save()}>
           保存
         </Btn>
       </ModalFooter>
@@ -573,6 +666,14 @@ export function HotView() {
           <div className="flex flex-wrap gap-2" data-hot-pills>
             <Pill label="多源热点" value={panel.counts.upstream} />
             <Pill label="今日必看" value={panel.counts.mustRead} />
+            <button
+              type="button"
+              className="qs-clickable inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] leading-none"
+              style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-faint)' }}
+              title="分层规则：命中关注域且多信源 → 必看；命中但信源少 → 浏览；未命中 → 其他。排除词命中直接作废该域。今日必看为 0 通常是当天无多源共振事件，属正常。"
+            >
+              ?
+            </button>
             <Pill label="24H 精选" value={panel.counts.selected24h} />
           </div>
 
