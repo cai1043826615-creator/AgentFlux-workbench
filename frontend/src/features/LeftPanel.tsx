@@ -29,7 +29,7 @@ function PlaceholderItem({ label }: { label: string }) {
   );
 }
 
-/** 左侧栏（对齐线框 left）：工作流卡 + 通用（Agent 状态/设置）
+/** 左侧栏（对齐线框 left）：工作流卡 + 通用（Agent 状态/运行设置）
  *  openSettingsSignal：折叠态图标列触发的设置弹窗打开信号（>0 时打开，展示当前编排模式） */
 export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: () => void; onBack: () => void; openSettingsSignal?: number }) {
   const { settings, refresh, tasks, view, setView } = useWorkbench();
@@ -79,8 +79,6 @@ export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: ()
       <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
         <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-faint)' }}>工作流</div>
         <WorkflowItem active={workflowActive} count={tasks.length} onClick={onBack} />
-        <PlaceholderItem label="直播带货上架" />
-        <PlaceholderItem label="跨境选品" />
       </div>
 
       <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
@@ -93,9 +91,9 @@ export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: ()
           <Glyph name="pulse" size={14} className="shrink-0" />
           <span className="flex-1 truncate">Agent 状态</span>
         </button>
-        <button type="button" className="qs-nav-item" onClick={openSettings}>
+        <button type="button" className="qs-nav-item" onClick={openSettings} title="打开运行设置">
           <Glyph name="gear" size={14} className="shrink-0" />
-          <span className="flex-1 truncate">设置</span>
+          <span className="flex-1 truncate">运行设置</span>
         </button>
       </div>
 
