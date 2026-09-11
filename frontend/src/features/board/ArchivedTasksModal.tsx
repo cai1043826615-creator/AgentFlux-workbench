@@ -16,7 +16,7 @@ const COL_LABEL: Record<string, string> = {
  * 归档≠删除：任务数据保留，恢复后回到看板原列。
  */
 export function ArchivedTasksModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { tasks, restoreTask, openTask } = useWorkbench();
+  const { tasks, restoreTask, openTask, pushToast } = useWorkbench();
 
   const archived = useMemo(() => tasks.filter((t) => t.archived).sort((a, b) => b.id - a.id), [tasks]);
 
@@ -50,7 +50,7 @@ export function ArchivedTasksModal({ open, onClose }: { open: boolean; onClose: 
               <span className="qs-meta hidden min-w-0 shrink-0 truncate sm:inline" style={{ color: 'var(--color-ink-faint)', maxWidth: 110 }}>
                 {stageText(t)}
               </span>
-              <Btn size="sm" onClick={() => void restoreTask(t.id)}>
+              <Btn size="sm" onClick={() => { void restoreTask(t.id); pushToast({ message: `已恢复任务 #${t.id}`, tone: 'ok', duration: 4000 }); }}>
                 恢复
               </Btn>
             </div>

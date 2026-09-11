@@ -15,6 +15,18 @@ export type ChatTarget = { kind: 'group'; to: string } | { kind: 'private'; to: 
 /** 看板 / 列表 视图切换（B5 · 5.1） */
 export type BoardMode = 'board' | 'list';
 
+/** 通用动作反馈 Toast（Step 9：归档 / 恢复 / 采纳 / 打回 / 重试 / 保存设置 等轻量确认） */
+export interface ActionToast {
+  id: string;
+  message: string;
+  tone: 'ok' | 'signal' | 'no' | 'default';
+  /** 可选动作按钮（如「撤销」），点击后执行 onAction 并关闭该条 */
+  actionLabel?: string;
+  onAction?: () => void;
+  /** 自动消失毫秒；不传则常驻，需手动关闭 */
+  duration?: number;
+}
+
 /** 新建任务弹窗状态（打开/关闭；表单内容由弹窗内部管理，无外部预填） */
 export interface NewTaskState {
   open: boolean;
@@ -71,6 +83,10 @@ interface WorkbenchState {
   setBoardMode: (m: BoardMode) => void;
   setFilters: (f: TaskFilters) => void;
   clearFilters: () => void;
+  /** 通用动作反馈 Toast（Step 9） */
+  actionToasts: ActionToast[];
+  pushToast: (t: Omit<ActionToast, 'id'>) => string;
+  dismissToast: (id: string) => void;
 }
 
 const VIEWS: WorkbenchView[] = ['board', 'task', 'observability', 'knowledge', 'knowledge-graph', 'hot'];
@@ -218,6 +234,17 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 
   const clearFilters = useCallback(() => {
     setFiltersState(DEFAULT_FILTERS);
+  }, []);
+
+  /** Step 9：通用动作反馈 Toast（常驻上限 4 条，超出保留最新） */
+  const [actionToasts, setActionToasts] = useState<ActionToast[]>([]);
+  const pushToast = useCallback((t: Omit<ActionToast, 'id'>): string => {
+    const id = `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setActionToasts((prev) => [...prev, { ...t, id }].slice(-4));
+    return id;
+  }, []);
+  const dismissToast = useCallback((id: string) => {
+    setActionToasts((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
   const loadTaskDetail = useCallback(async (taskId: number) => {
@@ -441,8 +468,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       setBoardMode,
       setFilters,
       clearFilters,
+      actionToasts,
+      pushToast,
+      dismissToast,
     }),
-    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters],
+    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -14,7 +14,7 @@ import { KnowledgeView } from './features/knowledge/KnowledgeView.tsx';
 import { KnowledgeGraphView } from './features/knowledge/KnowledgeGraphView.tsx';
 import { HotView } from './features/knowledge/HotView.tsx';
 import { KbRefPicker } from './features/knowledge/KbRefPicker.tsx';
-import { ToastHost } from './components/Toast.tsx';
+import { ToastHost, ActionToastStack } from './components/Toast.tsx';
 
 /** 折叠态头像列：状态点/文案映射（与 ChatPanel 顶部头像一致） */
 const AGENT_DOT: Record<AgentOnlineStatus, string> = {
@@ -97,7 +97,9 @@ function NotifyControl() {
 
 /** 顶栏（Quiet Signal 精简版：logo + 产品名 + 任务 + 通知开关 + 连接状态点） */
 function TopBar() {
-  const { approvalQueue, connected, reconnect, backToBoard } = useWorkbench();
+  const { approvalQueue, connected, reconnect, backToBoard, tasks } = useWorkbench();
+  // 待确认角标从任务派生（column === 'awaiting'），与看板「待确认」列数字一致（不再用 WS 推送的 approvalQueue）
+  const pendingCount = tasks.filter((t) => t.column === 'awaiting').length;
   return (
     <header className="flex items-center gap-3 px-4 h-[52px] border-b shrink-0" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
       <img src="/logo.png" alt="logo" className="h-7 w-7 object-contain" style={{ imageRendering: 'auto' }} />
@@ -109,12 +111,12 @@ function TopBar() {
       <NotifyControl />
       <button type="button" className="qs-btn sm ghost" onClick={backToBoard} style={{ position: 'relative' }}>
         任务
-        {approvalQueue.length > 0 ? (
+        {pendingCount > 0 ? (
           <span
             className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
             style={{ background: 'var(--color-signal)' }}
           >
-            {approvalQueue.length}
+            {pendingCount}
           </span>
         ) : null}
       </button>
@@ -559,6 +561,7 @@ function Shell() {
       </div>
       <NewTaskModal />
       <ToastHost />
+      <ActionToastStack />
     </div>
   );
 }

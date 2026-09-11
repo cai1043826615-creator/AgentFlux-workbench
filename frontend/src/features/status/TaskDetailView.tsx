@@ -284,6 +284,22 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
   );
 }
 
+/** 子面板加载占位（QS：直角卡片 + 脉冲条，避免异步数据返回时布局跳变；空数据态仍按原设计不占位） */
+function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) {
+  return (
+    <div className="qs-card p-4" aria-busy="true">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="qs-pulse block h-4 w-32 rounded-[3px]" style={{ background: 'var(--color-sunken)' }} />
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: lines }).map((_, i) => (
+          <div key={i} className="qs-pulse block h-9 rounded-[4px]" style={{ background: 'var(--color-sunken)' }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 任务关联的知识库资料（板块 A/B 唯一耦合点，6.3）：标题 / 路径 / 片段范围 + 跳转原文 + 失效标记 */
 function KbRefsPanel({ taskId }: { taskId: number }) {
   const { openKbDoc } = useWorkbench();
@@ -304,7 +320,7 @@ function KbRefsPanel({ taskId }: { taskId: number }) {
     };
   }, [taskId]);
 
-  if (refs === null) return null;
+  if (refs === null) return <PanelSkeleton title="关联知识库资料" />;
   // 未关联资料时不占用任务详情空间（知识库未连接时的既有体验保持一致）
   if (refs.length === 0) return null;
 
@@ -371,7 +387,7 @@ function HotRefsPanel({ taskId }: { taskId: number }) {
     };
   }, [taskId]);
 
-  if (refs === null) return null;
+  if (refs === null) return <PanelSkeleton title="任务背景 · 外部环境情报" />;
   // 未关联任何背景时不出现该区块（不占位）
   if (refs.length === 0) return null;
 
@@ -661,8 +677,8 @@ function ProvenancePanel({ taskId }: { taskId: number }) {
     };
   }, [taskId]);
 
-  // 文案未产出 / 加载失败：不占位
-  if (provenance === undefined) return null;
+  // 文案未产出 / 加载中：先占位骨架，避免布局跳变；加载失败则下方按空态处理
+  if (provenance === undefined) return <PanelSkeleton title="产出溯源" />;
 
   // 无 kind='provenance' 行（老任务或文案未产出过）：提示重新产出后生效（spec 2.6）
   if (provenance === null) {
@@ -740,10 +756,11 @@ function ProvenancePanel({ taskId }: { taskId: number }) {
 
 /* ===== 返工记录（B2 · 3.7：第 N 次返工 · 意见，含阶段与时间；不依赖知识库连接） ===== */
 function ReworkPanel({ taskId }: { taskId: number }) {
-  const [rework, setRework] = useState<ReworkInfo | null>(null);
+  const [rework, setRework] = useState<ReworkInfo | null | undefined>(undefined);
 
   useEffect(() => {
     let alive = true;
+    setRework(undefined);
     void api
       .taskRework(taskId)
       .then((r) => {
@@ -757,6 +774,8 @@ function ReworkPanel({ taskId }: { taskId: number }) {
     };
   }, [taskId]);
 
+  // 加载中：占位骨架，避免布局跳变
+  if (rework === undefined) return <PanelSkeleton title="返工记录" />;
   // 无返工记录：不显示返工区块（spec 3.6）
   if (!rework || rework.count === 0 || rework.records.length === 0) return null;
 
@@ -831,8 +850,10 @@ function CostCard({ taskId }: { taskId: number }) {
     };
   }, [taskId]);
 
-  // 加载中 / 接口失败：不占位
-  if (summary === undefined || summary === null) return null;
+  // 加载中：占位骨架，避免布局跳变
+  if (summary === undefined) return <PanelSkeleton title="执行与成本" lines={3} />;
+  // 接口失败：不占位
+  if (summary === null) return null;
 
   // 16.4 空态：无执行记录 → 明确文案，不显示 0 值数字
   if (summary.runs === 0) {

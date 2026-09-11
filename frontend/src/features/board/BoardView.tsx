@@ -197,7 +197,7 @@ function TaskCard({
 
 /** 任务看板（对齐线框 renderBoard：标题行 + 看板/列表切换 + 筛选 + 搜索 + ＋新建任务 + 四列） */
 export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onNew: () => void }) {
-  const { tasks, loading, confirmTask, openTask, archiveTask, boardMode, setBoardMode, filters } = useWorkbench();
+  const { tasks, loading, confirmTask, openTask, archiveTask, restoreTask, pushToast, boardMode, setBoardMode, filters } = useWorkbench();
   const [archiveOpen, setArchiveOpen] = useState(false);
 
   // 两视图共用同一数据源：未归档 + 筛选/排序（B5 · 5.2/5.4）
@@ -215,6 +215,18 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
   const handleOpen = (task: TaskWithMeta) => {
     onOpen(task.id);
     openTask(task.id);
+  };
+
+  /** 归档 + 轻量反馈（撤销 = 立即恢复，避免看板跳变无提示） */
+  const handleArchive = (id: number) => {
+    void archiveTask(id);
+    pushToast({
+      message: `已归档任务 #${id}`,
+      tone: 'default',
+      duration: 6000,
+      actionLabel: '撤销',
+      onAction: () => void restoreTask(id),
+    });
   };
 
   return (
@@ -277,7 +289,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
                 </header>
                 <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5">
                   {list.map((t) => (
-                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => void confirmTask(id)} onArchive={(id) => void archiveTask(id)} />
+                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => void confirmTask(id)} onArchive={handleArchive} />
                   ))}
                   {list.length === 0 ? (
                     <div className="qs-meta py-6 text-center" style={{ color: 'var(--color-ink-faint)' }}>

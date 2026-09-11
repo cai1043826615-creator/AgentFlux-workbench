@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { WORKFLOW_STAGE_LABELS } from '@workbench/shared';
-import { useWorkbench, type TaskWithMeta } from '../store/useWorkbench.tsx';
+import { useWorkbench, type ActionToast, type TaskWithMeta } from '../store/useWorkbench.tsx';
 
 /**
  * 右下角 Toast 通知（意见12 + 意见1 重构 + 堆叠版 v3）：
@@ -211,6 +211,73 @@ export function ToastHost() {
           />
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * 通用动作反馈 Toast 栈（Step 9）：归档 / 恢复 / 采纳 / 打回 / 重试 / 保存设置 等轻量确认。
+ * 与右下角任务 Toast（ToastHost）分区——本栈固定在底部居中，不抢占其位置。
+ */
+function ActionToastCard({ toast, onDismiss }: { toast: ActionToast; onDismiss: (id: string) => void }) {
+  useEffect(() => {
+    if (!toast.duration) return;
+    const tm = setTimeout(() => onDismiss(toast.id), toast.duration);
+    return () => clearTimeout(tm);
+  }, [toast.duration, toast.id, onDismiss]);
+
+  const accent =
+    toast.tone === 'ok'
+      ? 'var(--color-ok)'
+      : toast.tone === 'signal'
+        ? 'var(--color-signal)'
+        : toast.tone === 'no'
+          ? 'var(--color-danger)'
+          : 'var(--color-ink-soft)';
+
+  return (
+    <div
+      className="qs-card flex items-center gap-3 rounded-[4px] px-3 py-2 text-[13px] shadow-sm"
+      style={{ borderLeft: `3px solid ${accent}`, minWidth: 240, maxWidth: 380 }}
+      role="status"
+    >
+      <span className="flex-1 leading-snug" style={{ color: 'var(--color-ink)' }}>
+        {toast.message}
+      </span>
+      {toast.actionLabel ? (
+        <button
+          type="button"
+          className="qs-clickable shrink-0 font-semibold"
+          style={{ color: accent }}
+          onClick={() => {
+            toast.onAction?.();
+            onDismiss(toast.id);
+          }}
+        >
+          {toast.actionLabel}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="qs-clickable shrink-0 px-1 text-[15px] leading-none opacity-50 transition-opacity hover:opacity-100"
+        style={{ color: 'var(--color-ink-soft)' }}
+        aria-label="关闭"
+        onClick={() => onDismiss(toast.id)}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+export function ActionToastStack() {
+  const { actionToasts, dismissToast } = useWorkbench();
+  if (actionToasts.length === 0) return null;
+  return (
+    <div className="fixed bottom-4 left-1/2 z-[80] flex -translate-x-1/2 flex-col items-center gap-2">
+      {actionToasts.map((t) => (
+        <ActionToastCard key={t.id} toast={t} onDismiss={dismissToast} />
+      ))}
     </div>
   );
 }

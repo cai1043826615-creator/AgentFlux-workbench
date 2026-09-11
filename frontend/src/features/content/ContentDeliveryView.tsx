@@ -156,7 +156,7 @@ function RefThumb({ src, name, onZoom }: { src: string; name: string; onZoom: ()
 }
 
 export function ContentDeliveryView({ taskId }: { taskId: number }) {
-  const { tasks, deliverablesByTask, openTask, decide, retryImage, review } = useWorkbench();
+  const { tasks, deliverablesByTask, openTask, decide, retryImage, review, pushToast } = useWorkbench();
   const [imageTab, setImageTab] = useState<'main' | 'detail'>('main');
   const [rejectingCopy, setRejectingCopy] = useState(false);
   const [copyNote, setCopyNote] = useState('');
@@ -225,10 +225,18 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     setBusy(true);
     try {
       await decide(task.id, kind, decision, imageId, note || undefined);
+      if (decision === 'approve') {
+        pushToast({ message: kind === 'copy' ? '文案已采纳，已推进下一阶段' : '图片已采纳', tone: 'ok', duration: 4000 });
+      } else if (decision === 'reject') {
+        pushToast({ message: kind === 'copy' ? '文案已打回，返工中' : '图片已打回，返工中', tone: 'no', duration: 5000 });
+      } else if (decision === 'skip') {
+        pushToast({ message: '已跳过该图，不触发返工', tone: 'default', duration: 4000 });
+      }
       if (kind === 'copy') setRejectingCopy(false);
       else setRejectingImg(null);
     } catch (err) {
       console.warn('[内容交付] decide 失败', err);
+      pushToast({ message: '操作失败，请重试', tone: 'no', duration: 5000 });
     } finally {
       setBusy(false);
     }
@@ -241,8 +249,11 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     setRetryError(null);
     try {
       await retryImage(task.id, imageId);
+      pushToast({ message: '已开始重新生成该图片', tone: 'signal', duration: 4000 });
     } catch (err) {
-      setRetryError(err instanceof Error ? err.message : '重试失败');
+      const msg = err instanceof Error ? err.message : '重试失败';
+      setRetryError(msg);
+      pushToast({ message: `重试失败：${msg}`, tone: 'no', duration: 5000 });
     } finally {
       setRetrying(null);
     }

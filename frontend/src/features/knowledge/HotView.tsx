@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AttentionConfig, AttentionDomain, HotDailyInfo, HotEvidenceLevel, HotItem, HotPanel, HotSourceConfig, HotTier, TaskHotRefInput, TaskListItem } from '@workbench/shared';
 import { Badge, Btn, Empty, Modal, ModalFooter, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
+import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
 
 const TIER_LABEL: Record<HotTier, string> = { mustRead: '今日必看', browse: '浏览', other: '其他' };
@@ -288,6 +289,7 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
  * （base < components < utilities），工具类恢复覆盖能力；改动这些宽度时请保持用工具类，避免重蹈覆辙。
  */
 function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const { pushToast } = useWorkbench();
   const [config, setConfig] = useState<AttentionConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -327,6 +329,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     try {
       await api.hotSaveAttention(config);
       onSaved();
+      pushToast({ message: '情报配置已保存', tone: 'ok', duration: 4000 });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
