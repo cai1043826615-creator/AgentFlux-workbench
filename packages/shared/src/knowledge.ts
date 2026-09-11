@@ -30,6 +30,11 @@ export interface KnowledgeStatus {
   range: KnowledgeRange;
   /** 索引是否正在构建（异步后台任务） */
   indexing: boolean;
+  /**
+   * 业务预设依据（knowledge-ux）：依据类型固定为「目录」，路径可在连接设置中修改。
+   * 未配置/非法时后端回退内置默认（KB_GRAPH_PRESETS）。
+   */
+  presets?: { type: 'dir'; products: string; brand: string };
 }
 
 /** 文档摘要（浏览/搜索/关系列表通用） */
@@ -128,6 +133,8 @@ export interface KnowledgeGraphNode {
   tags: string[];
   /** 关联边数量 */
   degree: number;
+  /** 是否孤岛文档（knowledge-ux：既无文档间链接、又无共享标签；仅文档节点携带，标签节点不适用） */
+  isolated?: boolean;
 }
 
 export interface KnowledgeGraphEdge {
@@ -158,19 +165,48 @@ export interface KnowledgeNodeDetail {
 /** 关注域分层：mustRead 必看 / browse 浏览 / other 其他 */
 export type HotTier = 'mustRead' | 'browse' | 'other';
 
+/** 证据等级（多源事件 / 单源 / 可回查原文） */
+export type HotEvidenceLevel = 'multi-source' | 'single-source' | 'traceable';
+
 /** 关注域定义（用户可配置，本地保存不入版本库） */
 export interface AttentionDomain {
   id: string;
   label: string;
   keywords: string[];
+  /** 排除词：热点文本命中任一排除词 → 该关注域直接不成立（降噪规则①） */
+  excludeKeywords?: string[];
+  /** 多词命中阈值：同一关注域需命中 ≥ 该阈值个不同关键词才成立（默认 2，降噪规则②） */
+  minKeywordHits?: number;
   /** 是否启用（默认 true） */
   enabled?: boolean;
 }
 
+/** 单源配置（可插拔多源注册表；attention.json 本地保存，不入版本库） */
+export interface HotSourceConfig {
+  /** 源唯一标识（如 pai-news / stats-sjjd / aihot） */
+  id: string;
+  /** 适配器 id（注册表键，与实现文件一一对应） */
+  adapter: string;
+  /** 展示名 */
+  label: string;
+  /** 拉取端点 */
+  endpoint: string;
+  /** 垂直类别（如 AI 行业聚合 / ecommerce-news / gov-stats），用于源作用域与分层 */
+  vertical: string;
+  /** 是否启用（默认 true） */
+  enabled?: boolean;
+  /** 是否需企业资质/账号（预留：本期只接公开源，配置项保留供后续增量） */
+  enterpriseCredentialRequired?: boolean;
+  /** 源分层上限：非电商垂直源默认 browse（最高只进「浏览」） */
+  tierCap?: HotTier;
+}
+
 /** 电商化关注域配置 */
 export interface AttentionConfig {
-  /** 数据源基础地址（公共匿名 API） */
+  /** 数据源基础地址（公共匿名 API）——遗留单源配置，映射为「仅启用 aihot 适配器」 */
   sourceBaseUrl?: string;
+  /** 多源配置（缺省回退内置默认源列表） */
+  sources?: HotSourceConfig[];
   domains: AttentionDomain[];
   mustReadLimit?: number;
   browseLimit?: number;
@@ -183,10 +219,20 @@ export interface HotItem {
   id: string;
   title: string;
   summary: string | null;
-  /** 来源名称 */
+  /** 来源名称（兼容字段，= sourceName） */
   source: string;
+  /** 产出该条目的源标识 */
+  sourceId?: string;
+  /** 产出该条目的源展示名 */
+  sourceName?: string;
+  /** 源垂直类别 */
+  vertical?: string;
   /** 独立信源数 */
   sourceCount: number;
+  /** 证据等级（归一化阶段判定，非 UI 猜测） */
+  evidence?: HotEvidenceLevel;
+  /** 最新进展（无则前端隐藏该层） */
+  latest?: string | null;
   /** 命中的关注域 */
   domains: { id: string; label: string }[];
   /** 进入分层的理由（面向用户） */
@@ -197,6 +243,32 @@ export interface HotItem {
   latestAt: string | null;
 }
 
+/** 上游日报信息（信息条外链；源未提供则为 null） */
+export interface HotDailyInfo {
+  /** 日报日期（YYYY-MM-DD） */
+  date: string;
+  /** 日报条数 */
+  count: number;
+  /** 发布时间（ISO） */
+  publishedAt: string | null;
+  /** 日报链接 */
+  url: string | null;
+  /** 日报标题 */
+  title: string;
+}
+
+/** 单源拉取状态（面板 sources[] 逐源标注） */
+export interface HotSourceStatus {
+  id: string;
+  label: string;
+  /** ok 正常 / degraded 降级（含原因） */
+  status: 'ok' | 'degraded';
+  /** 降级原因（面向用户） */
+  error?: string;
+  /** 该源贡献的去重后条目数 */
+  itemCount?: number;
+}
+
 /** 热点面板数据（live 实时 / stale 降级用缓存 / unavailable 无缓存不可用） */
 export interface HotPanel {
   status: 'live' | 'stale' | 'unavailable';
@@ -204,9 +276,13 @@ export interface HotPanel {
   expiresAt: string | null;
   sourceName: string;
   sourceUrl: string;
+  /** 逐源状态（与整体状态不冲突） */
+  sources: HotSourceStatus[];
+  /** 上游日报信息（无则 null，信息条退化为仅新鲜度） */
+  daily: HotDailyInfo | null;
   /** 降级时的错误说明 */
   error: { code: string; message: string } | null;
-  counts: { upstream: number; mustRead: number; browse: number; other: number };
+  counts: { upstream: number; mustRead: number; browse: number; other: number; selected24h: number };
   tiers: { mustRead: HotItem[]; browse: HotItem[]; other: HotItem[] };
 }
 
@@ -235,4 +311,104 @@ export interface TaskKbRefInput {
   /** null/省略 = 整篇 */
   anchor?: string | null;
   note?: string;
+}
+
+// ===== 任务热点背景（hot-context，hot-intel 追加） =====
+
+/** 热点背景数量上限（参照 KB_REF_LIMIT） */
+export const HOT_HOT_REF_LIMIT = 6;
+
+/** 任务关联的热点背景（外部环境情报；独立表 task_hot_refs，不改 task_kb_refs） */
+export interface TaskHotRef {
+  id: number;
+  taskId: number;
+  /** 热点条目 id（面板 HotItem.id） */
+  hotId: string;
+  /** 冗余标题（面板不可用时仍可展示与追溯） */
+  title: string;
+  /** 产出该热点的源标识 */
+  sourceId: string;
+  /** 产出该热点的源展示名 */
+  sourceName: string;
+  /** 关联时的证据等级 */
+  evidence: HotEvidenceLevel;
+  /** 原文链接 */
+  url: string | null;
+  /** 热点数据时间（ISO） */
+  latestAt: string | null;
+  /** 关联时间（ISO） */
+  createdAt: string;
+  /** 读取时该热点是否仍在最新一次面板拉取中（false = 已失效，仍保留供追溯） */
+  valid: boolean;
+}
+
+/** 热点背景写入输入（由面板条目快照生成） */
+export interface TaskHotRefInput {
+  hotId: string;
+  title: string;
+  sourceId: string;
+  sourceName: string;
+  evidence: HotEvidenceLevel;
+  url?: string | null;
+  latestAt?: string | null;
+}
+
+// ===== 知识健康度与图谱预设（knowledge-ux 追加，向后兼容） =====
+
+/**
+ * 文档使用率（知识库侧指标，定义见主文档 §0.2）：
+ * 被至少一个任务关联过且仍存在于当前索引的不同文档数 ÷ 已索引文档总数。
+ * 与任务侧的溯源类指标（T1 quality-loop 负责）是两套口径，命名严格区分。
+ */
+export interface KnowledgeUsage {
+  /** 分子：被至少一个任务关联过、且 doc_path 仍在当前索引中的不同文档数（重复关联只计一次） */
+  linkedDocs: number;
+  /** 分母：当前已索引文档总数 */
+  totalDocs: number;
+  /** linkedDocs / totalDocs；totalDocs === 0 时为 null（未知而非报错，避免除零） */
+  ratio: number | null;
+}
+
+/** 孤岛文件：既无文档间链接、又无共享标签的文档（孤岛 = Agent 永远检索不到的资料） */
+export interface KnowledgeIslands {
+  count: number;
+  /** 孤岛文档相对路径清单（与 count 等长） */
+  paths: string[];
+}
+
+/** 知识健康度（只读查询结果，GET /api/knowledge/health） */
+export interface KnowledgeHealth {
+  usage: KnowledgeUsage;
+  islands: KnowledgeIslands;
+  /** 计算时间（ISO 可解析） */
+  computedAt: string;
+}
+
+/** 图谱过滤：孤立状态维度（all 不过滤 / linked 仅有文档间链接 / island 仅孤岛） */
+export type KnowledgeGraphIsolationFilter = 'all' | 'linked' | 'island';
+
+/** 业务预设条目（「只看产品资料」「只看品牌规范」）：依据固定为「目录」 */
+export interface KnowledgeGraphPreset {
+  id: 'products' | 'brand';
+  label: string;
+  /** 依据目录（相对 Vault 根路径） */
+  dir: string;
+}
+
+/** 图谱业务预设内置默认（设置缺失/非法时回退；可在连接设置中修改并持久化到设置表） */
+export const KB_GRAPH_PRESETS: KnowledgeGraphPreset[] = [
+  { id: 'products', label: '只看产品资料', dir: '10_raw/products' },
+  { id: 'brand', label: '只看品牌规范', dir: 'wiki/brand' },
+];
+
+/** 业务预设依据类型（当前固定为目录） */
+export type KnowledgePresetBasis = 'dir';
+
+/** Vault 配置保存输入（连接设置面板；root 为空 = 断开连接） */
+export interface KnowledgeVaultConfigInput {
+  root?: string;
+  includeDirs?: string[];
+  excludeDirs?: string[];
+  /** 业务预设依据目录（可选；未传时保留既有值） */
+  presetDirs?: { products: string; brand: string };
 }

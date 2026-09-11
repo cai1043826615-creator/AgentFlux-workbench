@@ -103,9 +103,9 @@ export interface TaskEvent {
 }
 
 // ===== 交付物 =====
-export type DeliverableKind = 'copy' | 'image';
-/** pending 待决策 / approved 已采纳 / rejected 已打回 / failed 生成失败（生图异常，非用户决策） */
-export type DeliverableStatus = 'pending' | 'approved' | 'rejected' | 'failed';
+export type DeliverableKind = 'copy' | 'image' | 'provenance';
+/** pending 待决策 / approved 已采纳 / rejected 已打回 / failed 生成失败（生图异常，非用户决策）/ skipped 已跳过（用户操作，计为已决策，不触发返工） */
+export type DeliverableStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'skipped';
 
 /** 文案包结构（阶段2 输出） */
 export interface CopyPackage {
@@ -126,6 +126,8 @@ export interface ImageItem {
   note?: string;
   /** 生成失败原因（status='failed' 时写入，供前端展示失败提示） */
   error?: string;
+  /** 累计生图尝试次数（含自动重试与手动重试；上限 3 次） */
+  attempts?: number;
 }
 
 export interface Deliverable {
@@ -145,7 +147,8 @@ export interface DeliverableDecisionInput {
   kind: DeliverableKind;
   /** 逐张图片时必填（image id）；文案整体审批时省略 */
   imageId?: string;
-  decision: 'approve' | 'reject';
+  /** approve 采纳 / reject 打回（触发返工）/ skip 跳过（仅 image 逐张：计为已决策，不触发返工） */
+  decision: 'approve' | 'reject' | 'skip';
   note?: string;
 }
 
@@ -188,6 +191,11 @@ export interface AgentExecution {
   error: string | null;
   durationMs: number;
   createdAt: string;
+  /** 新增可选字段（delivery-ops B12）：LLM token 实测/估算值 */
+  inputTokens?: number;
+  outputTokens?: number;
+  /** true = 按字符估算；false/缺省 = 渠道真实 usage */
+  tokensEstimated?: boolean;
 }
 
 export interface StageStat {
@@ -271,5 +279,259 @@ export interface WorkflowDefinition {
   name: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+}
+
+// ===== 交付物版本历史与差异（delivery-ops B3） =====
+
+/** 交付物历史版本快照（deliverable_versions 行） */
+export interface DeliverableVersion {
+  id: number;
+  deliverableId: number;
+  taskId: number;
+  stage: string;
+  kind: DeliverableKind;
+  version: number;
+  /** JSON 序列化：CopyPackage 或 ImageItem[]（与 deliverables.content 同构） */
+  content: string;
+  status: DeliverableStatus;
+  createdAt: string;
+}
+
+/** 相邻版本差异（copy：卖点行增删/标题/大纲/关键词；image：图片条目增删） */
+export interface DeliverableDiff {
+  /** 上一版本号；无上一版可对比时为 null */
+  fromVersion: number | null;
+  /** 当前版本号 */
+  toVersion: number;
+  /** 无上一版可对比（只有 v1 时） */
+  hasPrevious: boolean;
+  /** 两个版本完全一致 */
+  identical: boolean;
+  // copy 交付物
+  addedPoints: string[];
+  removedPoints: string[];
+  keptPoints: string[];
+  titleChanged: boolean;
+  outlineChanged: boolean;
+  /** 标题变化前后值（copy 交付物始终携带） */
+  title?: { from: string; to: string };
+  /** 大纲变化前后值（copy 交付物始终携带） */
+  outline?: { from: string; to: string };
+  /** 新增/删除关键词（相对上一版） */
+  keywordChanges: { added: string[]; removed: string[] };
+  // image 交付物
+  addedImages: { id: string; name: string }[];
+  removedImages: { id: string; name: string }[];
+}
+
+// ===== 任务列表查询（delivery-ops B5） =====
+
+export type TaskSortKey = 'createdAt' | 'updatedAt' | 'progress';
+export type TaskSortOrder = 'asc' | 'desc';
+
+export interface TaskListQuery {
+  /** 平台筛选（与关系：多值或；重复参数 platform=a&platform=b 或逗号分隔） */
+  platform?: string | string[];
+  /** 负责人（agent id）筛选 */
+  owner?: string;
+  /** 创建时间起（ISO 或 YYYY-MM-DD，闭区间） */
+  from?: string;
+  /** 创建时间止（闭区间） */
+  to?: string;
+  /** 关键字（匹配标题与描述） */
+  q?: string;
+  sort?: TaskSortKey;
+  order?: TaskSortOrder;
+  /** 是否包含已归档任务（默认 false） */
+  includeArchived?: boolean;
+}
+
+/** 任务列表返回项：既有 Task + 展示元字段 + 关联资料失效计数（B6） */
+export interface TaskListItem extends Task {
+  ownerName: string;
+  stageLabel: string;
+  /** 关联资料总份数（板块 B 只读聚合；知识库不可用时降级为 0） */
+  kbRefsTotal: number;
+  /** 其中已失效份数 */
+  kbRefsInvalid: number;
+  /** 最近一次阶段/交付物变动时间（updatedAt 排序口径） */
+  updatedAt?: string;
+}
+
+// ===== 交付物全局搜索（delivery-ops B5） =====
+
+export interface DeliverableSearchHit {
+  taskId: number;
+  taskTitle: string;
+  stage: string;
+  kind: DeliverableKind;
+  version: number;
+  /** 命中字段：title / point / keyword / imageName */
+  field: string;
+  /** 命中片段（含上下文） */
+  snippet: string;
+}
+
+export interface DeliverableSearchResult {
+  query: string;
+  hits: DeliverableSearchHit[];
+  /** 是否因达到 limit 被截断 */
+  truncated: boolean;
+  /** 无命中/空关键字提示 */
+  hint?: string;
+}
+
+// ===== 任务级执行汇总（delivery-ops B12） =====
+
+export interface TaskCostStage {
+  stage: string;
+  stageLabel: string;
+  runs: number;
+  durationMs: number;
+  successRuns: number;
+  failedRuns: number;
+}
+
+export interface TaskCostAgent {
+  agentId: string;
+  agentName: string;
+  runs: number;
+  durationMs: number;
+}
+
+export interface TaskCostTokens {
+  input: number;
+  output: number;
+  total: number;
+  /** 存在任一估算记录时为 true（按字符数估算） */
+  tokensEstimated: boolean;
+}
+
+/** 估算费用（仅当生效单价表含实际使用模型时给出；否则整个 cost=null） */
+export interface TaskCostEstimate {
+  currency: string;
+  /** 估算金额（按生效单价表计算的近似值，非账单） */
+  amount: number;
+  estimated: true;
+  /** 来源：settings 设置覆盖 / local-default 本地默认单价表 */
+  pricingSource: 'settings' | 'local-default';
+  /** 单价表未覆盖、未计费的模型名（部分模型未计价） */
+  unpricedModels: string[];
+  /** 说明（如「部分模型未计价」） */
+  note?: string;
+}
+
+export interface TaskCostSummary {
+  taskId: number;
+  totalDurationMs: number;
+  runs: number;
+  successRuns: number;
+  failedRuns: number;
+  byStage: TaskCostStage[];
+  byAgent: TaskCostAgent[];
+  models: string[];
+  tokens: TaskCostTokens;
+  /** 无可用单价表/均未命中时 null（前端只展示耗时与 token，不给金额） */
+  cost: TaskCostEstimate | null;
+  firstStartedAt: string | null;
+  lastFinishedAt: string | null;
+}
+
+// ===== 渠道健康检查（delivery-ops B8） =====
+
+export interface ChannelTestError {
+  code:
+    | 'not_configured'
+    | 'auth_failed'
+    | 'model_not_found'
+    | 'connect_failed'
+    | 'timeout'
+    | 'upstream_error'
+    | 'unknown';
+  message: string;
+}
+
+export interface ChannelTestResult {
+  ok: boolean;
+  /** 实测毫秒；未发起请求时为 null */
+  latencyMs: number | null;
+  /** 实际请求的模型名；未发起请求（如 not_configured）时为 null */
+  model: string | null;
+  /** 渠道主机名（不含完整 URL 与凭据）；未发起请求时为 null */
+  baseUrlHost: string | null;
+  error: ChannelTestError | null;
+  /** 该 Agent 近期失败执行数（ok=false 归属判断辅助） */
+  recentFailedRuns?: number;
+}
+
+// ===== 产出溯源（T1-B1 · deliverable-provenance） =====
+
+/** 事实项类型：数值+单位 / 认证编号 / 材质成分词 / 文本型事实 */
+export type FactType = 'number-unit' | 'certification' | 'material' | 'textual';
+/** 事实项所在的文案文本字段 */
+export type FactField = 'title' | 'points' | 'outline' | 'keywords';
+
+export interface FactItem {
+  id: string;
+  type: FactType;
+  /** 事实项原文 */
+  text: string;
+  /** 所在文本字段 */
+  field: FactField;
+  /** 字段内下标（points/keywords 为数组下标；title/outline 为 -1） */
+  index: number;
+  /** 是否已溯源（匹配到任一可用关联资料片段） */
+  traced: boolean;
+  /** 命中的资料标题（未溯源为空数组） */
+  sources: string[];
+  /** 文本型事实的匹配覆盖率 0-1；非文本型为 null */
+  coverage: number | null;
+  /** 归一化后的文本（调试/展示） */
+  normalized: string;
+}
+
+/** 参与匹配的资料版本信息（供「基于 N 份资料、生成于 …」展示与人工复核） */
+export interface ProvenanceRefMeta {
+  title: string;
+  mtime: string;
+  hash: string;
+}
+
+export interface ProvenanceResult {
+  /** 溯源率取整百分数（无事实项时为 null） */
+  percent: number | null;
+  /** 可溯源事实项数（分子） */
+  tracedCount: number;
+  /** 未溯源事实项数 */
+  untracedCount: number;
+  /** 全部事实项数（分母） */
+  totalCount: number;
+  /** 无实质事实项（totalCount===0 时为 true，界面显示「无实质事实项」而非百分数） */
+  noFacts: boolean;
+  /** 任务是否关联了知识库资料（task_kb_refs 非空） */
+  hasRefs: boolean;
+  /** 参与匹配的可用资料片段数（state='missing' 不计入） */
+  refCount: number;
+  facts: FactItem[];
+  refsMeta: ProvenanceRefMeta[];
+  /** 生成时间（ISO） */
+  generatedAt: string;
+}
+
+// ===== 返工上下文（T1-B2 · rework-context） =====
+
+export interface ReworkRecord {
+  /** 打回/回退所属阶段（REJECTED 的 stage；REVIEW_ROLLBACK 的 targetStage） */
+  stage: string;
+  /** 意见原文（事件 payload.note；缺失时为空串） */
+  note: string;
+  /** 事件时间（ISO） */
+  at: string;
+}
+
+export interface ReworkInfo {
+  /** 任务累计返工次数（REJECTED + REVIEW_ROLLBACK） */
+  count: number;
+  records: ReworkRecord[];
 }
 

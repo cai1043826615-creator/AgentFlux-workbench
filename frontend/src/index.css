@@ -547,3 +547,45 @@ body {
     transition: none;
   }
 }
+
+/* ===== 每日热点（hot-intel 5.x：药丸 / 网格 / 序号 / 信息条） ===== */
+.hot-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 4px;
+  padding: 6px 14px;
+  background: var(--color-surface);
+}
+.hot-pill b {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.hot-pill span {
+  font-size: 12px;
+  color: var(--color-ink-soft);
+}
+.hot-seq {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+/* 响应式多栏网格（5.6）：≥1440 三栏 / 1024–1439 两栏 / <1024 单栏 */
+.hot-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .hot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1440px) {
+  .hot-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

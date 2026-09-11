@@ -8,7 +8,7 @@
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node src/engine/__tests__/executor.smoke.ts && node src/knowledge/__tests__/knowledge.test.ts && node src/knowledge/__tests__/workflow-context.test.ts && node src/knowledge/__tests__/api.smoke.ts",
+    "test": "node src/engine/__tests__/executor.smoke.ts && node src/knowledge/__tests__/knowledge.test.ts && node src/knowledge/__tests__/workflow-context.test.ts && node src/knowledge/__tests__/hot-boundary.test.ts && node src/knowledge/__tests__/hot-intel-core.test.ts && node src/knowledge/__tests__/hot-noise.test.ts && node src/knowledge/__tests__/hot-refs.test.ts && node src/knowledge/__tests__/health.test.ts && node src/knowledge/__tests__/api.smoke.ts && node src/db/__tests__/migrations.test.ts && node src/delivery/__tests__/versions-diff.test.ts && node src/delivery/__tests__/package.test.ts && node src/agents/__tests__/cost.test.ts && node src/agents/__tests__/llm-usage.test.ts && node src/agents/__tests__/channel-not-configured.test.ts && node src/routes/__tests__/delivery-api.test.ts && node src/engine/__tests__/rework.test.ts && node src/engine/__tests__/rework-integration.test.ts && node src/engine/__tests__/image-retry.test.ts && node src/delivery/__tests__/provenance.test.ts && node src/delivery/__tests__/provenance-integration.test.ts",
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {

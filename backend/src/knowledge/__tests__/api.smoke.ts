@@ -199,10 +199,20 @@ describe('7.1 端到端：Vault → 索引 → 浏览/搜索 → 星图 → 热�
     const res = await app.inject({ method: 'GET', url: '/api/hot' });
     assert.equal(res.statusCode, 200);
     const { panel } = res.json() as {
-      panel: { status: string; counts: { upstream: number }; tiers: { mustRead: unknown[]; browse: unknown[]; other: unknown[] }; error: unknown; sourceUrl: string };
+      panel: {
+        status: string;
+        counts: { upstream: number };
+        tiers: { mustRead: unknown[]; browse: unknown[]; other: unknown[] };
+        error: unknown;
+        sourceUrl: string;
+        sourceName: string;
+        sources: { id: string; label: string; status: string }[];
+      };
     };
     assert.ok(['live', 'stale', 'unavailable'].includes(panel.status), `未知状态：${panel.status}`);
-    assert.ok(panel.sourceUrl.includes('http'), '应标注数据源');
+    // hot-intel B10：单源 sourceUrl 已由 sources[] 逐源状态取代（多源聚合无单一源 URL）
+    assert.ok(panel.sourceName.length > 0, '应标注数据源摘要');
+    assert.ok(Array.isArray(panel.sources) && panel.sources.length > 0, '应含逐源状态（3.8）');
     if (panel.status === 'live') {
       const total = panel.tiers.mustRead.length + panel.tiers.browse.length + panel.tiers.other.length;
       assert.ok(total > 0, 'live 状态应有分层内容');
@@ -281,6 +291,45 @@ describe('7.1 端到端：Vault → 索引 → 浏览/搜索 → 星图 → 热�
 
     const readBack = (await app.inject({ method: 'GET', url: '/api/hot/attention' })).json() as { config: { domains: { id: string }[] } };
     assert.equal(readBack.config.domains[0].id, 'custom', '配置应持久化到本地文件');
+  });
+
+  test('步骤10 任务热点背景路由（2.4）：GET 空 / PUT 往返 / 去重 / 超限 400 / kb 表不受影响', async () => {
+    const create = await app.inject({ method: 'POST', url: '/api/tasks', payload: { title: '热点背景路由任务', description: '', platforms: ['天猫'] } });
+    assert.equal(create.statusCode, 200, create.body);
+    const { task } = create.json() as { task: { id: number } };
+
+    // ① GET 空任务 → {refs: []}
+    const empty = (await app.inject({ method: 'GET', url: `/api/tasks/${task.id}/hot-refs` })).json() as { refs: unknown[] };
+    assert.deepEqual(empty.refs, []);
+
+    // ② PUT 2 条 → GET 返回 2 条且字段完整
+    const two = [
+      { hotId: 'pai-a1b2c3d4e5f6g7h8i9j0k1l2m', title: '热点一：某平台新规', sourceId: 'pai-news', sourceName: '电商派快讯', evidence: 'traceable', url: 'https://www.pai.com.cn/news/a1b2c3d4e5f6g7h8i9j0k1l2m', latestAt: '2026-09-11T09:00:00.000Z' },
+      { hotId: '100ec-6660001', title: '热点二：某品类销量增长', sourceId: '100ec-24h', sourceName: '网经社 24h 播报', evidence: 'single-source', latestAt: '2026-09-11T16:00:00.000Z' },
+    ];
+    const put2 = await app.inject({ method: 'PUT', url: `/api/tasks/${task.id}/hot-refs`, payload: { refs: two } });
+    assert.equal(put2.statusCode, 200, put2.body);
+    const got = (await app.inject({ method: 'GET', url: `/api/tasks/${task.id}/hot-refs` })).json() as { refs: { hotId: string; title: string; sourceId: string; sourceName: string; evidence: string; url: string | null; latestAt: string | null }[] };
+    assert.equal(got.refs.length, 2);
+    assert.equal(got.refs[0].hotId, 'pai-a1b2c3d4e5f6g7h8i9j0k1l2m');
+    assert.equal(got.refs[0].evidence, 'traceable');
+    assert.equal(got.refs[0].url, 'https://www.pai.com.cn/news/a1b2c3d4e5f6g7h8i9j0k1l2m');
+
+    // ③ 重复 PUT 同一条 → 仍 1 条（hotId 去重）
+    const dup = await app.inject({ method: 'PUT', url: `/api/tasks/${task.id}/hot-refs`, payload: { refs: [two[0]] } });
+    assert.equal(dup.statusCode, 200, dup.body);
+    const afterDup = (await app.inject({ method: 'GET', url: `/api/tasks/${task.id}/hot-refs` })).json() as { refs: unknown[] };
+    assert.equal(afterDup.refs.length, 1);
+
+    // ④ 超额 → 400 且错误信息可读
+    const seven = Array.from({ length: 7 }, (_, i) => ({ hotId: `h${i}`, title: `热点${i}` }));
+    const over = await app.inject({ method: 'PUT', url: `/api/tasks/${task.id}/hot-refs`, payload: { refs: seven } });
+    assert.equal(over.statusCode, 400);
+    assert.match((over.json() as { error: string }).error, /最多挂 6 条/);
+
+    // ⑤ 上述请求后 task_kb_refs 仍为空（独立表，互不影响）
+    const kbRefs = (await app.inject({ method: 'GET', url: `/api/tasks/${task.id}/kb-refs` })).json() as { refs: unknown[] };
+    assert.deepEqual(kbRefs.refs, []);
   });
 });
 

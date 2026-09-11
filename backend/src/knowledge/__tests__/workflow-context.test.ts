@@ -84,7 +84,8 @@ describe('5.2 电商化关注域配置（坑2）', () => {
   });
 
   test('关注域关键词匹配（不区分大小写）', () => {
-    const cfg = normalizeAttention({ domains: [{ id: 'p', label: '平台', keywords: ['天猫', 'KOL'] }] });
+    // minKeywordHits:1 等价旧逻辑（hot-intel D4 前为单词命中；此处测试大小写与命中语义本身）
+    const cfg = normalizeAttention({ domains: [{ id: 'p', label: '平台', keywords: ['天猫', 'KOL'], minKeywordHits: 1 }] });
     assert.deepEqual(matchDomains('天猫发布新规', cfg).map((d) => d.id), ['p']);
     assert.deepEqual(matchDomains('头部 kol 带货', cfg).map((d) => d.id), ['p'], '大小写不敏感');
     assert.deepEqual(matchDomains('无关内容', cfg), []);
@@ -108,7 +109,15 @@ describe('5.2 电商化关注域配置（坑2）', () => {
   });
 
   test('各层按限制数截断', () => {
-    const cfg = normalizeAttention({ ...DEFAULT_ATTENTION, mustReadLimit: 1, browseLimit: 1, otherLimit: 1, minimumSources: 1 });
+    // minKeywordHits:1 等价旧逻辑，聚焦「每层按限制数截断」本身（hot-intel D4 的多词命中在 4.x 用例单独覆盖）
+    const cfg = normalizeAttention({
+      ...DEFAULT_ATTENTION,
+      mustReadLimit: 1,
+      browseLimit: 1,
+      otherLimit: 1,
+      minimumSources: 1,
+      domains: DEFAULT_ATTENTION.domains.map((d) => ({ ...d, minKeywordHits: 1 })),
+    });
     const items = Array.from({ length: 5 }, (_, i) => ({
       id: `p${i}`,
       title: `天猫大促第${i}期`,
@@ -147,7 +156,14 @@ describe('5.1 热点拉取、缓存与降级', () => {
     } else if (url.includes('/api/v1/stories/s2')) {
       body = { story: { title: '某品牌发布新款耳机', digest: '定价 599 元。' } };
     } else if (url.includes('/api/v1/items')) {
-      body = { items: [{ id: 'sel1', title: '某地天气预报', summary: '今日多云', source: { name: '天气网' }, links: { original: 'https://x/3' }, publishedAt: '2026-09-10T01:00:00Z' }] };
+      body = {
+        items: [
+          { id: 'sel1', title: '某地天气预报', summary: '今日多云', source: { name: '天气网' }, links: { original: 'https://x/3' }, publishedAt: '2026-09-10T01:00:00Z' },
+          // story 条目内嵌（aihot 适配器从 selected 建摘要索引，不再单独请求 stories/:id）
+          { id: 's1', title: '天猫双11新规', digest: '预售期延长至 10 天。', latestAt: '2026-09-10T01:00:00Z', url: 'https://aihot.virxact.com/story/s1', links: {} },
+          { id: 's2', title: '某品牌发布新款耳机', digest: '定价 599 元。', url: 'https://aihot.virxact.com/story/s2', links: {} },
+        ],
+      };
     } else {
       body = {};
     }
@@ -162,11 +178,14 @@ describe('5.1 热点拉取、缓存与降级', () => {
     assert.equal(panel.status, 'live');
     assert.ok(panel.fetchedAt && panel.expiresAt, '应标注数据时间与过期时间');
     assert.equal(panel.counts.upstream, 3, '应合并多源热点与精选条目');
-    assert.ok(panel.tiers.mustRead.some((i) => i.id === 'h1'), '天猫双11应进必看');
-    assert.ok(panel.tiers.browse.some((i) => i.id === 'h2'), '单信源竞品应进浏览');
+    // hot-intel D4 降噪核心：h1（aihot 行业聚合源）命中关注域但源分层上限为浏览 → 不再进必看
+    assert.ok(panel.tiers.browse.some((i) => i.id === 'h1'), '天猫双11 来自 AI 行业聚合源 → 进浏览（tierCap）');
+    assert.ok(!panel.tiers.mustRead.some((i) => i.id === 'h1'), 'AI 行业聚合源条目不得进必看');
+    assert.ok(panel.tiers.browse.some((i) => i.id === 'h2'), '命中关注域但信源不足（或源上限）应进浏览');
     assert.ok(panel.tiers.other.some((i) => i.id === 'sel1'), '未命中关注域应进其他');
-    const must = panel.tiers.mustRead.find((i) => i.id === 'h1')!;
-    assert.equal(must.source, '电商报');
+    const must = panel.tiers.browse.find((i) => i.id === 'h1')!;
+    assert.equal(must.sourceId, 'aihot', '归一化应透出源标识');
+    assert.ok(must.source.length > 0, '来源名称已归一化');
     assert.ok(must.summary?.includes('预售期'), '应带上分源摘要');
     assert.equal(must.url, 'https://x/1');
   });
@@ -191,15 +210,16 @@ describe('5.1 热点拉取、缓存与降级', () => {
     const panel = await loadHotPanel(true);
     assert.equal(panel.status, 'stale', '有缓存时应降级为 stale');
     assert.ok(panel.error && panel.error.message.includes('网络不可达'));
-    assert.ok(panel.tiers.mustRead.length > 0, '降级仍应展示缓存内容');
+    assert.ok(panel.counts.upstream > 0, '降级仍应展示缓存内容');
   });
 
   test('缓存过期后重新拉取', async () => {
     globalThis.fetch = okFetch;
     calls = [];
-    run(`UPDATE ${KT.hotCache} SET expires_at = ? WHERE cache_key = 'daily-hot'`, [new Date(Date.now() - 1000).toISOString()]);
+    // hot-intel D8：缓存 key 带版本指纹，直接用 clearHotCache 使缓存失效（等价「缓存过期」）
+    clearHotCache();
     await loadHotPanel();
-    assert.ok(calls.length > 0, '缓存过期后应重新拉取');
+    assert.ok(calls.length > 0, '缓存失效后应重新拉取');
   });
 
   test('无缓存且源不可用 → unavailable（不抛错，板块 B 其余功能不受影响）', async () => {
