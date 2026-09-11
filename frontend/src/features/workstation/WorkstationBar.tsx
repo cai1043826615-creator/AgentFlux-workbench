@@ -61,7 +61,7 @@ export function WorkstationBar() {
                 title="Agent 设置"
                 onClick={() => setSettingsAgent(a)}
               >
-                设置
+                配置
               </button>
             </div>
           ))}
