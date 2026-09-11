@@ -334,7 +334,8 @@ function NewTaskModal() {
 function Shell() {
   const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask } = useWorkbench();
   const [showLeft, setShowLeft] = useState(true);
-  const [showRight, setShowRight] = useState(true);
+  // 右栏聊天面板默认收起：首屏把横向空间让给主视图（可随时展开）
+  const [showRight, setShowRight] = useState(false);
   const [leftWidth, setLeftWidth] = useState(220);
   const [rightWidth, setRightWidth] = useState(280);
   const [settingsSignal, setSettingsSignal] = useState(0);
