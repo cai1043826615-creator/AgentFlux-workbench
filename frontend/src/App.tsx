@@ -51,6 +51,7 @@ function NotifyControl() {
         <input
           type="checkbox"
           className="h-3.5 w-3.5 accent-[var(--color-signal)]"
+          aria-label="浏览器通知"
           checked={enabled}
           onChange={(e) => {
             const v = e.target.checked;
@@ -58,7 +59,6 @@ function NotifyControl() {
             setEnabled(v);
           }}
         />
-        通知
       </label>
       {perm === 'default' ? (
         <Btn size="sm" variant="ghost" onClick={() => void request()}>
@@ -77,10 +77,9 @@ function NotifyControl() {
   );
 }
 
-/** 顶栏（对齐线框 topbar：logo + 任务信号点 + 在岗 + 连接 + 通知开关） */
+/** 顶栏（Quiet Signal 精简版：logo + 产品名 + 任务 + 通知开关 + 连接状态点） */
 function TopBar() {
-  const { approvalQueue, connected, agents, backToBoard } = useWorkbench();
-  const busyCount = agents.filter((a) => a.onlineStatus === 'busy').length;
+  const { approvalQueue, connected, backToBoard } = useWorkbench();
   return (
     <header className="flex items-center gap-3 px-4 h-[52px] border-b shrink-0" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
       <img src="/logo.png" alt="logo" className="h-7 w-7 object-contain" style={{ imageRendering: 'auto' }} />
@@ -102,13 +101,8 @@ function TopBar() {
           </span>
         ) : null}
       </button>
-      <span className="qs-meta hidden sm:inline" style={{ color: 'var(--color-ink-soft)' }}>
-        在岗 <span className="tabular font-semibold" style={{ color: 'var(--color-ink)' }}>{agents.length}</span>
-        <span className="mx-1.5" style={{ color: 'var(--color-line-strong)' }}>|</span>
-        <span className="qs-dot signal inline-block align-middle mr-1" title={busyCount ? '有 Agent 忙碌中' : '全部待命'} />
-        忙碌 <span className="tabular font-semibold" style={{ color: 'var(--color-ink)' }}>{busyCount}</span>
-      </span>
-      <Badge tone={connected ? 'ok' : 'no'}>{connected ? '实时连接' : '离线'}</Badge>
+      {/* 连接状态：仅保留状态点（色 + title 双通道，不依赖单一颜色） */}
+      <span className={`qs-dot ${connected ? 'ok' : 'no'}`} title={connected ? '实时连接' : '离线'} />
     </header>
   );
 }
