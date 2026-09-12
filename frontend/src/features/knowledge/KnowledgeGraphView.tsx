@@ -593,10 +593,6 @@ export function KnowledgeGraphView() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-[20px] font-bold">知识星图</h2>
-          <p className="qs-meta mt-1">悬停看关系，点击聚焦邻居，双击进入文档</p>
-          <p className="qs-meta mt-1" style={{ color: 'var(--color-ink-faint)' }}>
-            节点 {nodeCount} 个 · 关系边 {graph?.edges.length ?? 0} 条
-          </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <input
@@ -780,10 +776,13 @@ export function KnowledgeGraphView() {
             {/* 图例（7c：操作说明移入画布角落） */}
             {hasData && !showFilterEmpty ? (
               <div
-                className="pointer-events-none absolute left-3 top-3 z-10 rounded-[3px] border px-2 py-1 text-[11px]"
+                className="pointer-events-none absolute left-3 top-3 z-10 flex flex-col gap-0.5 rounded-[3px] border px-2 py-1 text-[11px]"
                 style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-surface)' }}
               >
                 <span className="qs-meta">圆形=文档 · 菱形=标签 · 虚线=标签归属</span>
+                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                  拖拽平移 · 滚轮缩放 · 双击打开 · 已显示 {visibleCount}/{nodeCount}
+                </span>
               </div>
             ) : null}
           </div>

@@ -98,8 +98,9 @@ function NotifyControl() {
 /** 顶栏（Quiet Signal 精简版：logo + 产品名 + 任务 + 通知开关 + 连接状态点） */
 function TopBar() {
   const { approvalQueue, connected, reconnect, backToBoard, tasks } = useWorkbench();
-  // 待确认角标从任务派生（column === 'awaiting'），与看板「待确认」列数字一致（不再用 WS 推送的 approvalQueue）
-  const pendingCount = tasks.filter((t) => t.column === 'awaiting').length;
+  // 待确认角标从任务派生（column === 'awaiting' 且未归档，与 applyTaskFilters 口径一致），
+  // 确保与看板「待确认」列数字一致（不再用 WS 推送的 approvalQueue；归档任务不参与主视图计数）
+  const pendingCount = tasks.filter((t) => t.column === 'awaiting' && !t.archived).length;
   return (
     <header className="flex items-center gap-3 px-4 h-[52px] border-b shrink-0" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
       <img src="/logo.png" alt="logo" className="h-7 w-7 object-contain" style={{ imageRendering: 'auto' }} />
@@ -167,6 +168,8 @@ function NewTaskModal() {
   const [refDataUrl, setRefDataUrl] = useState<string | null>(null);
   const [kbRefs, setKbRefs] = useState<TaskKbRefInput[]>([]);
   const [busy, setBusy] = useState(false);
+  // §6.3：校验提示仅在用户交互后出现，避免"打开即满屏红字"
+  const [touched, setTouched] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 打开时重置表单（无任何预填——热点不得预填新建任务表单）
@@ -178,6 +181,7 @@ function NewTaskModal() {
     setPlatforms([]);
     setRefDataUrl(null);
     setKbRefs([]);
+    setTouched(false);
     if (fileRef.current) fileRef.current.value = '';
   }, [open]);
 
@@ -190,15 +194,19 @@ function NewTaskModal() {
     setPlatforms([]);
     setRefDataUrl(null);
     setKbRefs([]);
+    setTouched(false);
     if (fileRef.current) fileRef.current.value = '';
     closeNewTask();
   };
 
-  const togglePlatform = (p: string) =>
+  const togglePlatform = (p: string) => {
+    setTouched(true);
     setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+  };
 
   const pickFile = (f: File | undefined) => {
     if (!f) return;
+    setTouched(true);
     const reader = new FileReader();
     reader.onload = () => setRefDataUrl(String(reader.result));
     reader.readAsDataURL(f);
@@ -230,10 +238,10 @@ function NewTaskModal() {
       {step === 'form' ? (
         <>
           <Field label="任务标题">
-            <input className="qs-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="如：无线磁吸充电宝新品上架全套物料" autoFocus />
+            <input className="qs-input" value={title} onChange={(e) => { setTouched(true); setTitle(e.target.value); }} placeholder="如：无线磁吸充电宝新品上架全套物料" autoFocus />
           </Field>
           <Field label="产品资料 / 任务描述">
-            <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="品名/类目/卖点素材…" />
+            <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => { setTouched(true); setDesc(e.target.value); }} placeholder="品名/类目/卖点素材…" />
           </Field>
           <div className="mb-3">
             <span className="qs-label">目标平台（必填，可多选）</span>
@@ -250,11 +258,6 @@ function NewTaskModal() {
                 </label>
               ))}
             </div>
-            {platforms.length === 0 ? (
-              <span className="qs-meta mt-1 block" style={{ color: 'var(--color-danger)' }}>
-                ● 请至少选择一个目标平台
-              </span>
-            ) : null}
           </div>
           <Field label="参考图（必填，后续全部产出基于此图）">
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
@@ -285,15 +288,13 @@ function NewTaskModal() {
               </div>
             </div>
           </Field>
-          {canNext ? (
-            <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
-              提交后将展示任务内容摘要，<b>确认后 AI 才开工</b>
-            </p>
-          ) : (
-            <p className="qs-meta mt-2" style={{ color: 'var(--color-danger)' }}>
-              ● {!title.trim() ? '请先填写任务标题' : platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步
-            </p>
-          )}
+          <p className="qs-meta mt-2" style={{ color: touched && !canNext ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
+            {touched && !canNext ? (
+              `● ${!title.trim() ? '请先填写任务标题' : platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步`
+            ) : (
+              <>提交后将展示任务内容摘要，<b>确认后 AI 才开工</b></>
+            )}
+          </p>
           <ModalFooter>
             <Btn onClick={reset}>取消</Btn>
             <Btn variant="primary" onClick={() => setStep('kb')} disabled={!canNext}>

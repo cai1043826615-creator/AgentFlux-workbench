@@ -316,6 +316,10 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [config, setConfig] = useState<AttentionConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 展开态：关注域 / 数据源（默认折叠，收进「展开 / 管理 ▸」）
+  // ⚠ 必须在任何 early return 之前声明：否则 open 由 false→true 时 Hook 数量变化，React 会崩溃
+  const [expandedDomains, setExpandedDomains] = useState<Record<string, boolean>>({});
+  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!open) return;
@@ -335,10 +339,6 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setConfig((prev) =>
       prev ? { ...prev, sources: (prev.sources ?? []).map((s) => (s.id === id ? { ...s, ...next } : s)) } : prev,
     );
-
-  /** 展开态：关注域 / 数据源（默认折叠，收进「展开 / 管理 ▸」） */
-  const [expandedDomains, setExpandedDomains] = useState<Record<string, boolean>>({});
-  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
 
   const save = async () => {
     if (!config) return;
