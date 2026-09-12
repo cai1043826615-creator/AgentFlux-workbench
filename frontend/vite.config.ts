@@ -8,10 +8,10 @@ export default defineConfig({
     port: 4310,
     host: '127.0.0.1',
     proxy: {
-      '/api': 'http://127.0.0.1:4312',
-      '/ws': { target: 'ws://127.0.0.1:4312', ws: true },
-      '/health': 'http://127.0.0.1:4312',
-      '/uploads': 'http://127.0.0.1:4312',
+      '/api': 'http://127.0.0.1:4311',
+      '/ws': { target: 'ws://127.0.0.1:4311', ws: true },
+      '/health': 'http://127.0.0.1:4311',
+      '/uploads': 'http://127.0.0.1:4311',
     },
     // 忽略编辑器/工具产生的临时文件与静态资源目录，避免 watch EBUSY 崩溃
     watch: {
