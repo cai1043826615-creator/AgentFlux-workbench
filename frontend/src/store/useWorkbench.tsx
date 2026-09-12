@@ -53,6 +53,10 @@ interface WorkbenchState {
   loading: boolean;
   /** 知识库阅读定位（星图/任务详情跳转原文用） */
   kbDocPath: string | null;
+  /** P2·F1：文档预览弹窗（叠加层，不产生路由变化；与 kbDocPath 并列，不替换） */
+  docPreviewPath: string | null;
+  openDocPreview: (path: string) => void;
+  closeDocPreview: () => void;
   /** 星图选中节点 id */
   kbNodeId: string | null;
   /** 新建任务弹窗（含热点预填） */
@@ -400,6 +404,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     [setView],
   );
 
+  // P2·F1：文档预览弹窗（叠加层，不产生路由变化）
+  const [docPreviewPath, setDocPreviewPath] = useState<string | null>(null);
+  const openDocPreview = useCallback((path: string) => {
+    setDocPreviewPath(path);
+  }, []);
+  const closeDocPreview = useCallback(() => {
+    setDocPreviewPath(null);
+  }, []);
+
   const openNewTask = useCallback(() => {
     setNewTask({ open: true });
   }, []);
@@ -443,6 +456,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       settings,
       loading,
       kbDocPath,
+      docPreviewPath,
+      openDocPreview,
+      closeDocPreview,
       kbNodeId,
       newTask,
       boardMode,
@@ -472,7 +488,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       pushToast,
       dismissToast,
     }),
-    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
+    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -132,16 +132,22 @@ function avatarUrl(id: string | undefined, name: string): string | null {
   return null;
 }
 
-export function Avatar({ name, size = 28, id }: { name: string; size?: number; id?: string }) {
+/**
+ * 头像。
+ * `title`：悬停提示文案，默认取 name；需要「名字（岗位）」这类更完整提示时由调用方传入。
+ * 注意：提示必须设在 Avatar 自身的元素上——在外层再包一层设 title 不会生效（浏览器只取最近的那个）。
+ */
+export function Avatar({ name, size = 28, id, title }: { name: string; size?: number; id?: string; title?: string }) {
   const url = avatarUrl(id, name);
   const [imgFailed, setImgFailed] = useState(false);
   useEffect(() => setImgFailed(false), [url]);
   const idx = [...name].reduce((a, c) => a + c.charCodeAt(0), 0);
   const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+  const tip = title ?? name;
   const baseCls = 'flex items-center justify-center text-white shrink-0 overflow-hidden';
   if (url && !imgFailed) {
     return (
-      <div className={baseCls} style={{ width: size, height: size, borderRadius: '50%' }} title={name}>
+      <div className={baseCls} style={{ width: size, height: size, borderRadius: '50%' }} title={tip}>
         <img
           src={url}
           alt={name}
@@ -158,7 +164,7 @@ export function Avatar({ name, size = 28, id }: { name: string; size?: number; i
     <div
       className={baseCls}
       style={{ width: size, height: size, borderRadius: '50%', background: color, fontSize: size * 0.42, fontFamily: 'var(--font-display)' }}
-      title={name}
+      title={tip}
     >
       {name.slice(0, 1)}
     </div>

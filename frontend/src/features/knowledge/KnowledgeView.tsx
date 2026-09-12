@@ -1,110 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeDirInfo, KnowledgeDoc, KnowledgeDocSummary, KnowledgeHealth, KnowledgeSearchHit, KnowledgeStats, KnowledgeStatus, KnowledgeTagInfo } from '@workbench/shared';
-import { Badge, Btn, Empty, Field, Glyph, Spinner } from '../../components/ui.tsx';
+import { Badge, Btn, Empty, Glyph, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
+import { dirDisplayName, dirDisplayPath } from './dirDisplayName.ts';
 import { KnowledgeOverviewBar } from './KnowledgeOverviewBar.tsx';
+import { VaultConfigModal } from './VaultConfigModal.tsx';
+import { KnowledgeSidebar } from './KnowledgeSidebar.tsx';
 import { Markdown } from './Markdown.tsx';
 
-/** 逗号/换行分隔的目录配置 ↔ 数组 */
-function parseDirs(text: string): string[] {
-  return text
-    .split(/[,，\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/**
- * Vault 连接配置（设置面板）：Vault 根路径 + 目录白名单 / 排除目录（坑5：只读且不全盘托出）。
- * 保存后由后端触发后台重建索引。
- */
-export function VaultConfigModal({ open, status, onClose, onSaved }: { open: boolean; status: KnowledgeStatus | null; onClose: () => void; onSaved: () => void }) {
-  const [root, setRoot] = useState('');
-  const [include, setInclude] = useState('');
-  const [exclude, setExclude] = useState('');
-  const [presetProducts, setPresetProducts] = useState('');
-  const [presetBrand, setPresetBrand] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setRoot(status?.root ?? '');
-    setInclude((status?.range.includeDirs ?? []).join(', '));
-    setExclude((status?.range.excludeDirs ?? []).filter((d) => !['.git', '.obsidian', '.trash', 'node_modules', '.pnpm-store', 'dist', '.DS_Store'].includes(d)).join(', '));
-    setPresetProducts(status?.presets?.products ?? '10_raw/products');
-    setPresetBrand(status?.presets?.brand ?? 'wiki/brand');
-    setError(null);
-  }, [open, status]);
-
-  if (!open) return null;
-
-  const save = async (nextRoot: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.kbSaveConfig({ root: nextRoot, includeDirs: parseDirs(include), excludeDirs: parseDirs(exclude), presetDirs: { products: presetProducts.trim(), brand: presetBrand.trim() } });
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 pt-[10vh]" onClick={onClose}>
-      <div className="qs-card w-full p-5" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
-        <div className="font-display mb-1 text-[15px] font-semibold">连接 Obsidian Vault</div>
-        <p className="qs-meta mb-3" style={{ color: 'var(--color-ink-faint)' }}>
-          只读接入本地 Markdown 目录，工作台不会修改、删除或移动 Vault 内任何文件。
-        </p>
-        <Field label="Vault 根目录（绝对路径）">
-          <input className="qs-input" value={root} onChange={(e) => setRoot(e.target.value)} placeholder="如：D:\\MyVault 或 /Users/me/vault" />
-        </Field>
-        <Field label="索引目录白名单（可选，留空 = 全库；逗号分隔）">
-          <input className="qs-input" value={include} onChange={(e) => setInclude(e.target.value)} placeholder="如：10_raw/products, wiki/brand" />
-        </Field>
-        <Field label="额外排除目录（可选，逗号分隔）">
-          <input className="qs-input" value={exclude} onChange={(e) => setExclude(e.target.value)} placeholder="如：私人日记, 30_self_media" />
-        </Field>
-        <div className="my-2 border-t" style={{ borderColor: 'var(--color-line)' }} />
-        <p className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
-          业务预设依据（目录，供星图「只看产品资料 / 只看品牌规范」使用；留空回退内置默认）
-        </p>
-        <Field label="预设：产品资料目录">
-          <input className="qs-input" value={presetProducts} onChange={(e) => setPresetProducts(e.target.value)} placeholder="如：10_raw/products" />
-        </Field>
-        <Field label="预设：品牌规范目录">
-          <input className="qs-input" value={presetBrand} onChange={(e) => setPresetBrand(e.target.value)} placeholder="如：wiki/brand" />
-        </Field>
-        <p className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-          默认排除：.git / .obsidian / .trash / node_modules / dist。也可用环境变量 WORKBENCH_VAULT_ROOT 兜底配置路径。
-        </p>
-        {error ? (
-          <p className="qs-meta mt-2" style={{ color: 'var(--color-danger)' }}>
-            ● {error}
-          </p>
-        ) : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <Btn size="sm" onClick={onClose}>
-            取消
-          </Btn>
-          {status?.root ? (
-            <Btn size="sm" variant="danger" disabled={busy} onClick={() => void save('')}>
-              断开连接
-            </Btn>
-          ) : null}
-          <Btn size="sm" variant="primary" loading={busy} onClick={() => void save(root)}>
-            保存并索引
-          </Btn>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** 目录树（由扁平目录列表构建，支持折叠） */
 function DirTree({ dirs, active, onPick }: { dirs: KnowledgeDirInfo[]; active: string | null; onPick: (dir: string | null) => void }) {
@@ -137,9 +42,9 @@ function DirTree({ dirs, active, onPick }: { dirs: KnowledgeDirInfo[]; active: s
               className={`min-w-0 flex-1 cursor-pointer truncate rounded-[4px] px-1.5 py-1 text-left text-[12px] transition-colors ${isActive ? 'font-semibold' : ''}`}
               style={{ background: isActive ? 'var(--color-signal-soft)' : 'transparent', color: isActive ? 'var(--color-signal)' : 'var(--color-ink-soft)' }}
               onClick={() => onPick(node.dir)}
-              title={node.dir}
+              title={`${dirDisplayPath(node.dir)}（真实路径：${node.dir}）`}
             >
-              {node.dir.split('/').pop()}
+              {dirDisplayName(node.dir)}
             </button>
             <span className="qs-meta tabular shrink-0">{node.count}</span>
           </div>
@@ -166,7 +71,7 @@ function DirTree({ dirs, active, onPick }: { dirs: KnowledgeDirInfo[]; active: s
 
 /** 知识库视图：总览统计 + 目录/标签浏览 + 全文搜索 + Markdown 原文阅读 */
 export function KnowledgeView() {
-  const { kbDocPath, openKbDoc } = useWorkbench();
+  const { kbDocPath, openKbDoc, setView } = useWorkbench();
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [health, setHealth] = useState<KnowledgeHealth | null>(null);
@@ -183,6 +88,10 @@ export function KnowledgeView() {
   const [configOpen, setConfigOpen] = useState(false);
   // 35：目录/标签栏可折叠（收起后由三栏变两栏，把宽度让给列表与阅读区）
   const [catalogOpen, setCatalogOpen] = useState(true);
+  /** P1·意见#7：搜索候选需要**全量**文档标题（不受当前目录/标签筛选影响），单独拉一份 */
+  const [allDocs, setAllDocs] = useState<KnowledgeDocSummary[]>([]);
+  /** 候选浮层是否展开（输入时展开，选中/失焦/按 Esc 收起） */
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const pollRef = useRef<number | null>(null);
 
   const loadMeta = useCallback(async () => {
@@ -208,11 +117,24 @@ export function KnowledgeView() {
     setDocs(r.docs);
   }, []);
 
+  /** 全量文档（供搜索候选）：不受当前筛选影响，知识库 5–50 篇量级，一次拉全即可 */
+  const loadAllDocs = useCallback(async () => {
+    try {
+      const r = await api.kbDocs({});
+      setAllDocs(r.docs);
+    } catch {
+      setAllDocs([]);
+    }
+  }, []);
+
   const reloadAll = useCallback(async () => {
     const st = await loadMeta();
     void loadHealth();
-    if (st.state === 'connected') await loadDocs(filter);
-  }, [loadMeta, loadDocs, filter, loadHealth]);
+    if (st.state === 'connected') {
+      await loadDocs(filter);
+      void loadAllDocs();
+    }
+  }, [loadMeta, loadDocs, loadAllDocs, filter, loadHealth]);
 
   useEffect(() => {
     void reloadAll();
@@ -331,6 +253,25 @@ export function KnowledgeView() {
     }
   };
 
+  /**
+   * 搜索候选（意见#7）：候选 = 文档标题 + 标签，**不是历史搜索记录**。
+   * 理由：知识库只有 5–50 篇量级，用户是在「找」而不是「搜」——给标题比给历史更有用。
+   * 无输入时不展示；有输入时按包含匹配（大小写不敏感），标题与标签各自限量。
+   */
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [] as { kind: 'doc' | 'tag'; label: string; sub?: string; path?: string }[];
+    const docHits = allDocs
+      .filter((d) => d.title.toLowerCase().includes(q))
+      .slice(0, 6)
+      .map((d) => ({ kind: 'doc' as const, label: d.title, sub: d.dir || '根目录', path: d.path }));
+    const tagHits = tags
+      .filter((t) => t.tag.toLowerCase().includes(q))
+      .slice(0, 4)
+      .map((t) => ({ kind: 'tag' as const, label: t.tag, sub: `${t.count} 篇` }));
+    return [...docHits, ...tagHits];
+  }, [query, allDocs, tags]);
+
   const reindex = async () => {
     setBusy(true);
     setNotice('索引重建已启动，完成后统计会自动刷新');
@@ -393,12 +334,9 @@ export function KnowledgeView() {
           <Btn size="sm" loading={busy} onClick={() => void reindex()}>
             重建索引
           </Btn>
-          {/* 35：折叠 / 展开目录与标签栏 */}
-          <Btn size="sm" variant="ghost" onClick={() => setCatalogOpen((v) => !v)} title="折叠/展开目录与标签栏">
-            {catalogOpen ? '收起目录' : '展开目录'}
-          </Btn>
+          {/* P1·5.6：折叠控件已移入目录面板标题栏（紧邻目录树），此处不再重复 */}
           <Btn size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>
-            连接设置
+            知识库设置
           </Btn>
         </div>
       </div>
@@ -410,21 +348,74 @@ export function KnowledgeView() {
       ) : null}
 
       {/* 总览带：统计 + 星图缩略预览 + 最近更新 + 健康度小指标（2.2–2.6） */}
-      <KnowledgeOverviewBar status={status} stats={stats} health={health} islandOnly={islandOnly} onToggleIsland={() => void toggleIsland()} onOpenDoc={(path) => void openDoc(path)} />
+      {/* 总览带（P1 要点②）：1 核心指标 + 3 入口，横向一条 */}
+      <KnowledgeOverviewBar status={status} stats={stats} health={health} />
 
-      {/* 搜索（29：sticky 冻结，目录树/列表滚动时搜索条仍在视野内） */}
+      {/* 搜索（29：sticky 冻结，目录树/列表滚动时搜索条仍在视野内）
+          意见#7：输入即出候选（候选 = 文档标题 + 标签，非历史记录） */}
       <div className="qs-card sticky top-0 z-20 p-3" style={{ background: 'var(--color-surface)' }}>
         <div className="flex gap-2">
-          <input
-            className="qs-input flex-1"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void runSearch();
-            }}
-            placeholder="搜索知识库…"
-            aria-label="搜索知识库"
-          />
+          <div className="relative min-w-0 flex-1">
+            <input
+              className="qs-input w-full"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSuggestOpen(true);
+              }}
+              onFocus={() => setSuggestOpen(true)}
+              onBlur={() => {
+                // 延迟收起，保证候选项的 onClick 先触发
+                window.setTimeout(() => setSuggestOpen(false), 150);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setSuggestOpen(false);
+                  void runSearch();
+                } else if (e.key === 'Escape') {
+                  setSuggestOpen(false);
+                }
+              }}
+              placeholder="搜索知识库…"
+              aria-label="搜索知识库"
+              role="combobox"
+              aria-expanded={suggestOpen && suggestions.length > 0}
+              aria-autocomplete="list"
+            />
+            {/* 候选浮层 */}
+            {suggestOpen && suggestions.length > 0 ? (
+              <div
+                className="qs-card absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-[280px] overflow-y-auto p-1"
+                style={{ boxShadow: '0 4px 12px rgba(10,10,10,0.10)' }}
+                role="listbox"
+                data-kb-suggest
+              >
+                {suggestions.map((s) => (
+                  <button
+                    key={`${s.kind}-${s.label}`}
+                    type="button"
+                    className="qs-nav-item flex w-full items-center gap-2 text-left"
+                    role="option"
+                    aria-selected={false}
+                    onClick={() => {
+                      setSuggestOpen(false);
+                      setQuery('');
+                      if (s.kind === 'doc' && s.path) void openDoc(s.path);
+                      else void pick({ dir: null, tag: s.label });
+                    }}
+                  >
+                    <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-faint)' }}>
+                      {s.kind === 'doc' ? '文档' : '标签'}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                    <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-faint)' }}>
+                      {s.sub}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <Btn variant="primary" size="sm" loading={busy} onClick={() => void runSearch()}>
             搜索
           </Btn>
@@ -444,46 +435,51 @@ export function KnowledgeView() {
       </div>
 
       <div className="flex gap-4">
-        {/* 左：目录 + 标签（35：可折叠，收起后三栏变两栏） */}
-        {catalogOpen ? (
-        <aside className="w-[210px] shrink-0 space-y-4">
-          <div className="qs-card p-3">
-            <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
-              目录
-            </div>
-            {dirs.length === 0 ? <Empty text={KB_EMPTY_STATES.kbNoDirs.text} hint={KB_EMPTY_STATES.kbNoDirs.hint} emptyKey={KB_EMPTY_STATES.kbNoDirs.key} /> : <DirTree dirs={dirs} active={filter.tag ? null : filter.dir} onPick={(dir) => void pick({ dir, tag: null })} />}
-          </div>
-          <div className="qs-card p-3">
-            <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
-              标签
-            </div>
-            {tags.length === 0 ? (
-              <Empty text={KB_EMPTY_STATES.kbNoTags.text} hint={KB_EMPTY_STATES.kbNoTags.hint} emptyKey={KB_EMPTY_STATES.kbNoTags.key} />
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {tags.map((t) => {
-                  const active = filter.tag === t.tag;
-                  return (
-                    <button
-                      key={t.tag}
-                      type="button"
-                      className="cursor-pointer rounded-[4px] border px-1.5 py-0.5 text-[11px] transition-colors"
-                      style={{
-                        borderColor: active ? 'var(--color-signal)' : 'var(--color-line-strong)',
-                        background: active ? 'var(--color-signal-soft)' : 'transparent',
-                        color: active ? 'var(--color-signal)' : 'var(--color-ink-soft)',
-                      }}
-                      onClick={() => void pick({ dir: null, tag: active ? null : t.tag })}
-                    >
-                      {t.tag} <span className="tabular">{t.count}</span>
-                    </button>
-                  );
-                })}
+        {/* 左：公共侧栏（P1·5.5：容器 + 标题栏折叠控件抽出共用；过滤控件由本页自定） */}
+        <KnowledgeSidebar
+          open={catalogOpen}
+          title="目录"
+          width={210}
+          onToggle={() => setCatalogOpen(false)}
+          onExpand={() => setCatalogOpen(true)}
+          footer={
+            <div className="qs-card mt-4 p-3">
+              <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
+                标签
               </div>
-            )}
-          </div>
-        </aside>
-        ) : null}
+              {tags.length === 0 ? (
+                <Empty text={KB_EMPTY_STATES.kbNoTags.text} hint={KB_EMPTY_STATES.kbNoTags.hint} emptyKey={KB_EMPTY_STATES.kbNoTags.key} />
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((t) => {
+                    const active = filter.tag === t.tag;
+                    return (
+                      <button
+                        key={t.tag}
+                        type="button"
+                        className="cursor-pointer rounded-[4px] border px-1.5 py-0.5 text-[11px] transition-colors"
+                        style={{
+                          borderColor: active ? 'var(--color-signal)' : 'var(--color-line-strong)',
+                          background: active ? 'var(--color-signal-soft)' : 'transparent',
+                          color: active ? 'var(--color-signal)' : 'var(--color-ink-soft)',
+                        }}
+                        onClick={() => void pick({ dir: null, tag: active ? null : t.tag })}
+                      >
+                        {t.tag} <span className="tabular">{t.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          }
+        >
+          {dirs.length === 0 ? (
+            <Empty text={KB_EMPTY_STATES.kbNoDirs.text} hint={KB_EMPTY_STATES.kbNoDirs.hint} emptyKey={KB_EMPTY_STATES.kbNoDirs.key} />
+          ) : (
+            <DirTree dirs={dirs} active={filter.tag ? null : filter.dir} onPick={(dir) => void pick({ dir, tag: null })} />
+          )}
+        </KnowledgeSidebar>
 
         {/* 中：文档列表 / 搜索结果 */}
         <div className="w-[300px] shrink-0">
@@ -567,7 +563,68 @@ export function KnowledgeView() {
         <div className="min-w-0 flex-1">
           <div className="qs-card max-h-[62vh] overflow-y-auto p-5">
             {!doc ? (
-              <Empty text="从左侧选择一篇文档阅读" />
+              /* 阅读区空态（意见 N6）：不只是一行「从左侧选择」，而是承担「引导下一步」的职责：
+                 最近阅读 3 篇 + 今日热点入口 + 健康度一行摘要，把 2/3 屏空间用起来 */
+              <div data-qs-empty={KB_EMPTY_STATES.kbNoDocSelected.key} className="space-y-4">
+                <div>
+                  <h3 className="font-display text-[17px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
+                    从左侧选一篇文档开始阅读
+                  </h3>
+                  <p className="qs-meta mt-1" style={{ color: 'var(--color-ink-faint)' }}>
+                    {KB_EMPTY_STATES.kbNoDocSelected.hint}
+                  </p>
+                </div>
+
+                {/* 最近更新（取 stats.recent 前 3 篇，点击直接打开） */}
+                {(stats?.recent ?? []).length > 0 ? (
+                  <div>
+                    <div className="qs-meta mb-1.5 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+                      最近更新
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {(stats?.recent ?? []).slice(0, 3).map((d) => (
+                        <button
+                          key={d.path}
+                          type="button"
+                          className="qs-clickable rounded-[4px] border px-3 py-2 text-left transition-colors hover:border-[var(--color-line-strong)]"
+                          style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}
+                          onClick={() => void openDoc(d.path)}
+                          title={d.path}
+                        >
+                          <span className="block truncate text-[13px] font-medium">{d.title}</span>
+                          <span className="qs-meta block truncate text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+                            {d.dir || '根目录'} · {d.tags.slice(0, 3).join('、') || '无标签'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* 下一步入口：每日热点 → 收进灵感库 */}
+                <button
+                  type="button"
+                  className="qs-clickable flex w-full items-center gap-3 rounded-[4px] border px-3 py-2.5 text-left transition-colors hover:border-[var(--color-line-strong)]"
+                  style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}
+                  onClick={() => setView('hot')}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium">打开每日热点</span>
+                    <span className="qs-meta block text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
+                      把值得留的素材收进灵感库
+                    </span>
+                  </span>
+                  <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal)' }}>
+                    →
+                  </span>
+                </button>
+
+                {/* 健康度一行摘要 */}
+                <p className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                  知识库共 {stats?.docCount ?? 0} 篇 · {stats?.tagCount ?? 0} 个标签 · {stats?.dirCount ?? 0} 个目录
+                  {health?.islands ? ` · 孤岛 ${health.islands.count} 篇` : ''}
+                </p>
+              </div>
             ) : (
               <>
                 <div className="mb-3 border-b pb-3" style={{ borderColor: 'var(--color-line)' }}>

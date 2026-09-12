@@ -65,9 +65,9 @@ function ChatHeader() {
           const active = !isGroup && chatTarget.to === a.id;
           const meta = STATUS_META[a.onlineStatus];
           return (
-            <button key={a.id} type="button" className="flex shrink-0 flex-col items-center gap-1" title={`${a.name} · ${meta.label}`} style={{ cursor: 'pointer' }} onClick={() => selectChat({ kind: 'private', to: a.id })}>
+            <button key={a.id} type="button" className="flex shrink-0 flex-col items-center gap-1" title={`${a.name}（${a.role}）· ${meta.label}`} style={{ cursor: 'pointer' }} onClick={() => selectChat({ kind: 'private', to: a.id })}>
               <span className="relative" style={{ outline: active ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2, borderRadius: 999 }}>
-                <Avatar name={a.name} size={40} />
+                <Avatar name={a.name} size={40} title={`${a.name}（${a.role}）· ${meta.label}`} />
                 <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${meta.dot}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)' }} />
               </span>
               <span className="qs-meta text-[10px]" style={{ color: active ? 'var(--color-ink)' : 'var(--color-ink-faint)' }}>

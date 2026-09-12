@@ -29,6 +29,12 @@ export const KB_EMPTY_STATES = {
     text: '知识库当前没有索引到任何 Markdown 文档',
     hint: '检查 Vault 路径与索引范围，或在 Vault 中新建 .md 后点「重建索引」。',
   },
+  /** 阅读区未选文档（意见 N6：空态承担「引导下一步」职责，不再只写一行「从左侧选择」） */
+  kbNoDocSelected: {
+    key: 'kb-no-doc-selected',
+    text: '从左侧选一篇文档开始阅读',
+    hint: '也可以直接用上方搜索框找文档或标签；下面是从最近更新与每日热点出发的快捷入口。',
+  },
   /** 无标签 */
   kbNoTags: {
     key: 'kb-no-tags',
@@ -39,7 +45,7 @@ export const KB_EMPTY_STATES = {
   kbNoDirs: {
     key: 'kb-no-dirs',
     text: '暂无目录层级',
-    hint: '把资料整理进子目录，如 10_raw/products，再点「重建索引」，目录会成为浏览与过滤入口。',
+    hint: '把资料整理进子目录，如「原始资料/产品资料」，再点「重建索引」，目录会成为浏览与过滤入口。',
   },
   /** 星图无数据（无链接且无标签；主视图与缩略预览同一文案来源） */
   graphEmpty: {

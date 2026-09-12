@@ -116,6 +116,13 @@ body {
 .qs-btn.ghost:hover:not(:disabled) {
   color: var(--color-signal);
 }
+/* 带可见描边的 ghost（P0：看板卡片「⋯ 更多」按钮此前 border 为 transparent，视觉上无轮廓） */
+.qs-btn.ghost.outline {
+  border-color: var(--color-line-strong);
+}
+.qs-btn.ghost.outline:hover:not(:disabled) {
+  border-color: var(--color-ink-soft);
+}
 .qs-btn.danger {
   background: var(--color-surface);
   border-color: var(--color-line-strong);
@@ -132,6 +139,21 @@ body {
 .qs-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ===== 文档正文链接（P0：链接色必须以 QS 令牌为唯一来源） =====
+   背景：Markdown.tsx 的 wiki/内部文档链接此前只用行内 style 声明颜色，缺少类级约束，
+   一旦将来有人给这些元素加上框架默认调色板工具类（如 text-violet-600），
+   行内变量会被工具类覆盖，导致同类问题反复复发（本轮为该问题第 2 次出现）。
+   约束：链接色统一收敛到本类，颜色只读 --color-signal；令牌值变更时链接色自动跟随。
+   说明：--color-signal 当前值 #7c3aed 与框架 violet-600 同值，故「计算色为 #7c3aed」
+   是取值巧合而非类名覆盖——本约束是为防止将来被覆盖，不改动令牌值。 */
+.qs-doc-link {
+  color: var(--color-signal);
+  text-decoration: underline;
+}
+.qs-doc-link:hover {
+  color: var(--color-signal-strong);
 }
 
 /* ===== 输入 ===== */

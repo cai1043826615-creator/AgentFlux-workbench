@@ -1,9 +1,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KB_GRAPH_PRESETS, type KnowledgeDirInfo, type KnowledgeGraphData, type KnowledgeGraphEdge, type KnowledgeGraphPreset, type KnowledgeNodeDetail, type KnowledgeTagInfo } from '@workbench/shared';
+import { type KnowledgeDirInfo, type KnowledgeGraphData, type KnowledgeGraphEdge, type KnowledgeNodeDetail, type KnowledgePresetEntry, type KnowledgeStatus, type KnowledgeTagInfo } from '@workbench/shared';
+import { VaultConfigModal } from './VaultConfigModal.tsx';
+import { KnowledgeSidebar } from './KnowledgeSidebar.tsx';
 import { Badge, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
+import { dirDisplayName } from './dirDisplayName.ts';
 import { drawGraph, hitTest as kernelHitTest, layoutInitial, screenToWorld as kernelScreenToWorld, type GraphSimNode, type GraphView } from './graphCanvas.ts';
 
 /** 模拟节点（布局/视觉状态由渲染内核 graphCanvas.ts 提供，此处仅别名） */
@@ -36,10 +39,9 @@ function buildDirTree(items: KnowledgeDirInfo[]): DirTreeNode[] {
   return roots;
 }
 
-/** 目录展示名（取最后一段，如 10_raw/products → products） */
+/** 目录展示名（意见#5：走中文显示名映射，未收录的段回退原段名；真实路径仍可在 tooltip / 设置中查看） */
 function dirLabel(dir: string): string {
-  const i = dir.lastIndexOf('/');
-  return i < 0 ? dir : dir.slice(i + 1);
+  return dirDisplayName(dir);
 }
 
 /** 已激活筛选条件 chip（可单独移除） */
@@ -109,7 +111,8 @@ function DirTreeRow({
  * 交互：滚轮缩放、空白拖拽平移、节点拖拽、悬停详情、点击查看关联、搜索定位高亮、点击关联跳转原文。
  */
 export function KnowledgeGraphView() {
-  const { openKbDoc, kbNodeId, setKbNodeId } = useWorkbench();
+  // P2·F1：节点详情「阅读原文」走预览弹窗（就地看，不离开星图）；双击仍跳知识库深度阅读
+  const { openKbDoc, openDocPreview, kbNodeId, setKbNodeId } = useWorkbench();
   const [graph, setGraph] = useState<KnowledgeGraphData | null>(null);
   const [detail, setDetail] = useState<KnowledgeNodeDetail | null>(null);
   const [hover, setHover] = useState<{ node: SimNode; sx: number; sy: number } | null>(null);
@@ -122,6 +125,14 @@ export function KnowledgeGraphView() {
   /** 左树目录数据（GET /api/knowledge/dirs）与标签数据（GET /api/knowledge/tags） */
   const [dirs, setDirs] = useState<KnowledgeDirInfo[]>([]);
   const [tagInfos, setTagInfos] = useState<KnowledgeTagInfo[]>([]);
+  /** 重点目录（P1·6.10）：用户可增删改，来自知识库设置，两页共用 */
+  const [presetEntries, setPresetEntries] = useState<KnowledgePresetEntry[]>([]);
+  /** 知识库设置弹窗（P1·6.1：与知识库页同一个弹窗） */
+  const [configOpen, setConfigOpen] = useState(false);
+  /** 供设置弹窗展示用（root / range / indexing） */
+  const [kbStatus, setKbStatus] = useState<KnowledgeStatus | null>(null);
+  /** P1·5.7：左树折叠（与知识库页同一交互） */
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   /** 目录树展开状态（目录路径 → 是否展开；默认展开所有含子目录的节点） */
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   /**
@@ -150,11 +161,14 @@ export function KnowledgeGraphView() {
     setLoading(true);
     setError(null);
     try {
-      const [gRes, dirsRes, tagsRes] = await Promise.all([api.kbGraph(), api.kbDirs(), api.kbTags()]);
+      const [gRes, dirsRes, tagsRes, statusRes] = await Promise.all([api.kbGraph(), api.kbDirs(), api.kbTags(), api.kbStatus()]);
       const g = gRes.graph;
       setGraph(g);
       setDirs(dirsRes.dirs);
       setTagInfos(tagsRes.tags);
+      // P1·6.10：重点目录取自设置（用户可增删改），与知识库页同一份数据
+      setPresetEntries(statusRes.status.presetEntries ?? []);
+      setKbStatus(statusRes.status);
       // 默认展开所有含子目录的节点（叶子目录默认不展开）
       const paths = dirsRes.dirs.map((d) => d.dir);
       const exp: Record<string, boolean> = {};
@@ -379,29 +393,6 @@ export function KnowledgeGraphView() {
     setFilters({ dir: null, tags: [], islandOnly: false });
   };
 
-  /** 解析预设依据目录：优先 status.presets（连接设置可改），未配置/未连接时回退共享常量 KB_GRAPH_PRESETS */
-  const resolvePresetDir = useCallback(async (id: KnowledgeGraphPreset['id']): Promise<string | undefined> => {
-    const fallback = KB_GRAPH_PRESETS.find((p) => p.id === id)?.dir;
-    try {
-      const { status } = await api.kbStatus();
-      const dir = status.presets?.[id];
-      return dir && dir.trim() ? dir.trim() : fallback;
-    } catch {
-      return fallback;
-    }
-  }, []);
-
-  /** 点击 ⭐ 快捷项：解析预设目录并单选该目录（与目录树同一状态，无独立预设态） */
-  const selectPresetDir = useCallback(
-    async (id: KnowledgeGraphPreset['id']) => {
-      const dir = await resolvePresetDir(id);
-      if (!dir) return;
-      setHover(null);
-      setFilters((prev) => ({ ...prev, dir }));
-    },
-    [resolvePresetDir],
-  );
-
   /** 绘制一帧（渲染内核 graphCanvas.drawGraph；主视图与缩略预览共用同一绘制） */
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -456,6 +447,20 @@ export function KnowledgeGraphView() {
       rafRef.current = null;
     };
   }, [canvasEl, simulate, draw]);
+
+  /**
+   * 初始自动适配（P0：星图首屏偏移，画布约 60% 空白）。
+   * 双前置条件：① 图谱数据与 canvas 均已就绪；② sizeRef 已有真实尺寸（由上面的主循环 effect 的 resize() 写入）。
+   * 只自动执行一次（autoFitRef）：此后用户的手动缩放/平移不被覆盖，过滤变化与数据刷新也不重置视图。
+   */
+  const autoFitRef = useRef(false);
+  useEffect(() => {
+    if (autoFitRef.current) return;
+    if (!graph || !canvasEl) return;
+    if (sizeRef.current.w === 0 || sizeRef.current.h === 0) return;
+    autoFitRef.current = true;
+    fitView();
+  }, [graph, canvasEl, fitView]);
 
   /** 屏幕坐标 → 世界坐标（渲染内核） */
   const screenToWorld = useCallback((sx: number, sy: number) => kernelScreenToWorld(sx, sy, viewRef.current, sizeRef.current), []);
@@ -609,6 +614,10 @@ export function KnowledgeGraphView() {
           <Btn size="sm" onClick={() => void load()} loading={loading}>
             刷新
           </Btn>
+          {/* P1·6.1：知识库设置入口（与知识库页同一弹窗） */}
+          <Btn size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>
+            知识库设置
+          </Btn>
         </div>
       </div>
 
@@ -636,9 +645,14 @@ export function KnowledgeGraphView() {
       ) : null}
 
       <div className="flex gap-4">
-        {/* 左树：目录树 + ⭐快捷预设 + 标签树 + 孤岛开关（7b） */}
-        <aside className="qs-card flex w-[240px] shrink-0 flex-col self-start p-3">
-          <div className="qs-meta mb-1">目录</div>
+        {/* 左树：目录树 + 重点目录 + 标签多选 + 孤岛开关（7b）
+            P1·5.7：容器与折叠控件改用公共 KnowledgeSidebar（与知识库页同一位置与交互） */}
+        <KnowledgeSidebar
+          open={sidebarOpen}
+          title="目录"
+          onToggle={() => setSidebarOpen(false)}
+          onExpand={() => setSidebarOpen(true)}
+        >
           <button type="button" className={`qs-nav-item w-full text-left ${filters.dir == null ? 'active' : ''}`} onClick={() => updateFilters({ dir: null })}>
             <span className="flex-1 truncate">全部文档</span>
             <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{graph?.nodes.filter((n) => n.kind === 'doc').length ?? 0}</span>
@@ -656,13 +670,29 @@ export function KnowledgeGraphView() {
             ))}
           </div>
 
-          <div className="qs-meta mb-1">快捷</div>
+          {/* P1·意见#8 / 6.10：重点目录（原名「快捷」）——用户可增删改，与知识库页共用同一份数据 */}
+          <div className="qs-meta mb-1">重点目录</div>
           <div className="mb-3 flex flex-col gap-0.5">
-            {KB_GRAPH_PRESETS.map((p) => (
-              <button key={p.id} type="button" className="qs-nav-item text-left" onClick={() => void selectPresetDir(p.id)} title={`按 ${p.label} 预设目录过滤`}>
-                <span className="flex-1 truncate">⭐ {p.label}</span>
-              </button>
-            ))}
+            {presetEntries.length === 0 ? (
+              <span className="qs-meta px-1" style={{ color: 'var(--color-ink-faint)' }}>
+                还没有重点目录 · 到「知识库设置」添加
+              </span>
+            ) : (
+              presetEntries.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`qs-nav-item text-left ${filters.dir === p.dir ? 'active' : ''}`}
+                  onClick={() => {
+                    setHover(null);
+                    setFilters((prev) => ({ ...prev, dir: filters.dir === p.dir ? null : p.dir }));
+                  }}
+                  title={`按「${p.dir}」过滤`}
+                >
+                  <span className="flex-1 truncate">★ {p.label}</span>
+                </button>
+              ))
+            )}
           </div>
 
           <div className="qs-meta mb-1">标签（多选）</div>
@@ -694,7 +724,7 @@ export function KnowledgeGraphView() {
             <span className="flex-1 truncate">只显示孤岛</span>
             <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{islandCount}</span>
           </label>
-        </aside>
+        </KnowledgeSidebar>
 
         <div className="min-w-0 flex-1">
           <div ref={wrapRef} className="qs-card relative h-[62vh] overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
@@ -801,7 +831,8 @@ export function KnowledgeGraphView() {
                     type="button"
                     className="qs-meta mt-1 cursor-pointer text-left hover:underline"
                     style={{ color: 'var(--color-signal)' }}
-                    onClick={() => openKbDoc(detail.node.path)}
+                    onClick={() => detail.node.path && openDocPreview(detail.node.path)}
+                    title="预览全文（弹窗，不离开星图）"
                   >
                     {detail.node.path} · 阅读原文
                   </button>
@@ -835,8 +866,8 @@ export function KnowledgeGraphView() {
                           key={d.path}
                           type="button"
                           className="qs-nav-item w-full text-left"
-                          onClick={() => openKbDoc(d.path)}
-                          title={d.path}
+                          onClick={() => openDocPreview(d.path)}
+                          title={`${d.path}（弹窗预览）`}
                         >
                           <span className="min-w-0 flex-1 truncate text-[12px]">{d.title}</span>
                         </button>
@@ -849,6 +880,15 @@ export function KnowledgeGraphView() {
         </aside>
         ) : null}
       </div>
+
+      {/* P1·6.1：知识库设置（与知识库页共用同一组件/弹窗） */}
+      <VaultConfigModal
+        open={configOpen}
+        status={kbStatus}
+        onClose={() => setConfigOpen(false)}
+        onSaved={() => void load()}
+        onReindex={() => void load()}
+      />
     </div>
   );
 }

@@ -123,6 +123,8 @@ function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAt
   const seq = String(index + 1).padStart(2, '0');
   const evidence = item.evidence;
   const hasLatest = item.latest && item.latest.trim().length > 0;
+  /** P1·8.4：摘要默认截断 4 行，可展开查看全文 */
+  const [expanded, setExpanded] = useState(false);
   return (
     <div className="qs-card flex h-full flex-col p-3" data-hot-card>
       <div className="flex items-start justify-between gap-3">
@@ -146,10 +148,32 @@ function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAt
         </div>
       </div>
 
-      {/* 5.5 双层内容：讯息（摘要）/ 最新进展（无 latest 时隐藏该层） */}
+      {/* 5.5 双层内容：讯息（摘要）/ 最新进展（无 latest 时隐藏该层）
+          P1·8.4：摘要固定截断 4 行并可展开，避免长短不一的卡片把高度差拉大 */}
       {item.summary ? (
-        <div className="mt-2 text-[12.5px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }} data-hot-layer="summary">
-          {item.summary}
+        <div className="mt-2" data-hot-layer="summary">
+          <div
+            className="text-[12.5px] leading-relaxed"
+            style={{
+              color: 'var(--color-ink-soft)',
+              display: expanded ? 'block' : '-webkit-box',
+              WebkitLineClamp: expanded ? undefined : 4,
+              WebkitBoxOrient: 'vertical',
+              overflow: expanded ? undefined : 'hidden',
+            }}
+          >
+            {item.summary}
+          </div>
+          {item.summary.length > 120 ? (
+            <button
+              type="button"
+              className="qs-clickable qs-meta mt-1"
+              style={{ color: 'var(--color-signal)' }}
+              onClick={() => setExpanded((p) => !p)}
+            >
+              {expanded ? '收起' : '展开全文'}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {hasLatest ? (
@@ -304,7 +328,8 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
 }
 
 /**
- * 关注域与数据源配置编辑器（3.5/4.7：排除词 / 多词阈值 / 源管理；本地保存，不入版本库）
+ * 热点源配置编辑器（P1·8.1：原「关注域与数据源配置」统一更名为「热点源配置」，
+ * 与触发按钮文案一致；3.5/4.7：排除词 / 多词阈值 / 源管理；本地保存，不入版本库）
  *
  * 布局约束：宽度一律用 Tailwind 工具类（w-[Npx] / flex-1）表达，不要改成行内 style 或改写 qs-input。
  * 背景：index.css 的 .qs-input 曾经未被 @layer 包裹，其 width:100% 会压过所有宽度工具类，导致本弹窗内
@@ -364,7 +389,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const domainInvalid = !!config && config.domains.some((d) => (d.keywords?.length ?? 0) === 0);
 
   return (
-    <Modal open={open} title="情报配置" onClose={onClose} width={640}>
+    <Modal open={open} title="热点源配置" onClose={onClose} width={640}>
       {!config ? (
         <Spinner label="加载配置…" />
       ) : (
@@ -651,7 +676,8 @@ export function HotView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          {/* 5.6 衬线 Display 大标题 */}
+          {/* 5.6 衬线 Display 大标题。
+              命名边界（用户定案）：本模块叫「每日热点」；「灵感库」是它沉淀到知识库里的目录名，两者不是一回事。 */}
           <h2 className="font-display text-[22px] font-bold leading-tight" style={{ fontFamily: 'var(--font-display)' }}>
             每日热点
           </h2>
@@ -669,7 +695,7 @@ export function HotView() {
             刷新
           </Btn>
           <Btn size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>
-            关注域与源配置
+            热点源配置
           </Btn>
         </div>
       </div>
@@ -697,67 +723,71 @@ export function HotView() {
         <Empty text={KB_EMPTY_STATES.hotEmptyNone.text} hint={KB_EMPTY_STATES.hotEmptyNone.hint} emptyKey={KB_EMPTY_STATES.hotEmptyNone.key} />
       ) : (
         <>
-          {/* 5.1 三枚统计药丸（42：今日必看为 0 时降级为一行灰字，不放大号 0 误导） */}
+          {/* 5.1 统计区（P1·8.2：今日必看为 0 时降级为一行灰字，不占药丸位且不用「多源共振」内部术语；
+               P1·8.3：分层规则帮助不再以孤立「?」符号与药丸并排，改为后缀在内联灰字中） */}
           <div className="flex flex-wrap items-center gap-2" data-hot-pills>
             <Pill label="多源热点" value={panel.counts.upstream} />
             {panel.counts.mustRead > 0 ? (
               <Pill label="今日必看" value={panel.counts.mustRead} />
             ) : (
-              <span className="qs-meta rounded-[4px] border px-2 py-1" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-faint)' }}>
-                今日暂无多源共振事件
+              <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                今日暂无必看热点
               </span>
             )}
-            <button
-              type="button"
-              className="qs-clickable inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] leading-none"
-              style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-faint)' }}
-              title="分层规则：命中关注域且多信源 → 必看；命中但信源少 → 浏览；未命中 → 其他。排除词命中直接作废该域。今日必看为 0 通常是当天无多源共振事件，属正常。"
-            >
-              ?
-            </button>
             <Pill label="24H 精选" value={panel.counts.selected24h} />
+            <span
+              className="qs-meta cursor-help"
+              style={{ color: 'var(--color-ink-faint)' }}
+              title="分层规则：命中关注域且多信源 → 必看；命中但信源少 → 浏览；未命中 → 其他。排除词命中直接作废该域。"
+            >
+              分层说明
+            </span>
           </div>
 
           {tiers.map((tier) => {
             const list = panel.tiers[tier];
             if (list.length === 0) return null;
-            // 37：「其他」分组默认折叠为一行，点击展开
-            if (tier === 'other' && collapsedOther) {
-              return (
-                <button
-                  key={tier}
-                  type="button"
-                  className="qs-clickable qs-meta flex items-center gap-1.5 text-left text-[13px]"
-                  style={{ color: 'var(--color-ink-soft)' }}
-                  onClick={() => setCollapsedOther(false)}
-                  data-hot-tier={tier}
-                >
-                  <span aria-hidden="true">▸</span>
-                  {TIER_LABEL[tier]}（{list.length} 条） · {TIER_HINT[tier]}
-                </button>
-              );
-            }
-            return (
-              <section key={tier} className="space-y-2.5" data-hot-tier={tier}>
-                <div className="flex items-baseline gap-2 border-b pb-1.5" style={{ borderColor: 'var(--color-line)' }}>
-                  <h3 className="font-display text-[15px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
-                    {TIER_LABEL[tier]}
-                  </h3>
-                  <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                    {list.length} 条 · {TIER_HINT[tier]}
+            const collapsible = tier === 'other';
+            const collapsed = collapsible && collapsedOther;
+            /* 意见 #11 / P1：标题行本身即可双向切换（▸ 折叠 / ▾ 展开），不再另挂「收起」按钮。
+               折叠态与展开态共用同一标题行，保证任何状态下都能收能展。 */
+            const header = (
+              <div
+                className={`flex items-baseline gap-2 border-b pb-1.5 ${collapsible ? 'qs-clickable' : ''}`}
+                style={{ borderColor: 'var(--color-line)' }}
+                title={TIER_HINT[tier]}
+                onClick={collapsible ? () => setCollapsedOther((p) => !p) : undefined}
+                role={collapsible ? 'button' : undefined}
+                aria-expanded={collapsible ? !collapsed : undefined}
+              >
+                {collapsible ? (
+                  <span aria-hidden="true" className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
+                    {collapsed ? '▸' : '▾'}
                   </span>
-                  {tier === 'other' ? (
-                    <button type="button" className="qs-clickable qs-meta ml-auto" style={{ color: 'var(--color-signal)' }} onClick={() => setCollapsedOther(true)}>
-                      收起
-                    </button>
-                  ) : null}
-                </div>
-                {/* 5.6 响应式多栏网格（37：序号全局连续） */}
-                <div className="hot-grid">
-                  {list.map((item) => (
-                    <HotCard key={item.id} item={item} index={seqById.get(item.id) ?? 0} onAttach={setAttachItem} />
-                  ))}
-                </div>
+                ) : null}
+                <h3
+                  className={`font-display font-semibold ${collapsed ? 'qs-meta text-[13px]' : 'text-[15px]'}`}
+                  style={{ fontFamily: 'var(--font-display)', color: collapsed ? 'var(--color-ink-soft)' : undefined }}
+                >
+                  {TIER_LABEL[tier]}
+                </h3>
+                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                  {list.length} 条
+                </span>
+              </div>
+            );
+
+            return (
+              <section key={tier} className={collapsed ? '' : 'space-y-2.5'} data-hot-tier={tier} data-collapsed={collapsed ? '1' : '0'}>
+                {header}
+                {collapsed ? null : (
+                  /* 5.6 响应式多栏网格（37：序号全局连续） */
+                  <div className="hot-grid">
+                    {list.map((item) => (
+                      <HotCard key={item.id} item={item} index={seqById.get(item.id) ?? 0} onAttach={setAttachItem} />
+                    ))}
+                  </div>
+                )}
               </section>
             );
           })}

@@ -34,11 +34,11 @@ function renderInline(text: string, keyPrefix: string, onOpenDoc?: (path: string
       const target = token.slice(2, -2);
       nodes.push(
         onOpenDoc ? (
-          <button key={key} type="button" className="qs-clickable" style={{ color: 'var(--color-signal)', textDecoration: 'underline' }} title="跳转到关联文档" onClick={() => onOpenDoc(target)}>
+          <button key={key} type="button" className="qs-clickable qs-doc-link" title="跳转到关联文档" onClick={() => onOpenDoc(target)}>
             {target}
           </button>
         ) : (
-          <span key={key} style={{ color: 'var(--color-signal)' }} title="知识库内部链接">
+          <span key={key} className="qs-doc-link" title="知识库内部链接">
             {target}
           </span>
         ),
@@ -50,7 +50,7 @@ function renderInline(text: string, keyPrefix: string, onOpenDoc?: (path: string
         // 30：内部文档链接（非 http）可点击跳转；外部链接仍走新窗口
         if (!external && onOpenDoc) {
           nodes.push(
-            <button key={key} type="button" className="qs-clickable" style={{ color: 'var(--color-signal)', textDecoration: 'underline' }} title="跳转到关联文档" onClick={() => onOpenDoc(lm[2])}>
+            <button key={key} type="button" className="qs-clickable qs-doc-link" title="跳转到关联文档" onClick={() => onOpenDoc(lm[2])}>
               {lm[1]}
             </button>,
           );
@@ -61,7 +61,7 @@ function renderInline(text: string, keyPrefix: string, onOpenDoc?: (path: string
               href={external ? lm[2] : undefined}
               target={external ? '_blank' : undefined}
               rel="noreferrer"
-              style={{ color: 'var(--color-signal)', textDecoration: 'underline' }}
+              className="qs-doc-link"
             >
               {lm[1]}
             </a>,

@@ -272,18 +272,58 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   };
 
   /* ---------- 审批条（对齐线框 approve-box；QS 焦点信号） ----------
-     审批重构：卡片内「采纳」点击即推进；审批条仅保留说明，打回在卡片内填写打回原因，不再重复「采纳并推进」 */
+     P1·组4：审批条承载决策操作——把「采纳 / 打回」从卡片内提升到条内，
+     说明缩为一行短文案（原为 55 字长句解释按钮在哪）。
+     与卡片内按钮**共用** busy 状态与 doDecide，避免双入口重复推进。 */
+  const pendingKind: 'copy' | 'image' | null =
+    task && task.column === 'awaiting' ? (task.stage === 'copy' ? 'copy' : 'image') : null;
+
   const approveBox =
     task && task.column === 'awaiting' ? (
       <div className="rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
-        <div className="mb-1.5 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
+        <div className="mb-2 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
           审批 · 待你确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
         </div>
-        <div className="mb-2 text-[13px]" style={{ color: 'var(--color-ink-soft)' }}>
-          {task.stage === 'copy'
-            ? `采纳按钮在下方文案卡内，点击即推进下一阶段；打回需在卡片内填写打回原因，将发给 ${task.ownerName || '文案 Agent'} 重新输出。`
-            : '采纳按钮在下方图片卡内逐张点击，全部采纳后自动推进；打回需在对应图片卡内操作。'}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="qs-meta min-w-0 flex-1" style={{ color: 'var(--color-ink-soft)' }}>
+            {pendingKind === 'copy'
+              ? '待你确认 · 采纳后自动进入图片设计'
+              : '待逐张确认 · 全部采纳后自动推进'}
+          </span>
+          {pendingKind === 'copy' ? (
+            <>
+              <Btn variant="danger" size="sm" disabled={busy} onClick={() => setRejectingCopy(true)}>
+                打回
+              </Btn>
+              <Btn variant="primary" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'approve')}>
+                采纳
+              </Btn>
+            </>
+          ) : (
+            <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+              图片需逐张决策，请在下方图片卡内操作
+            </span>
+          )}
         </div>
+        {/* 打回原因输入（与卡片内共用 rejectingCopy / copyNote 状态） */}
+        {pendingKind === 'copy' && rejectingCopy ? (
+          <div className="mt-2 space-y-2">
+            <input
+              className="qs-input"
+              placeholder={`打回原因（将发给 ${task.ownerName || '文案 Agent'} 重新输出）…`}
+              value={copyNote}
+              onChange={(e) => setCopyNote(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <Btn variant="ghost" size="sm" onClick={() => setRejectingCopy(false)}>
+                取消
+              </Btn>
+              <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'reject', undefined, copyNote)}>
+                确认打回
+              </Btn>
+            </div>
+          </div>
+        ) : null}
       </div>
     ) : null;
 
@@ -325,9 +365,6 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
           <div className="qs-meta mt-1">版本 v{copyDeliverable.version} · {new Date(copyDeliverable.updatedAt).toLocaleString('zh-CN')}</div>
         ) : null}
 
-        {/* B3 · 3.8：版本切换与差异对照（追加式；仅有多版本才出现「与上一版对比」，不承诺可回溯任意历史版本） */}
-        {task ? <CopyVersionPanel taskId={task.id} /> : null}
-
         <ol className="mt-4 space-y-2">
           {copy.points.map((p, i) => (
             <li key={i} className="flex gap-2 text-[13px] leading-relaxed">
@@ -357,6 +394,9 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             ))}
           </div>
         </div>
+
+        {/* B3 · 3.8：版本切换与差异对照（追加式）。P0-4.1/4.2：移至当前正文之后且默认收起，避免与当前版本混淆 */}
+        {task ? <CopyVersionPanel taskId={task.id} /> : null}
 
         {copyState === 'pending' ? (
           <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
@@ -712,12 +752,15 @@ function parseCopyVersion(content: string): CopyPackage | null {
 /**
  * 版本下拉（含版本号与产出时间）+ 选中版本内容 + 「与上一版对比」面板：
  * 新增/删除/保留卖点行分组、标题/大纲/关键词变化；仅有 v1 时显示「无上一版可对比」。
+ * P0-4.2：默认收起，仅渲染标题栏控件，点击后就地展开（挂在当前正文下方）。
  */
 function CopyVersionPanel({ taskId }: { taskId: number }) {
   const [versions, setVersions] = useState<DeliverableVersion[] | null>(null);
   const [sel, setSel] = useState<number | null>(null);
   const [diff, setDiff] = useState<DeliverableDiff | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  /** P0-4.2：历史版本默认收起，避免抢占当前正文的注意力 */
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -756,28 +799,42 @@ function CopyVersionPanel({ taskId }: { taskId: number }) {
   };
 
   return (
-    <div className="mt-3 border-t pt-2.5" style={{ borderColor: 'var(--color-line)' }}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-          历史版本
-        </span>
-        <select
-          className="qs-input"
-          style={{ width: 'auto' }}
-          value={sel ?? ''}
-          onChange={(e) => setSel(Number(e.target.value))}
-          title="切换查看历史版本内容"
-        >
-          {versions.map((v) => (
-            <option key={v.version} value={v.version}>
-              v{v.version} · {new Date(v.createdAt).toLocaleString('zh-CN')}
-            </option>
-          ))}
-        </select>
-        <Btn size="sm" variant="ghost" disabled={diffLoading} onClick={() => void loadDiff()}>
-          {diffLoading ? '对比中…' : '与上一版对比'}
-        </Btn>
-      </div>
+    <div className="mt-4 border-t pt-2.5" style={{ borderColor: 'var(--color-line)' }}>
+      <button
+        type="button"
+        className="qs-clickable qs-meta flex items-center gap-1.5"
+        style={{ color: 'var(--color-ink-soft)' }}
+        onClick={() => setOpen((p) => !p)}
+        aria-expanded={open}
+        title={open ? '收起历史版本' : '展开历史版本与差异对照'}
+      >
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+        历史版本 ({versions.length})
+      </button>
+
+      {open ? (
+        <>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+              历史版本
+            </span>
+            <select
+              className="qs-input"
+              style={{ width: 'auto' }}
+              value={sel ?? ''}
+              onChange={(e) => setSel(Number(e.target.value))}
+              title="切换查看历史版本内容"
+            >
+              {versions.map((v) => (
+                <option key={v.version} value={v.version}>
+                  v{v.version} · {new Date(v.createdAt).toLocaleString('zh-CN')}
+                </option>
+              ))}
+            </select>
+            <Btn size="sm" variant="ghost" disabled={diffLoading} onClick={() => void loadDiff()}>
+              {diffLoading ? '对比中…' : '与上一版对比'}
+            </Btn>
+          </div>
 
       {curCopy ? (
         <div className="mt-2 rounded-[4px] border p-2.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
@@ -869,6 +926,8 @@ function CopyVersionPanel({ taskId }: { taskId: number }) {
             </div>
           )}
         </div>
+      ) : null}
+        </>
       ) : null}
     </div>
   );

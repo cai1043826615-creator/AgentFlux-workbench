@@ -8,12 +8,22 @@ Defines the overall three-column layout shell of the e-commerce agent workbench:
 
 ### Requirement: Global top bar
 
-The system SHALL render a persistent top bar containing: logo, product name (电商工作台), notification control (browser-notification toggle with permission state), task entry with pending-count badge, and real-time connection status. The top bar SHALL NOT render a marketing subtitle or an 「在岗 / 忙碌」 agent statistics readout.
+The system SHALL render a persistent top bar containing: logo, product name (电商工作台), task entry with a semantic pending-count badge, and real-time connection status. The top bar SHALL NOT render the browser-notification control (neither the toggle nor the permission-request button) — notification authorization SHALL live in the 运行设置 dialog instead. The top bar SHALL NOT render a marketing subtitle or an 「在岗 / 忙碌」 agent statistics readout. The pending-count badge SHALL NOT be a bare number; it SHALL carry its meaning in the visible label so a user can tell it apart from other task counts in the app.
 
 #### Scenario: Top bar visible on every page
 
 - **WHEN** user opens any page of the workbench
-- **THEN** the top bar shows logo, 电商工作台, notification control, task entry and connection status, and no 「MULTI-AGENT E-COMMERCE」 subtitle nor 在岗/忙碌 counters
+- **THEN** the top bar shows logo, 电商工作台, task entry and connection status, and no notification control, no 「MULTI-AGENT E-COMMERCE」 subtitle, nor 在岗/忙碌 counters
+
+#### Scenario: Notification control absent from top bar
+
+- **WHEN** user views the top bar on any page
+- **THEN** no browser-notification checkbox and no 「开启通知」 button are rendered there
+
+#### Scenario: Pending badge carries its meaning
+
+- **WHEN** there are tasks awaiting the user's confirmation
+- **THEN** the task entry shows a label identifying the count as pending items (e.g. 「7 待确认」) rather than a bare number
 
 #### Scenario: Unread task badge
 
@@ -47,10 +57,8 @@ The system SHALL render a persistent top bar containing: logo, product name (电
 
 #### Scenario: Notification permission denied guidance
 
-- **WHEN** browser notification permission is denied and the user clicks the 已拒绝 badge
-- **THEN** an inline note appears explaining how to re-enable notifications via the address-bar site settings, and the badge remains non-blocking
-
-### Requirement: Collapsible left sidebar
+- **WHEN** browser notification permission is denied and the user views the notification section in 运行设置
+- **THEN** an inline note appears explaining how to re-enable notifications via the address-bar site settings, with actionable steps, and the guidance remains non-blocking### Requirement: Collapsible left sidebar
 
 The system SHALL render a left sidebar that can collapse and expand, containing workflow cards (workflow presets) and a 「运行设置」 entry. In the collapsed (rail) form, group labels SHALL be conveyed through per-icon tooltips rather than persistent text labels, placeholder workflow items SHALL NOT be rendered, and rail icons SHALL NOT be compressed or overlapped on narrow viewports.
 

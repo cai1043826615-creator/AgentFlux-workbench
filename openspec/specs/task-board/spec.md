@@ -8,7 +8,7 @@ Defines the task board capability: a four-column Kanban (规划中 / 进行中 /
 
 ### Requirement: Four-column task board
 
-The system SHALL render the task board with four columns: 规划中 (planned), 进行中 (in progress), 待确认 (awaiting confirmation), 已完成 (completed). Empty columns SHALL be rendered at a compressed width so that columns holding tasks receive more horizontal space.
+The system SHALL render the task board with four columns: 规划中 (planned), 进行中 (in progress), 待确认 (awaiting confirmation), 已完成 (completed). All four columns SHALL share the available width **equally**, so that at any container width every column is the same width as the others and a card's width is constant no matter which column it sits in. The columns SHALL respond to container size changes — when the side rails are collapsed/expanded, when the rail dividers are dragged, or when the browser window is resized, the columns SHALL re-flow to the new available width rather than overflowing it or leaving unused space. Each column SHALL honour a minimum width; when the available width cannot accommodate four columns at that minimum, the board container SHALL scroll horizontally instead of shrinking columns further. An empty column SHALL NOT be collapsed or compressed.
 
 #### Scenario: Board shows four columns
 
@@ -20,19 +20,54 @@ The system SHALL render the task board with four columns: 规划中 (planned), �
 - **WHEN** a task advances through its workflow
 - **THEN** its card moves from 规划中 to 进行中, enters 待确认 at approval points, and lands in 已完成 after final approval
 
+#### Scenario: Columns keep uniform width
+
+- **WHEN** the board renders with a mix of empty and populated columns
+- **THEN** every column has the same width and no column is rendered narrower than another
+
+#### Scenario: Columns fill the available width
+
+- **WHEN** the board renders inside a container wider than four columns' minimum width
+- **THEN** the four columns together fill the container width, leaving no unused gap at the right edge
+
+#### Scenario: Columns adapt to container size changes
+
+- **WHEN** the user collapses or expands a side rail, drags a rail divider, or resizes the browser window
+- **THEN** all four columns re-flow to the new available width while remaining equal to each other
+
+#### Scenario: Board scrolls horizontally at minimum width
+
+- **WHEN** the available width is smaller than four columns at their minimum width
+- **THEN** the board scrolls horizontally and no column is rendered narrower than that minimum
+
 #### Scenario: Empty column compressed
 
 - **WHEN** a column contains no tasks
-- **THEN** that column is rendered narrower than columns containing tasks, and the freed width is given to the populated columns
+- **THEN** that column keeps the same width as columns containing tasks, and no freed width is redistributed
+
+#### Scenario: Card width is constant across columns
+
+- **WHEN** the same task card is viewed in a populated column and another card is viewed in a previously-empty column
+- **THEN** both cards occupy the same width and their action buttons stay on a single line
 
 ### Requirement: Task card content
 
-The system SHALL render each task card with title, current stage label, responsible agent, and status tag. The card SHALL render its primary action on its own full-width row, with secondary actions collected into an overflow menu; button labels SHALL NOT wrap onto multiple lines. A card in the 已完成 column SHALL expose an entry point to view its deliverables.
+The system SHALL render each task card with title, current stage label, responsible agent, and status tag. The responsible agent SHALL be shown as an **avatar positioned at the card's top-right corner**, so the card does not spend a separate row on the agent identity. The card SHALL render its primary action on its own full-width row, with secondary actions collected into an overflow menu; button labels SHALL NOT wrap onto multiple lines. A card in the 已完成 column SHALL expose an entry point to view its deliverables. The card SHALL NOT render two elements that state the same status: where a status tag (badge) already conveys the state, the secondary line SHALL carry **complementary** information (such as how long the item has been waiting) rather than restating the badge, and a completed card SHALL NOT repeat its 「已交付 · 已完成」 state in a second row.
 
 #### Scenario: Card shows agent and status
 
 - **WHEN** an agent is processing a task
-- **THEN** the card shows the agent name and a live status tag
+- **THEN** the card shows the agent's avatar at the top-right corner and a live status tag
+
+#### Scenario: Agent avatar occupies the top-right corner
+
+- **WHEN** user views any task card
+- **THEN** the responsible agent's avatar is rendered at the card's top-right corner and no separate full-width row is spent on the agent name
+
+#### Scenario: Avatar does not collide with card affordances
+
+- **WHEN** a card is in the 待确认 column (which carries a status border) or shows the overflow menu
+- **THEN** the top-right avatar stays inside the card's padding and does not overlap the border or the overflow menu control
 
 #### Scenario: Primary action occupies its own row
 
@@ -49,7 +84,15 @@ The system SHALL render each task card with title, current stage label, responsi
 - **WHEN** a task is in the 已完成 column
 - **THEN** its card shows an entry point that opens the task's deliverables
 
-### Requirement: Create new task with confirmation
+#### Scenario: Secondary line complements rather than repeats the badge
+
+- **WHEN** a card's status tag already states the current state (e.g. 「待你确认 · 主图设计」)
+- **THEN** the card's secondary line provides additional information (e.g. how long the task has been waiting) and does not restate the same state in different words
+
+#### Scenario: Completed card does not repeat its state
+
+- **WHEN** a task in the 已完成 column renders
+- **THEN** the card does not show a second 「已交付 · 已完成」 row in addition to its status tag### Requirement: Create new task with confirmation
 
 The system SHALL provide a "新建任务" button at the top-right of the board; creating a task collects task content and shows it for user confirmation before any agent starts working. Form validation messages SHALL appear only after the user has interacted with the form, so that opening the dialog does not immediately display error text.
 

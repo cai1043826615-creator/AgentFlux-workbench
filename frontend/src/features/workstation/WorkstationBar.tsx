@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { Agent } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
-import { Avatar, Badge } from '../../components/ui.tsx';
 import { AgentSettingsModal } from './AgentSettingsModal.tsx';
+import { AgentAvatarRowItem, AgentCard } from './AgentCard.tsx';
 
-import { agentColor, agentDotClass, agentLabel } from '../../lib/agentStatus.ts';
+import { agentDotClass, agentLabel } from '../../lib/agentStatus.ts';
 
 /**
  * 状态点/文案/颜色 统一收敛至 lib/agentStatus.ts（默认值 = 工位栏语义，行为不变）。
@@ -13,12 +13,27 @@ import { agentColor, agentDotClass, agentLabel } from '../../lib/agentStatus.ts'
 export const dotClass = agentDotClass;
 export const dotLabel = agentLabel;
 
-/** 工位栏（对齐线框 ws-bar）：默认折叠为一行紧凑条，展开后为完整的三张 Agent 卡（26） */
+/**
+ * 工位栏（对齐线框 ws-bar）。
+ * P1·2.1：默认展开（原为默认折叠）。
+ * P1·2.2：折叠态改为头像行——小头像 + 状态点 + 名字 + 岗位，不再只有状态点灰字。
+ * P1·5.3：Agent 卡结构抽至 AgentCard.tsx，供总览带小助理入口位复用。
+ */
+/**
+ * 工位栏（对齐线框 ws-bar）。
+ * P1·2.1：默认展开（原为默认折叠）。
+ * P1·2.2：折叠态改为头像行——小头像 + 状态点 + 名字 + 岗位，不再只有状态点灰字。
+ * P1·5.3：Agent 卡结构抽至 AgentCard.tsx，供总览带小助理入口位复用。
+ * P2·F3：工位栏语义 = **工作流班组**，只渲染文案/设计师/主管三角色——
+ *        知识库小助理（涵涵，role='助理'）不参与工作流，不出现在工位栏（其入口在知识库总览带）。
+ */
+const WORKFLOW_ROLES = ['文案', '设计师', '主管'];
+
 export function WorkstationBar() {
   const { agents } = useWorkbench();
+  const crew = agents.filter((a) => (WORKFLOW_ROLES as string[]).includes(a.role));
   const [settingsAgent, setSettingsAgent] = useState<Agent | null>(null);
-  // 26：默认折叠为约 40px 的一行，把纵向空间让给看板
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <>
@@ -26,47 +41,15 @@ export function WorkstationBar() {
         <div className="qs-card mb-3 px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between">
             <span className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-              工位 WORKSTATIONS · {agents.length} 个
+              工位 WORKSTATIONS · {crew.length} 个
             </span>
             <button type="button" className="qs-clickable qs-meta" style={{ color: 'var(--color-ink-soft)' }} onClick={() => setExpanded(false)} title="折叠工位栏">
               收起 ▴
             </button>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-3">
-            {agents.map((a) => (
-              <div
-                key={a.id}
-                className="group flex items-center gap-3.5 rounded-[4px] border px-3 py-4 transition-colors hover:border-[var(--color-line-strong)]"
-                style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)', transitionDuration: 'var(--dur-fast)' }}
-              >
-                {/* 头像（放大）+ 状态点右下（参照 ChatPanel：relative 包裹 + 白描边） */}
-                <span className="relative shrink-0" title={dotLabel(a.onlineStatus)}>
-                  <Avatar name={a.name} id={a.id} size={56} />
-                  <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${dotClass(a.onlineStatus)}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)', width: 10, height: 10 }} />
-                </span>
-                {/* 信息列：名字+角色一行、模型+活动一行、状态文字一行（模型等细节仅展开态显示） */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[15px] font-semibold">{a.name}</span>
-                    <Badge>{a.role}</Badge>
-                  </div>
-                  <div className="qs-meta truncate text-[13px]" style={{ color: 'var(--color-ink-faint)' }}>
-                    {a.model ? `模型 ${a.model}` : '未配置模型'}
-                    {a.activity ? ` · ${a.activity}` : ''}
-                  </div>
-                  <div className="qs-meta text-[13px]" style={{ color: agentColor(a.onlineStatus) }}>
-                    {dotLabel(a.onlineStatus)}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="qs-btn sm shrink-0 opacity-80 transition-opacity group-hover:opacity-100 cursor-pointer"
-                  title="Agent 设置"
-                  onClick={() => setSettingsAgent(a)}
-                >
-                  配置
-                </button>
-              </div>
+            {crew.map((a) => (
+              <AgentCard key={a.id} agent={a} onConfigure={setSettingsAgent} />
             ))}
           </div>
         </div>
@@ -75,12 +58,9 @@ export function WorkstationBar() {
           <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)' }}>
             工位
           </span>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3.5 gap-y-1">
-            {agents.map((a) => (
-              <span key={a.id} className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-soft)' }} title={dotLabel(a.onlineStatus)}>
-                <span className={`qs-dot ${dotClass(a.onlineStatus)}`} />
-                {a.name}·{dotLabel(a.onlineStatus)}
-              </span>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+            {crew.map((a) => (
+              <AgentAvatarRowItem key={a.id} agent={a} />
             ))}
           </div>
           <button type="button" className="qs-clickable qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)' }} onClick={() => setExpanded(true)} title="展开工位栏，查看模型与配置">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useWorkbench } from '../store/useWorkbench.tsx';
 import { api } from '../lib/api.ts';
 import { Glyph } from '../components/ui.tsx';
+import { NotifySettingsSection } from './workstation/NotifySettingsSection.tsx';
 
 type OrchestrationMode = 'graph' | 'linear';
 
@@ -142,6 +143,13 @@ export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: ()
                 </span>
               </label>
             </div>
+
+            {/* P1·3.2/3.3/3.4：通知分区（原顶栏 NotifyControl 迁入；仅显式点击才申请权限） */}
+            <p className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>通知</p>
+            <div className="mb-4">
+              <NotifySettingsSection />
+            </div>
+
             <div className="flex justify-end gap-2">
               <button type="button" className="qs-btn sm" onClick={() => setSettingsOpen(false)}>取消</button>
               <button type="button" className="qs-btn sm primary" onClick={saveSettings}>保存</button>

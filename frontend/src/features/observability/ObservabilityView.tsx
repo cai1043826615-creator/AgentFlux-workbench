@@ -153,7 +153,7 @@ export function ObservabilityView() {
                       意见5：「最近活跃」从本行拆出独立一行，避免元素过多被截断） */}
                   <div className="flex items-center gap-2.5">
                     <div className="relative shrink-0 self-start">
-                      <Avatar name={a.name} id={a.id} size={36} />
+                      <Avatar name={a.name} id={a.id} size={36} title={`${a.name}（${a.role}）`} />
                       <span
                         className="absolute -bottom-0.5 -right-0.5 h-[10px] w-[10px] rounded-full"
                         style={{ background: agentColor(a.onlineStatus), boxShadow: '0 0 0 2px var(--color-surface)' }}

@@ -3,7 +3,7 @@ import type { AgentOnlineStatus, TaskKbRefInput } from '@workbench/shared';
 import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter, type GlyphName } from './components/ui.tsx';
 import { api } from './lib/api.ts';
-import { isAlertsEnabled, notificationPermission, onWindowFocus, requestNotificationPermission, setAlertsEnabled } from './lib/approval-notify.ts';
+import { onWindowFocus } from './lib/approval-notify.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
 import { ChatPanel } from './features/chat/ChatPanel.tsx';
 import { WorkstationBar } from './features/workstation/WorkstationBar.tsx';
@@ -15,6 +15,7 @@ import { KnowledgeGraphView } from './features/knowledge/KnowledgeGraphView.tsx'
 import { HotView } from './features/knowledge/HotView.tsx';
 import { KbRefPicker } from './features/knowledge/KbRefPicker.tsx';
 import { ToastHost, ActionToastStack } from './components/Toast.tsx';
+import { DocPreviewModal } from './components/DocPreviewModal.tsx';
 
 /** 折叠态头像列：状态点/文案映射（与 ChatPanel 顶部头像一致） */
 const AGENT_DOT: Record<AgentOnlineStatus, string> = {
@@ -34,70 +35,11 @@ const AGENT_STATUS: Record<AgentOnlineStatus, string> = {
 const PANEL_MIN = 120;
 const PANEL_MAX = 420;
 
-/** 通知开关 + 权限入口（B9 · 13.1/12.5：状态存 localStorage；仅显式点击才申请权限） */
-function NotifyControl() {
-  const [enabled, setEnabled] = useState(() => isAlertsEnabled());
-  const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>(() => notificationPermission());
-  const [showDeniedHint, setShowDeniedHint] = useState(false);
-  const request = async () => {
-    const r = await requestNotificationPermission();
-    if (r) setPerm(r);
-  };
-  return (
-    <span className="flex items-center gap-2">
-      <label
-        className="qs-meta flex cursor-pointer select-none items-center gap-1.5"
-        title="待确认浏览器通知（本地保存，不落库）"
-      >
-        <input
-          type="checkbox"
-          className="h-3.5 w-3.5 accent-[var(--color-signal)]"
-          aria-label="浏览器通知"
-          checked={enabled}
-          onChange={(e) => {
-            const v = e.target.checked;
-            setAlertsEnabled(v);
-            setEnabled(v);
-          }}
-        />
-      </label>
-      {perm === 'default' ? (
-        <Btn size="sm" variant="ghost" onClick={() => void request()}>
-          开启通知
-        </Btn>
-      ) : perm === 'granted' ? (
-        <Badge tone="ok">已授权</Badge>
-      ) : perm === 'denied' ? (
-        <button
-          type="button"
-          className="qs-clickable"
-          title="浏览器已拒绝通知权限，点击查看如何重新开启"
-          aria-label="浏览器已拒绝通知权限，点击查看如何重新开启"
-          onClick={() => setShowDeniedHint((v) => !v)}
-        >
-          <Badge tone="no">已拒绝 · 点此开启</Badge>
-        </button>
-      ) : (
-        <span className="qs-meta hidden md:inline" style={{ color: 'var(--color-ink-faint)' }}>
-          浏览器不支持
-        </span>
-      )}
-      {perm === 'denied' && showDeniedHint ? (
-        <span
-          className="qs-meta absolute right-4 top-[54px] z-[60] max-w-[360px] rounded-[4px] border px-3 py-2 text-[12px] leading-snug"
-          style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-sunken)', color: 'var(--color-ink-soft)' }}
-          role="note"
-        >
-          浏览器已拒绝通知权限，无法自动重新申请。请手动开启：点击地址栏左侧的「站点信息 / 锁形」图标 → 在「通知」一栏选择「允许」→ 刷新后回到此处点「开启通知」。
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-/** 顶栏（Quiet Signal 精简版：logo + 产品名 + 任务 + 通知开关 + 连接状态点） */
+/** 顶栏（Quiet Signal 精简版：logo + 产品名 + 任务 + 连接状态点）
+ *  P1·3.1：通知授权控件已移入「运行设置 → 通知」分区，顶栏不再渲染。
+ *  P1·3.5：任务角标改为有含义文案「N 待确认」，不再是裸数字。 */
 function TopBar() {
-  const { approvalQueue, connected, reconnect, backToBoard, tasks } = useWorkbench();
+  const { connected, reconnect, backToBoard, tasks } = useWorkbench();
   // 待确认角标从任务派生（column === 'awaiting' 且未归档，与 applyTaskFilters 口径一致），
   // 确保与看板「待确认」列数字一致（不再用 WS 推送的 approvalQueue；归档任务不参与主视图计数）
   const pendingCount = tasks.filter((t) => t.column === 'awaiting' && !t.archived).length;
@@ -108,19 +50,14 @@ function TopBar() {
         电商工作台
       </span>
       <div className="flex-1" />
-      {/* B9 · 12.5/13.1：通知开关与权限入口（「任务」按钮附近） */}
-      <NotifyControl />
-      <button type="button" className="qs-btn sm ghost" onClick={backToBoard} style={{ position: 'relative' }}>
+      <Btn size="sm" variant="ghost" onClick={backToBoard} title="回到任务看板">
         任务
-        {pendingCount > 0 ? (
-          <span
-            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
-            style={{ background: 'var(--color-signal)' }}
-          >
-            {pendingCount}
-          </span>
-        ) : null}
-      </button>
+      </Btn>
+      {pendingCount > 0 ? (
+        <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-signal-strong)' }} title="等待你确认的任务数">
+          <span className="tabular font-semibold">{pendingCount}</span> 待确认
+        </span>
+      ) : null}
       {/* 连接状态：Connected 时只留安静的状态点；断开才升级为可点击的重连徽章（与聊天框共用同一状态） */}
       {connected ? (
         <span className="qs-dot ok" title="实时连接" />
@@ -534,11 +471,11 @@ function Shell() {
                     key={a.id}
                     type="button"
                     className="flex h-9 w-9 items-center justify-center rounded-full transition-all duration-150 hover:scale-105 hover:bg-[var(--color-signal-soft)] hover:shadow-md"
-                    title={`${a.name} · ${AGENT_STATUS[a.onlineStatus]}`}
+                    title={`${a.name}（${a.role}）· ${AGENT_STATUS[a.onlineStatus]}`}
                     onClick={() => openPrivate(a.id)}
                   >
                     <span className="relative" style={{ outline: active ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2, borderRadius: 999 }}>
-                      <Avatar name={a.name} id={a.id} size={32} />
+                      <Avatar name={a.name} id={a.id} size={32} title={`${a.name}（${a.role}）· ${AGENT_STATUS[a.onlineStatus]}`} />
                       <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${AGENT_DOT[a.onlineStatus]}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)' }} />
                     </span>
                   </button>
@@ -559,6 +496,7 @@ function Shell() {
         )}
       </div>
       <NewTaskModal />
+      <DocPreviewModal />
       <ToastHost />
       <ActionToastStack />
     </div>

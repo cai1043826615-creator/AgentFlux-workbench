@@ -225,7 +225,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                     }}
                   >
                     {state !== 'todo' && owner ? (
-                      <Avatar name={owner.name} id={owner.id} size={24} />
+                      <Avatar name={owner.name} id={owner.id} size={24} title={`${owner.name}（${owner.role}）· ${WORKFLOW_STAGE_LABELS[k]}`} />
                     ) : state === 'done' ? (
                       '✓'
                     ) : (
@@ -300,9 +300,10 @@ function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) 
   );
 }
 
-/** 任务关联的知识库资料（板块 A/B 唯一耦合点，6.3）：标题 / 路径 / 片段范围 + 跳转原文 + 失效标记 */
+/** 任务关联的知识库资料（板块 A/B 唯一耦合点，6.3）：标题 / 路径 / 片段范围 + 预览原文 + 失效标记
+ *  P2·F1：「阅读原文」改走文档预览弹窗（就地看，不离开任务详情） */
 function KbRefsPanel({ taskId }: { taskId: number }) {
-  const { openKbDoc } = useWorkbench();
+  const { openDocPreview } = useWorkbench();
   const [refs, setRefs] = useState<TaskKbRef[] | null>(null);
 
   useEffect(() => {
@@ -351,8 +352,8 @@ function KbRefsPanel({ taskId }: { taskId: number }) {
                 type="button"
                 className="shrink-0 cursor-pointer text-[12px] hover:underline"
                 style={{ color: r.valid ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}
-                onClick={() => openKbDoc(r.docPath)}
-                title="跳转到知识库阅读原文"
+                onClick={() => openDocPreview(r.docPath)}
+                title="预览全文（弹窗，不离开任务详情）"
               >
                 阅读原文
               </button>
@@ -530,11 +531,10 @@ export function TaskDetailView({
         <span style={{ color: 'var(--color-ink)' }}>任务 #{task.id}</span>
       </nav>
 
-      {/* task-head（对齐线框 th-1/2/3，QS 编辑性大标题；意见11：返回按钮与标题垂直居中、加大尺寸并带边框强调，无 emoji） */}
+      {/* task-head（对齐线框 th-1/2/3，QS 编辑性大标题；意见11：返回按钮与标题垂直居中、加大尺寸并带边框强调，无 emoji）
+          P1·7.1（意见 N10）：删除与主标题重复的 meta 行——任务编号已在面包屑「任务 #id」，
+          标题就在下方 h2，原 meta 行（`#id 标题 · 电商新品上架 · 由你创建`）三处信息全部重复。 */}
       <div>
-        <div className="qs-meta mb-1" style={{ color: 'var(--color-ink-faint)' }}>
-          #{task.id} {task.title} · 电商新品上架 · 由你创建
-        </div>
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-display min-w-0 flex-1 text-[24px] font-bold leading-[1.15] md:text-[28px]" style={{ fontFamily: 'var(--font-display)' }}>
             {task.title}

@@ -53,6 +53,9 @@ function TaskCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { download, busy: packing, error: packError } = useDownloadPackage(task.id);
+  /** 头像 tooltip 需要「名字（岗位）」：岗位由 agents 按 ownerName 反查（TaskWithMeta 不带 ownerRole） */
+  const { agents } = useWorkbench();
+  const ownerRole = agents.find((a) => a.name === task.ownerName)?.role;
 
   // 点击卡片外部关闭溢出菜单（菜单本身在卡片内，需排除自身）
   useEffect(() => {
@@ -71,11 +74,20 @@ function TaskCard({
       onClick={() => onOpen(task)}
       title="查看详情"
     >
-      <div className="flex items-baseline gap-1.5 pr-1 mb-1.5">
-        <span className="qs-meta tabular shrink-0">#{task.id}</span>
-        <h4 className="truncate font-display text-[13px] font-semibold leading-snug" style={{ fontFamily: 'var(--font-display)' }}>
+      <div className="mb-1.5 flex items-start gap-1.5">
+        <span className="qs-meta tabular pt-0.5 shrink-0">#{task.id}</span>
+        <h4 className="min-w-0 flex-1 truncate font-display text-[13px] font-semibold leading-snug" style={{ fontFamily: 'var(--font-display)' }}>
           {task.title}
         </h4>
+        {/* 负责人头像置于右上角（P1·1.5）：不再单独占一行，释放卡片高度。
+            头像 tooltip 直接传给 Avatar（外包一层设 title 不生效），文案为「名字（岗位）」 */}
+        <span className="shrink-0">
+          <Avatar
+            name={task.ownerName || '待'}
+            size={20}
+            title={task.ownerName ? `${task.ownerName}${ownerRole ? `（${ownerRole}）` : ''}` : '待分配'}
+          />
+        </span>
       </div>
 
       {task.stageNote ? (
@@ -117,14 +129,6 @@ function TaskCard({
         })}
       </div>
 
-      {/* 负责人 */}
-      <span
-        className="qs-meta mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5"
-        style={{ background: 'var(--color-sunken)', border: '1px solid var(--color-line)' }}
-      >
-        <Avatar name={task.ownerName || '待'} size={14} /> {task.ownerName || '待分配'}
-      </span>
-
       {/* 主操作独占一行（次要操作已收进下方 ⋯ 溢出菜单，避免三按钮挤在一行导致中文折行） */}
       {task.column === 'planned' ? (
         <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
@@ -143,16 +147,10 @@ function TaskCard({
           </span>
         ) : null}
         {task.column === 'done' ? (
-          <>
-            <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
-              <span className="qs-dot ok" />
-              已交付 · 已完成
-            </span>
-            {/* 28：终态卡片补「查看交付物 →」入口（指向任务详情的内容交付 Tab） */}
-            <button type="button" className="qs-clickable qs-meta inline-flex items-center gap-1" style={{ color: 'var(--color-signal)' }} onClick={() => onOpen(task)}>
-              查看交付物 →
-            </button>
-          </>
+          // P1·1.6：已交付/已完成已由上方 badge 表达，此处不再重复；仅保留「查看交付物 →」入口
+          <button type="button" className="qs-clickable qs-meta inline-flex items-center gap-1" style={{ color: 'var(--color-signal)' }} onClick={() => onOpen(task)}>
+            查看交付物 →
+          </button>
         ) : null}
         <div className="flex-1" />
         {/* B4 · 4.10 下载失败原因（409 中文）现在卡片层级展示，避免藏在菜单里被忽略 */}
@@ -162,7 +160,7 @@ function TaskCard({
           </span>
         ) : null}
         <div className="relative" ref={menuRef}>
-          <Btn size="sm" variant="ghost" title="更多操作" onClick={() => setMenuOpen((v) => !v)}>
+          <Btn size="sm" variant="ghost" className="outline" title="更多操作" onClick={() => setMenuOpen((v) => !v)}>
             ⋯
           </Btn>
           {menuOpen ? (
@@ -284,11 +282,11 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
       ) : boardMode === 'list' ? (
         <TaskListTable tasks={visible} onOpen={onOpen} />
       ) : (
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto">
+        <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
           {COLUMNS.map((col) => {
             const list = visible.filter((t) => t.column === col.key);
             return (
-              <section key={col.key} className={`qs-card flex flex-col overflow-hidden ${list.length === 0 ? 'w-[96px] flex-none' : 'min-w-[200px] flex-1'}`}>
+              <section key={col.key} className="qs-card flex min-w-[240px] flex-1 flex-col overflow-hidden">
                 <header className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ borderColor: 'var(--color-line)' }}>
                   <span className="text-[13px] font-medium">{col.label}</span>
                   <span className="qs-meta tabular">{list.length}</span>
