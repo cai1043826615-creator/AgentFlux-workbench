@@ -610,7 +610,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   );
 }
 
-/** 每日热点视图（板块 B）：只读情报面板（多源 / 三态降级 / 电商化分层 / A4 排版） */
+/** 每日热点视图：只读情报面板（多源 / 三态降级 / 电商化分层 / A4 排版） */
 export function HotView() {
   const [panel, setPanel] = useState<HotPanel | null>(null);
   const [loading, setLoading] = useState(true);

@@ -115,7 +115,7 @@ export const api = {
   // ===== 聊天 =====
   chatHistory: (chatKind: 'group' | 'private', to: string) => j<{ messages: Message[] }>(fetch(`/api/chat/history?kind=${chatKind}&to=${encodeURIComponent(to)}`)),
 
-  // ===== 知识库（板块 B） =====
+  // ===== 知识库 =====
   kbStatus: () => j<{ status: KnowledgeStatus }>(fetch('/api/knowledge/status')),
   /** 保存 Vault 配置（root 为空 = 断开连接；可携带业务预设依据目录）；保存后后端触发后台重建索引 */
   kbSaveConfig: (input: KnowledgeVaultConfigInput) =>

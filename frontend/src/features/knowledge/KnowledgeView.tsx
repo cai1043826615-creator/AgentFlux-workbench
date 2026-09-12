@@ -164,7 +164,7 @@ function DirTree({ dirs, active, onPick }: { dirs: KnowledgeDirInfo[]; active: s
   );
 }
 
-/** 知识库视图（板块 B）：总览统计 + 目录/标签浏览 + 全文搜索 + Markdown 原文阅读 */
+/** 知识库视图：总览统计 + 目录/标签浏览 + 全文搜索 + Markdown 原文阅读 */
 export function KnowledgeView() {
   const { kbDocPath, openKbDoc } = useWorkbench();
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
