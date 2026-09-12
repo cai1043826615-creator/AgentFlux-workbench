@@ -146,7 +146,7 @@ grep -nE "CREATE TABLE|ALTER TABLE|DROP TABLE|INSERT INTO|UPDATE .* SET|DELETE F
 
 ## 协调者浏览器执行结果（2026-09-11 回填）
 
-> 验证环境：后端 4312 + 示例 Vault（10_raw/products + wiki/brand，6 篇 md）；浏览器 DOM 断言为主（本会话无视觉桥，未截图比对像素级渲染）。
+> 验证环境：后端 4311 + 示例 Vault（10_raw/products + wiki/brand，6 篇 md）；浏览器 DOM 断言为主（本会话无视觉桥，未截图比对像素级渲染）。
 
 | 清单 # | 结果 |
 | --- | --- |
