@@ -63,11 +63,16 @@ function progressOf(wf: WorkflowDefinition, stage: string, done: boolean): numbe
   return Math.round((idx / (wf.nodes.length - 1)) * 100);
 }
 
+/**
+ * 卡片副标题（stage note）。
+ * P1·1.7：这里只产出「补足信息」，不再复述状态列/阶段——状态已由卡片上的 badge 表达，
+ * 两边说同一件事会让卡片显得啰嗦。done 列不再返回重复文案（调用方亦不再渲染该行）。
+ */
 function stageNoteOf(stageNode: WorkflowNode | undefined, column: BoardColumn, ownerName?: string): string {
-  if (column === 'awaiting' && stageNode) return `${stageNode.label}完成 · 待你确认`;
-  if (column === 'done') return '已交付 · 已完成';
+  if (column === 'awaiting' && stageNode) return '等待你处理';
+  if (column === 'done') return '';
   if (stageNode) {
-    return ownerName ? `${stageNode.label} · ${ownerName} 处理中` : `${stageNode.label} · 进行中`;
+    return ownerName ? `由 ${ownerName} 处理中` : '处理中';
   }
   return '待领取';
 }

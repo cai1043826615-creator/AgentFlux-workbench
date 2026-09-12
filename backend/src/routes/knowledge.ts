@@ -15,6 +15,8 @@ import { rebuildIndexInBackground } from '../knowledge/indexer.ts';
 import { HotRefInvalidError, HotRefLimitError, KbRefInvalidError, KbRefLimitError, listTaskHotRefs, listTaskKbRefs, setTaskHotRefs, setTaskKbRefs } from '../knowledge/refs.ts';
 import { searchDocs } from '../knowledge/search.ts';
 import { ensureKnowledgeSchema } from '../knowledge/schema.ts';
+import { createDraft, deleteDraft, getDraft, listDrafts } from '../knowledge/drafts.ts';
+import { runAssistant, type AssistantKind } from '../knowledge/assistant.ts';
 import { resolveVaultConfig, saveVaultConfig } from '../knowledge/vault.ts';
 
 export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
@@ -27,8 +29,9 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
 
   // 保存 Vault 配置（设置面板）：root 为空 = 断开连接；保存后触发后台重建索引
   app.put<{ Body: KnowledgeVaultConfigInput }>('/api/knowledge/config', async (req) => {
-    const { root, includeDirs, excludeDirs, presetDirs } = req.body ?? {};
-    saveVaultConfig({ root, includeDirs, excludeDirs, presetDirs });
+    // P1·6.5：presetEntries（重点目录）必须一并透传，否则前端编辑无法落库
+    const { root, includeDirs, excludeDirs, presetDirs, presetEntries } = req.body ?? {};
+    saveVaultConfig({ root, includeDirs, excludeDirs, presetDirs, presetEntries });
     const cfg = resolveVaultConfig();
     let started = false;
     if (cfg.root) started = rebuildIndexInBackground();
@@ -146,4 +149,39 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
   });
+
+  // ===== 小助理草稿区（P2·F3）：列表 / 详情 / 删除 =====
+  // 只读承诺：这里只有工作台自有库的草稿 CRUD，绝不触碰 Vault 文件。
+
+  app.get('/api/kb-drafts', async () => ({ drafts: listDrafts() }));
+
+  app.get<{ Params: { id: string } }>('/api/kb-drafts/:id', async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'invalid draft id' });
+    const draft = getDraft(id);
+    if (!draft) return reply.code(404).send({ error: '草稿不存在或已删除' });
+    return { draft };
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/kb-drafts/:id', async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'invalid draft id' });
+    const ok = deleteDraft(id);
+    if (!ok) return reply.code(404).send({ error: '草稿不存在或已删除' });
+    return { deleted: true };
+  });
+
+  // 小助理整理（P2·F3）：doc=文档整理 / hot=热点素材卡 / audit=知识库体检；产出一律进草稿区
+  app.post<{ Body: { kind?: string; ref?: string; note?: string; item?: { id?: string; title?: string; summary?: string; sourceName?: string; source?: string; url?: string } } }>(
+    '/api/kb-assistant/organize',
+    async (req, reply) => {
+      const kind = req.body?.kind as AssistantKind | undefined;
+      if (kind !== 'doc' && kind !== 'hot' && kind !== 'audit') {
+        return reply.code(400).send({ error: 'kind 必须是 doc / hot / audit 之一' });
+      }
+      const result = await runAssistant({ kind, ref: req.body?.ref, item: req.body?.item, note: req.body?.note });
+      if (!result.ok) return reply.code(422).send({ error: result.error });
+      return result;
+    },
+  );
 }

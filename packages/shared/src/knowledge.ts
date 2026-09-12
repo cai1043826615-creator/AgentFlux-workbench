@@ -31,10 +31,15 @@ export interface KnowledgeStatus {
   /** 索引是否正在构建（异步后台任务） */
   indexing: boolean;
   /**
-   * 业务预设依据（knowledge-ux）：依据类型固定为「目录」，路径可在连接设置中修改。
+   * 业务预设依据（knowledge-ux）：依据类型固定为「目录」。
    * 未配置/非法时后端回退内置默认（KB_GRAPH_PRESETS）。
    */
   presets?: { type: 'dir'; products: string; brand: string };
+  /**
+   * 重点目录（P1·意见#8）：用户可增删改的一组「我的分类快捷方式」，知识库页与星图页共用同一份。
+   * 读取兼容：旧结构只有 `presets`（products/brand 两项）时，后端会映射为条目列表返回于此。
+   */
+  presetEntries?: KnowledgePresetEntry[];
 }
 
 /** 文档摘要（浏览/搜索/关系列表通用） */
@@ -395,20 +400,49 @@ export interface KnowledgeGraphPreset {
   dir: string;
 }
 
-/** 图谱业务预设内置默认（设置缺失/非法时回退；可在连接设置中修改并持久化到设置表） */
+/**
+ * 重点目录条目（P1·意见#8）：用户可增删改。
+ * 与 `KnowledgeGraphPreset` 的区别——后者是内置固定两项（含服务端过滤语义），
+ * 本类型是**用户维护的列表**，knowledge 页与星图页共用，持久化在设置表。
+ */
+export interface KnowledgePresetEntry {
+  /** 稳定标识（新增时由后端生成；用于增删改定位） */
+  id: string;
+  /** 中文显示名（用户可改） */
+  label: string;
+  /** 依据目录（相对 Vault 根路径，用户可改） */
+  dir: string;
+}
+
+/** 图谱业务预设内置默认（设置缺失/非法时回退；可在知识库设置中修改并持久化到设置表）
+ *  P1：示例 Vault 的目录已改为中文名，内置默认同步为中文路径。 */
 export const KB_GRAPH_PRESETS: KnowledgeGraphPreset[] = [
-  { id: 'products', label: '只看产品资料', dir: '10_raw/products' },
-  { id: 'brand', label: '只看品牌规范', dir: 'wiki/brand' },
+  { id: 'products', label: '只看产品资料', dir: '原始资料/产品资料' },
+  { id: 'brand', label: '只看品牌规范', dir: '知识库/品牌规范' },
+];
+
+/**
+ * 重点目录内置默认（P1·意见#8）：用户从未配置过时以此为起点，
+ * 之后完全以用户维护的列表为准（可增 / 可改 / 可删）。
+ */
+export const KB_DEFAULT_PRESET_ENTRIES: KnowledgePresetEntry[] = [
+  { id: 'products', label: '产品资料', dir: '原始资料/产品资料' },
+  { id: 'brand', label: '品牌规范', dir: '知识库/品牌规范' },
 ];
 
 /** 业务预设依据类型（当前固定为目录） */
 export type KnowledgePresetBasis = 'dir';
 
-/** Vault 配置保存输入（连接设置面板；root 为空 = 断开连接） */
+/** Vault 配置保存输入（知识库设置面板；root 为空 = 断开连接） */
 export interface KnowledgeVaultConfigInput {
   root?: string;
   includeDirs?: string[];
   excludeDirs?: string[];
   /** 业务预设依据目录（可选；未传时保留既有值） */
   presetDirs?: { products: string; brand: string };
+  /**
+   * 重点目录列表（P1·意见#8）：整表替换语义——传什么就存什么。
+   * 若要「只改接入不改重点目录」，不传本字段即可。
+   */
+  presetEntries?: KnowledgePresetEntry[];
 }

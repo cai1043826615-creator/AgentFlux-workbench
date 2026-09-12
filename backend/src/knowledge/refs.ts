@@ -50,12 +50,28 @@ function toRef(row: TaskKbRefRow, valid: boolean): TaskKbRef {
   };
 }
 
-/** 文档当前是否可用（索引内存在，或 Vault 中实际存在） */
+/**
+ * 文档当前是否可用（索引内存在，或 Vault 中实际存在）。
+ *
+ * P1 补充：Vault 目录改名后，库中历史 `doc_path`（如 `wiki/brand/品牌规范.md`）会因**路径前缀变化**
+ * 而整体失效，但文件本身仍在（如 `知识库/品牌规范/品牌规范.md`）。为避免用户既有关联凭空变成「失效」，
+ * 这里增加**按文件名回退匹配**：精确路径未命中时，若索引中存在**唯一**同名文档，则视为该文档。
+ *
+ * 之所以只做「唯一同名」而不做模糊匹配：多篇同名文档时无法判断用户当初指的是哪一篇，
+ * 宁可继续判为失效（并保留标题供追溯），也不猜错引用目标。
+ */
 function isDocAvailable(docPath: string): boolean {
   const path = normalizeRel(docPath);
   const indexed = get<{ path: string }>(`SELECT path FROM ${KT.docs} WHERE path = ?`, [path]);
   if (indexed) return true;
-  return vaultFileExists(resolveVaultConfig(), path);
+  if (vaultFileExists(resolveVaultConfig(), path)) return true;
+
+  // 按文件名回退：仅当索引中同名文档唯一时才认定可用
+  const base = path.split('/').pop() ?? '';
+  if (!base) return false;
+  const escaped = base.replace(/[\\%_]/g, (m) => `\\${m}`);
+  const sameName = all<{ path: string }>(`SELECT path FROM ${KT.docs} WHERE path LIKE ? ESCAPE '\\'`, [`%/${escaped}`]);
+  return sameName.length === 1;
 }
 
 /** 归一化并校验关联资料（不改库；超限/资料不存在时抛出） */

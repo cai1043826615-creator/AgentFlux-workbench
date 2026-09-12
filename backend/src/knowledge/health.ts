@@ -14,20 +14,53 @@
 import type { KnowledgeHealth } from '@workbench/shared';
 import { all, get } from '../db/client.ts';
 import { KT, ensureKnowledgeSchema } from './schema.ts';
-import { resolveVaultConfig } from './vault.ts';
+import { normalizeRel, resolveVaultConfig } from './vault.ts';
 
 /**
  * 文档使用率（分子/分母/比例）。
  * 分子 = `task_kb_refs.doc_path` 与当前索引求交后的不同文档数（JOIN 天然剔除失效行，重复关联去重）；
  * 分母 = 当前已索引文档总数；`totalDocs === 0` 时 `ratio = null` 且不抛错。
  */
+/**
+ * 文档使用率：被任务引用的资料数 ÷ 索引到的总文档数。
+ *
+ * P1 补充：Vault 目录改名后，`task_kb_refs.doc_path` 中保存的旧路径与索引中的新路径
+ * **前缀不同**，精确 JOIN 会全部落空、使用率恒为 0。因此除精确匹配外，增加**按文件名回退**：
+ * 仅当索引中存在唯一同名文档时计入，与 `refs.ts` 的 `isDocAvailable` 判定口径保持一致。
+ */
 export function computeDocUsageRate(): { linkedDocs: number; totalDocs: number; ratio: number | null } {
   ensureKnowledgeSchema();
   const totalDocs = Number(get<{ c: number }>(`SELECT count(*) c FROM ${KT.docs}`)?.c ?? 0);
   if (totalDocs === 0) return { linkedDocs: 0, totalDocs: 0, ratio: null };
-  const linkedDocs = Number(
-    get<{ c: number }>(`SELECT count(DISTINCT r.doc_path) c FROM ${KT.taskRefs} r JOIN ${KT.docs} d ON d.path = r.doc_path`)?.c ?? 0,
-  );
+
+  const refPaths = all<{ doc_path: string }>(`SELECT DISTINCT doc_path FROM ${KT.taskRefs}`);
+  const exact = new Set(all<{ path: string }>(`SELECT path FROM ${KT.docs}`).map((d) => d.path));
+  // 文件名 → 该名字在索引中出现的次数（用于「唯一同名」判定）
+  const byBase = new Map<string, number>();
+  for (const p of exact) {
+    const base = p.split('/').pop() ?? '';
+    if (base) byBase.set(base, (byBase.get(base) ?? 0) + 1);
+  }
+
+  const used = new Set<string>();
+  for (const r of refPaths) {
+    const p = normalizeRel(r.doc_path);
+    if (!p) continue;
+    if (exact.has(p)) {
+      used.add(p);
+      continue;
+    }
+    const base = p.split('/').pop() ?? '';
+    if (base && byBase.get(base) === 1) {
+      for (const q of exact) {
+        if ((q.split('/').pop() ?? '') === base) {
+          used.add(q);
+          break;
+        }
+      }
+    }
+  }
+  const linkedDocs = used.size;
   return { linkedDocs, totalDocs, ratio: linkedDocs / totalDocs };
 }
 

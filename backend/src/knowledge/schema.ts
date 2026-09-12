@@ -23,6 +23,8 @@ export const KT = {
   meta: 'knowledge_meta',
   taskRefs: 'task_kb_refs',
   hotTaskRefs: 'task_hot_refs',
+  /** P2·F3：小助理草稿区（工作台自有存储，独立于 Vault；不经知识库索引/搜索/星图） */
+  drafts: 'kb_drafts',
 } as const;
 
 /** 元信息键 */
@@ -148,6 +150,34 @@ export function ensureKnowledgeSchema(): void {
     );
   `);
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_task_hot_refs_task ON task_hot_refs (task_id);');
+
+  // P2·F3 小助理草稿区：工作台自有存储，独立于 Vault（只读承诺不破）。
+  // source_kind: doc=文档整理 / hot=热点素材卡 / audit=知识库体检建议 / raw=解析失败原文
+  // source_ref: 来源引用（文档相对路径或热点 id）；agent_id: 产出者（当前固定 agent-assistant）
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS kb_drafts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      source_kind TEXT NOT NULL,
+      source_ref TEXT NOT NULL DEFAULT '',
+      agent_id TEXT NOT NULL DEFAULT 'agent-assistant',
+      structured INTEGER NOT NULL DEFAULT 1,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+}
+
+/** kb_drafts 行（P2·F3 草稿区） */
+export interface KbDraftRow {
+  id: number;
+  title: string;
+  source_kind: 'doc' | 'hot' | 'audit' | 'raw';
+  source_ref: string;
+  agent_id: string;
+  structured: number;
+  content: string;
+  created_at: string;
 }
 
 /** task_hot_refs 行 */

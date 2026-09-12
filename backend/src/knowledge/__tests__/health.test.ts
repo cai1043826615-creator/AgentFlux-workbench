@@ -53,10 +53,10 @@ function clearKnowledge(): void {
 /** 构造 A/B/C/D 样本（spec 孤岛判定场景）：A 链接到 B；C 无链接且标签独有；D 无链接但与 B 共享「产品资料」 */
 function seedIslandSample(): void {
   clearKnowledge();
-  insertDoc('a.md', ['产品资料', '充电'], '10_raw/products');
-  insertDoc('b.md', ['产品资料', '品牌'], 'wiki/brand');
-  insertDoc('c.md', ['独有标签'], '10_raw/notes');
-  insertDoc('d.md', ['品牌'], 'wiki/brand');
+  insertDoc('a.md', ['产品资料', '充电'], '原始资料/产品资料');
+  insertDoc('b.md', ['产品资料', '品牌'], '知识库/品牌规范');
+  insertDoc('c.md', ['独有标签'], '原始资料/随手记');
+  insertDoc('d.md', ['品牌'], '知识库/品牌规范');
   // A → B 文档间链接（与索引器格式一致）
   run(`INSERT INTO ${KT.links} (source_path,target,kind) VALUES (?,?,?)`, ['a.md', 'b.md', 'link']);
   // 文档-标签归属边（与索引器格式一致：target 为 tag:<标签>）
@@ -86,15 +86,15 @@ before(async () => {
 });
 
 describe('1.3 业务预设依据配置化（后端）', () => {
-  test('未配置 presetDirs 时回退内置默认（只看产品资料 → 10_raw/products，只看品牌规范 → wiki/brand）', () => {
+  test('未配置 presetDirs 时回退内置默认（只看产品资料 → 原始资料/产品资料，只看品牌规范 → 知识库/品牌规范）', () => {
     saveVaultConfig({ root: '' });
     const cfg = resolveVaultConfig();
-    assert.equal(cfg.presetDirs.products, '10_raw/products');
-    assert.equal(cfg.presetDirs.brand, 'wiki/brand');
+    assert.equal(cfg.presetDirs.products, '原始资料/产品资料');
+    assert.equal(cfg.presetDirs.brand, '知识库/品牌规范');
     const st = knowledgeStatus();
     assert.equal(st.presets?.type, 'dir');
-    assert.equal(st.presets?.products, '10_raw/products');
-    assert.equal(st.presets?.brand, 'wiki/brand');
+    assert.equal(st.presets?.products, '原始资料/产品资料');
+    assert.equal(st.presets?.brand, '知识库/品牌规范');
   });
 
   test('保存 presetDirs 后重新解析返回新值', () => {
@@ -113,8 +113,8 @@ describe('1.3 业务预设依据配置化（后端）', () => {
     saveVaultConfig({ root: '', presetDirs: { products: '  ', brand: '' } });
     const st = knowledgeStatus();
     assert.equal(st.state, 'disconnected');
-    assert.equal(st.presets?.products, '10_raw/products');
-    assert.equal(st.presets?.brand, 'wiki/brand');
+    assert.equal(st.presets?.products, '原始资料/产品资料');
+    assert.equal(st.presets?.brand, '知识库/品牌规范');
     saveVaultConfig({ root: '' });
   });
 });

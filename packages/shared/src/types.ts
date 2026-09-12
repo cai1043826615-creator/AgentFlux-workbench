@@ -14,7 +14,8 @@ export const BOARD_COLUMNS: { key: BoardColumn; label: string }[] = [
 ];
 
 // ===== Agent =====
-export type AgentRole = '文案' | '设计师' | '主管';
+/** 助理：知识库小助理（涵涵）。不参与电商工作流（派发/阶段条/播报均为三角色白名单），只在知识库侧活动 */
+export type AgentRole = '文案' | '设计师' | '主管' | '助理';
 /** unconfigured：渠道未配置（API 未连接） */
 export type AgentOnlineStatus = 'online' | 'busy' | 'idle' | 'unconfigured';
 

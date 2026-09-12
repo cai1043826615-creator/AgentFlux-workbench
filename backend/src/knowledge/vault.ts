@@ -11,8 +11,8 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { KnowledgeVaultConfigInput } from '@workbench/shared';
-import { KB_GRAPH_PRESETS } from '@workbench/shared';
+import type { KnowledgePresetEntry, KnowledgeVaultConfigInput } from '@workbench/shared';
+import { KB_DEFAULT_PRESET_ENTRIES, KB_GRAPH_PRESETS } from '@workbench/shared';
 import { get, run, sqlite } from '../db/client.ts';
 
 /** 设置表中 Vault 配置的键名 */
@@ -24,10 +24,10 @@ export const VAULT_ENV_KEY = 'WORKBENCH_VAULT_ROOT';
 /** 默认排除目录（Obsidian / 版本库 / 依赖 / 回收站） */
 export const DEFAULT_EXCLUDE_DIRS = ['.git', '.obsidian', '.trash', 'node_modules', '.pnpm-store', 'dist', '.DS_Store'];
 
-/** 业务预设依据目录的内置默认（与共享常量 KB_GRAPH_PRESETS 同源） */
+/** 业务预设依据目录的内置默认（与共享常量 KB_GRAPH_PRESETS 同源；P1 起为中文目录路径） */
 export const DEFAULT_PRESET_DIRS = {
-  products: KB_GRAPH_PRESETS.find((p) => p.id === 'products')?.dir ?? '10_raw/products',
-  brand: KB_GRAPH_PRESETS.find((p) => p.id === 'brand')?.dir ?? 'wiki/brand',
+  products: KB_GRAPH_PRESETS.find((p) => p.id === 'products')?.dir ?? '原始资料/产品资料',
+  brand: KB_GRAPH_PRESETS.find((p) => p.id === 'brand')?.dir ?? '知识库/品牌规范',
 } as const;
 
 /** 只读边界被违反时抛出 */
@@ -63,6 +63,12 @@ export interface VaultConfig {
   excludeDirs: string[];
   /** 业务预设依据目录（设置缺失/非法时回退内置默认，不报错） */
   presetDirs: { products: string; brand: string };
+  /**
+   * 重点目录（P1·意见#8）：用户可增删改的列表；两页共用。
+   * 未配置过时回退 `KB_DEFAULT_PRESET_ENTRIES`；
+   * 仅存在旧结构 `presetDirs` 时映射为两条（兼容既有用户配置）。
+   */
+  presetEntries: KnowledgePresetEntry[];
   /** settings 设置面板 / env 环境变量 / none 未配置 */
   source: 'settings' | 'env' | 'none';
   /** 未连接原因（中文，source=none 或路径无效时） */
@@ -75,6 +81,8 @@ interface VaultSettingsValue {
   includeDirs?: unknown;
   excludeDirs?: unknown;
   presetDirs?: unknown;
+  /** P1·意见#8：用户维护的重点目录列表 */
+  presetEntries?: unknown;
 }
 
 function asStringArray(v: unknown): string[] {
@@ -93,6 +101,32 @@ function parsePresetDirs(v: unknown): { products: string; brand: string } {
     products: products || fallback.products,
     brand: brand || fallback.brand,
   };
+}
+
+/**
+ * 解析重点目录列表（P1·意见#8）：
+ * - 配置了 `presetEntries`（数组）→ 归一化后使用（label 空则回退 dir；dir 空则丢弃该项）
+ * - 未配置 → 回退内置默认 `KB_DEFAULT_PRESET_ENTRIES`
+ * 说明：旧结构 `presetDirs` 由 `presetDirs` 字段独立承载，本函数不再依赖它——
+ *      两页读取的是 `presetEntries`，而服务端过滤仍走 `presetDirs`（保持既有语义不回归）。
+ */
+function parsePresetEntries(v: unknown): KnowledgePresetEntry[] {
+  if (!Array.isArray(v)) return [...KB_DEFAULT_PRESET_ENTRIES];
+  const out: KnowledgePresetEntry[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < v.length; i++) {
+    const raw = v[i];
+    if (!raw || typeof raw !== 'object') continue;
+    const o = raw as Record<string, unknown>;
+    const dir = normalizeRel(typeof o.dir === 'string' ? o.dir : '');
+    if (!dir) continue; // 无依据目录的条目无意义，丢弃
+    let id = typeof o.id === 'string' ? o.id.trim() : '';
+    if (!id || seen.has(id)) id = `preset-${i + 1}-${dir.replace(/[^\w\u4e00-\u9fa5]+/g, '-')}`;
+    seen.add(id);
+    const label = typeof o.label === 'string' && o.label.trim() ? o.label.trim() : dir.split('/').pop() || dir;
+    out.push({ id, label, dir });
+  }
+  return out.length > 0 ? out : [...KB_DEFAULT_PRESET_ENTRIES];
 }
 
 /** 归一化相对路径：统一 / 分隔、去掉首尾斜杠与 ./ 前缀 */
@@ -128,27 +162,28 @@ export function resolveVaultConfig(): VaultConfig {
   const includeDirs = asStringArray(settings?.includeDirs).map(normalizeRel).filter(Boolean);
   const excludeDirs = [...new Set([...DEFAULT_EXCLUDE_DIRS, ...asStringArray(settings?.excludeDirs).map(normalizeRel).filter(Boolean)])];
   const presetDirs = parsePresetDirs(settings?.presetDirs);
+  const presetEntries = parsePresetEntries(settings?.presetEntries);
 
   const rawRoot = settingsRoot || envRoot;
   const source: VaultConfig['source'] = settingsRoot ? 'settings' : envRoot ? 'env' : 'none';
   if (!rawRoot) {
-    return { root: null, includeDirs, excludeDirs, presetDirs, source: 'none', reason: '未配置 Vault 路径（设置面板或环境变量 WORKBENCH_VAULT_ROOT）' };
+    return { root: null, includeDirs, excludeDirs, presetDirs, presetEntries, source: 'none', reason: '未配置 Vault 路径（设置面板或环境变量 WORKBENCH_VAULT_ROOT）' };
   }
 
   const abs = resolve(rawRoot);
   if (!existsSync(abs)) {
-    return { root: null, includeDirs, excludeDirs, presetDirs, source, reason: `Vault 目录不存在：${abs}` };
+    return { root: null, includeDirs, excludeDirs, presetDirs, presetEntries, source, reason: `Vault 目录不存在：${abs}` };
   }
   let real: string;
   try {
     real = realpathSync(abs);
   } catch {
-    return { root: null, includeDirs, excludeDirs, presetDirs, source, reason: `Vault 目录不可读：${abs}` };
+    return { root: null, includeDirs, excludeDirs, presetDirs, presetEntries, source, reason: `Vault 目录不可读：${abs}` };
   }
   if (!statSync(real).isDirectory()) {
-    return { root: null, includeDirs, excludeDirs, presetDirs, source, reason: `Vault 路径不是目录：${real}` };
+    return { root: null, includeDirs, excludeDirs, presetDirs, presetEntries, source, reason: `Vault 路径不是目录：${real}` };
   }
-  return { root: real, includeDirs, excludeDirs, presetDirs, source };
+  return { root: real, includeDirs, excludeDirs, presetDirs, presetEntries, source };
 }
 
 /** 保存 Vault 配置到设置表（设置面板调用；root 为空表示断开连接） */
@@ -160,6 +195,10 @@ export function saveVaultConfig(input: KnowledgeVaultConfigInput): void {
   };
   if (input.presetDirs) {
     value.presetDirs = { products: normalizeRel(input.presetDirs.products), brand: normalizeRel(input.presetDirs.brand) };
+  }
+  // P1·意见#8：重点目录整表替换（传了才写；只改接入时不动它）
+  if (input.presetEntries) {
+    value.presetEntries = input.presetEntries;
   }
   const json = JSON.stringify(value);
   let exists: { key: string } | undefined;

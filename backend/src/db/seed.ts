@@ -32,6 +32,17 @@ export const SEED_AGENTS = [
     skills: JSON.stringify(['质检清单']),
     files: JSON.stringify([]),
   },
+  {
+    // P2·F3：知识库小助理「涵涵」。不参与电商工作流（AGENT_BY_ROLE 三角色白名单不含「助理」），
+    // 只做知识库侧整理（文档→md / 热点素材卡 / 知识库体检），产出一律进草稿区，对 Vault 只读。
+    id: 'agent-assistant',
+    name: '涵涵',
+    role: '助理',
+    persona: '知识库整理助理，负责把产品资料与每日热点素材整理成结构化 Markdown（保留关键事实与来源路径），并能对知识库做体检给出整理建议（重复主题/缺失标签/可互链孤岛）。只读知识库，绝不修改 Vault 内任何文件。',
+    model: 'deepseek-chat',
+    skills: JSON.stringify(['知识库整理', '素材结构化']),
+    files: JSON.stringify([]),
+  },
 ] as const;
 
 /** 确保预置数据存在（幂等） */

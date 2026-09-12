@@ -41,6 +41,8 @@ export function knowledgeStatus(): KnowledgeStatus {
     range: { includeDirs: cfg.includeDirs, excludeDirs: cfg.excludeDirs },
     indexing: isIndexing(),
     presets: { type: 'dir', products: cfg.presetDirs.products, brand: cfg.presetDirs.brand },
+    // P1·意见#8：重点目录列表（用户可增删改；两页共用同一份数据）
+    presetEntries: cfg.presetEntries,
   };
 }
 
@@ -160,14 +162,28 @@ export function summariesOf(paths: string[]): KnowledgeDocSummary[] {
 /**
  * 打开文档阅读：优先读 Vault 实时原文（标题/正文/章节锚点），
  * Vault 不可用或文件缺失时回退索引内正文（仍可阅读与引用）。
+ *
+ * P1·Vault 改名兼容：task_kb_refs 等处保存的旧路径（英文目录）与索引新路径前缀不同，
+ * 精确未命中时按「唯一同名文档」回退解析（与 refs.isDocAvailable / health.computeDocUsageRate 同一口径），
+ * 避免既有引用在阅读/预览时报「文档不存在」。
  */
 export async function readDoc(relPath: string): Promise<KnowledgeDoc | null> {
   ensureKnowledgeSchema();
   const path = normalizeRel(relPath);
   if (!path) return null;
-  const row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [path]);
+  let row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [path]);
+  if (!row) {
+    const base = path.split('/').pop() ?? '';
+    if (base) {
+      const sameName = all<{ path: string }>(`SELECT path FROM ${KT.docs} WHERE path LIKE ? ESCAPE '\\'`, [
+        `%/${base.replace(/[\\%_]/g, (m) => `\\${m}`)}`,
+      ]);
+      if (sameName.length === 1) row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [sameName[0].path]);
+    }
+  }
+  const effectivePath = row?.path ?? path;
   const cfg = resolveVaultConfig();
-  const live = cfg.root ? await readVaultFile(cfg, path) : null;
+  const live = cfg.root ? await readVaultFile(cfg, effectivePath) : null;
 
   if (!row && !live) return null;
   const rawContent = live?.content ?? row?.body ?? '';
@@ -175,7 +191,7 @@ export async function readDoc(relPath: string): Promise<KnowledgeDoc | null> {
   const body = live ? fm.body : rawContent;
   const summary = row
     ? rowToSummary(live ? { ...row, mtime: live.mtime, size: live.size } : row)
-    : { path, title: path.replace(/\.md$/i, ''), dir: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '', tags: [] as string[], mtime: live?.mtime ?? '', size: live?.size ?? 0 };
+    : { path: effectivePath, title: effectivePath.replace(/\.md$/i, ''), dir: effectivePath.includes('/') ? effectivePath.slice(0, effectivePath.lastIndexOf('/')) : '', tags: [] as string[], mtime: live?.mtime ?? '', size: live?.size ?? 0 };
 
   return {
     ...summary,

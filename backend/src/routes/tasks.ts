@@ -19,6 +19,7 @@ import type {
 } from '@workbench/shared';
 import { service, RetryLimitError, RetryNotAllowedError } from '../engine/service.ts';
 import { KbRefInvalidError, KbRefLimitError, countKbRefsByTask, setTaskKbRefs, validateTaskKbRefs } from '../knowledge/refs.ts';
+import { cleanTaskDescription } from '../knowledge/description-clean.ts';
 import { all } from '../db/client.ts';
 import type { TaskRow } from '../db/schema.ts';
 import { buildTaskCostSummary } from '../agents/cost.ts';
@@ -44,7 +45,8 @@ function toTaskFromRow(row: TaskRow): Task {
     stage: row.stage,
     column: row.column as BoardColumn,
     ownerAgentId: row.owner_agent_id,
-    description: row.description,
+    // P1·7.3：读取时清洗正文里历史遗留的溯源机器字段（不改库）
+    description: cleanTaskDescription(row.description),
     platform: platforms[0] ?? '',
     platforms: platforms.length > 0 ? platforms : undefined,
     referenceImage: row.reference_image ?? undefined,
