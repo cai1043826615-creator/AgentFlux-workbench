@@ -172,23 +172,23 @@ export async function readDoc(relPath: string): Promise<KnowledgeDoc | null> {
   const path = normalizeRel(relPath);
   if (!path) return null;
 
-  // P2-5（验收打回）：虚拟目录「依依整理/」的文档来自收件箱（kb_drafts），不在 Vault——
+  // P2-5（验收打回）：虚拟目录「助理收件箱/」的文档来自收件箱（kb_drafts），不在 Vault——
   // 直接从收件箱表读，用既有 KnowledgeDoc 形态返回（阅读卡片无需任何特殊分支）。
-  if (path === '依依整理' || path.startsWith('依依整理/')) {
+  if (path === '助理收件箱' || path.startsWith('助理收件箱/')) {
     const drafts = all<{ id: number; title: string; source_kind: string; source_ref: string; content: string; created_at: string }>(
       `SELECT id, title, source_kind, source_ref, content, created_at FROM ${KT.drafts} ORDER BY id DESC`,
     );
-    if (path === '依依整理') {
+    if (path === '助理收件箱') {
       // 目录级：返回该目录的汇总页（列出各条整理）
-      const lines = drafts.map((d) => `- [${d.title}](依依整理/${d.id}.md)（${d.source_kind === 'doc' ? '文档整理' : d.source_kind === 'hot' ? '素材卡' : d.source_kind === 'audit' ? '体检建议' : '未结构化'} · ${d.created_at.slice(0, 10)}）`);
+      const lines = drafts.map((d) => `- [${d.title}](助理收件箱/${d.id}.md)（${d.source_kind === 'doc' ? '文档整理' : d.source_kind === 'hot' ? '素材卡' : d.source_kind === 'audit' ? '体检建议' : '未结构化'} · ${d.created_at.slice(0, 10)}）`);
       return {
-        path: '依依整理',
-        title: '依依整理（收件箱）',
+        path: '助理收件箱',
+        title: '助理收件箱（收件箱）',
         dir: '',
-        tags: ['依依整理'],
+        tags: ['助理收件箱'],
         mtime: drafts[0]?.created_at ?? new Date().toISOString(),
         size: lines.join('\n').length,
-        content: [`# 依依整理（收件箱）`, '', '依依的整理产出，确认可用后可手动沉淀进知识库。', '', ...lines].join('\n'),
+        content: [`# 助理收件箱（收件箱）`, '', '依依的整理产出，确认可用后可手动沉淀进知识库。', '', ...lines].join('\n'),
         anchors: [],
       };
     }
@@ -196,10 +196,10 @@ export async function readDoc(relPath: string): Promise<KnowledgeDoc | null> {
     const d = Number.isFinite(id) ? drafts.find((x) => x.id === id) : undefined;
     if (!d) return null;
     return {
-      path: `依依整理/${d.id}.md`,
+      path: `助理收件箱/${d.id}.md`,
       title: d.title,
-      dir: '依依整理',
-      tags: ['依依整理'],
+      dir: '助理收件箱',
+      tags: ['助理收件箱'],
       mtime: d.created_at,
       size: d.content.length,
       content: d.content,

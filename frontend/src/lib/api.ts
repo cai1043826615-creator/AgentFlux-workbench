@@ -138,7 +138,7 @@ export const api = {
   /** 知识健康度（文档使用率 + 孤岛文件；只读） */
   kbHealth: () => j<{ health: KnowledgeHealth }>(fetch('/api/knowledge/health')),
 
-  // ===== 收件箱（依依整理产出；原「草稿区」，P2-5 改名）=====
+  // ===== 收件箱（助理收件箱产出；原「草稿区」，P2-5 改名）=====
   kbDrafts: () => j<{ drafts: unknown[] }>(fetch('/api/kb-drafts')),
   kbDraftDelete: (id: number) => j<{ deleted: boolean }>(fetch(`/api/kb-drafts/${id}`, { method: 'DELETE' })),
 

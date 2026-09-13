@@ -291,7 +291,8 @@ export function KnowledgeView() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-display text-[20px] font-bold">知识库</h2>
+            {/* 新3：与已连接分支及各页大标题统一 22px */}
+            <h2 className="font-display text-[22px] font-bold leading-tight" style={{ fontFamily: 'var(--font-display)' }}>知识库</h2>
           </div>
           <Badge tone="no">未连接</Badge>
         </div>

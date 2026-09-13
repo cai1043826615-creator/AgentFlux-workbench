@@ -294,9 +294,12 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
         <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
           {COLUMNS.map((col) => {
             const list = visible.filter((t) => t.column === col.key);
+            // 新7·卡片高度修复：列容器改 qs-sunken 灰底（此前列也是 qs-card 白底细边框，
+            // 与白卡视觉边界融合，用户把「列头≈40px + 卡片」量成一张 ≈300px；
+            // 改灰底后列=抽屉、卡=白卡，卡片高度就是 card 的 height:200 含边框）
             return (
-              <section key={col.key} className="qs-card flex min-w-[240px] flex-1 flex-col overflow-hidden">
-                <header className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ borderColor: 'var(--color-line)' }}>
+              <section key={col.key} className="qs-sunken flex min-w-[240px] flex-1 flex-col overflow-hidden rounded-[4px] border" style={{ borderColor: 'var(--color-line)' }}>
+                <header className="flex shrink-0 items-center gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--color-line)' }}>
                   <span className="text-[13px] font-medium">{col.label}</span>
                   <span className="qs-meta tabular">{list.length}</span>
                 </header>

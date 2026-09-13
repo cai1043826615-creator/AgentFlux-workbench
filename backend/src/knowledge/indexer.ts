@@ -127,15 +127,15 @@ export async function rebuildIndex(): Promise<IndexResult | null> {
   setMeta(META.root, cfg.root ?? '');
   try {
     // P2-5（验收打回）：收件箱内容并入现有目录树与阅读体系——
-    // 依依的整理产出作为虚拟目录「依依整理/」追加进索引（物理存 kb_drafts 表，不落 Vault、不碰只读承诺）。
+    // 依依的整理产出作为虚拟目录「助理收件箱/」追加进索引（物理存 kb_drafts 表，不落 Vault、不碰只读承诺）。
     // 用户在目录树/文档列表/搜索里看到它们，点开走既有阅读卡片。
     const draftDocs = all<{ id: number; title: string; source_kind: string; source_ref: string; content: string; created_at: string }>(
       `SELECT id, title, source_kind, source_ref, content, created_at FROM ${KT.drafts} ORDER BY id DESC`,
     ).map((d) => ({
-      path: `依依整理/${d.id}.md`,
+      path: `助理收件箱/${d.id}.md`,
       title: d.title,
-      dir: '依依整理',
-      tags: ['依依整理', d.source_kind === 'doc' ? '文档整理' : d.source_kind === 'hot' ? '素材卡' : d.source_kind === 'audit' ? '体检建议' : '未结构化'],
+      dir: '助理收件箱',
+      tags: ['助理收件箱', d.source_kind === 'doc' ? '文档整理' : d.source_kind === 'hot' ? '素材卡' : d.source_kind === 'audit' ? '体检建议' : '未结构化'],
       body: d.content,
       hash: sha1(d.content),
       mtime: d.created_at,

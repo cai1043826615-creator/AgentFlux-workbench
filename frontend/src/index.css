@@ -40,6 +40,14 @@
 }
 
 @layer base {
+/* 显式兜底：全局 border-box（Tailwind v4 preflight 已含同规则，此处固化并作说明——
+   保证看板卡 height:200 是含 padding/border 的最终渲染高度，控制台与视觉一致） */
+*,
+::before,
+::after {
+  box-sizing: border-box;
+}
+
 html,
 body,
 #root {
