@@ -102,8 +102,10 @@ function TaskCard({
 
       {/* flowbar：段数与确认点均按任务所属工作流取（电商 6 段 / XHS 6 段各自独立）
           颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰；确认点仅在 hover title 标注
-          新7：外层 flex-1 —— 让进度条区吸收卡片剩余高度，操作行自然贴底且不留空洞 */}
-      <div className="mt-2 flex flex-1 flex-col justify-end gap-[3px]">
+          新7·修订：不再 flex-1 justify-end —— 那会把剩余高度全吸到 badge 与进度条之间，
+          卡片中部出现大片空洞（截图实测 90px）；改为自然流，进度条紧跟 badge 行，
+          多余高度留作底部呼吸留白（在按钮/操作行之下，视觉为留白而非中空） */}
+      <div className="mt-2 flex flex-col gap-[3px]">
         <div className="flex gap-[3px]">
         {stageKeysOf(task.workflowId).map((k, i) => {
           const isApproval = approvalPointsOf(task.workflowId).includes(k);
@@ -294,12 +296,9 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
         <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
           {COLUMNS.map((col) => {
             const list = visible.filter((t) => t.column === col.key);
-            // 新7·卡片高度修复：列容器改 qs-sunken 灰底（此前列也是 qs-card 白底细边框，
-            // 与白卡视觉边界融合，用户把「列头≈40px + 卡片」量成一张 ≈300px；
-            // 改灰底后列=抽屉、卡=白卡，卡片高度就是 card 的 height:200 含边框）
             return (
-              <section key={col.key} className="qs-sunken flex min-w-[240px] flex-1 flex-col overflow-hidden rounded-[4px] border" style={{ borderColor: 'var(--color-line)' }}>
-                <header className="flex shrink-0 items-center gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--color-line)' }}>
+              <section key={col.key} className="qs-card flex min-w-[240px] flex-1 flex-col overflow-hidden">
+                <header className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ borderColor: 'var(--color-line)' }}>
                   <span className="text-[13px] font-medium">{col.label}</span>
                   <span className="qs-meta tabular">{list.length}</span>
                 </header>
