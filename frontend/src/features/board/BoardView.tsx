@@ -68,8 +68,13 @@ function TaskCard({
 
   return (
     <article
-      className="qs-card qs-interactive relative flex flex-col p-3"
-      style={{ borderColor: task.column === 'awaiting' ? 'var(--color-warn)' : undefined, minHeight: 200 }}
+      className="qs-card qs-interactive relative flex flex-col overflow-hidden p-3"
+      style={{
+        borderColor: task.column === 'awaiting' ? 'var(--color-warn)' : undefined,
+        // 新7：固定 200px（此前 minHeight 会让内容多的卡突破到 300px，高度不齐）。
+        // 溢出裁剪：overflow-hidden；点卡片打开详情可见完整信息，卡面只承担概览。
+        height: 200,
+      }}
       onClick={() => onOpen(task)}
       title="查看详情"
     >
@@ -134,8 +139,8 @@ function TaskCard({
         </div>
       ) : null}
 
-      {/* 底部操作行（新7：整段文案已移出卡面；状态文字与 ⋯ 同行，紧贴内容而非推到底部空洞） */}
-      <div className="mt-2.5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+      {/* 底部操作行（新7：固定 200px 内贴底；stageNote 单行截断，完整内容看详情） */}
+      <div className="mt-auto flex shrink-0 items-center gap-2 pt-2.5" onClick={(e) => e.stopPropagation()}>
         {task.column === 'progress' ? (
           <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
             <span className="qs-dot signal busy" />

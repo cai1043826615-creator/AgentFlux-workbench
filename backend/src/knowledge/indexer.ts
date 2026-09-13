@@ -6,7 +6,7 @@
  * - 只读 Vault：全程仅 listVaultMarkdown + readVaultFile，写操作被 assertVaultReadOnly 拒绝
  */
 import { createHash } from 'node:crypto';
-import { run, tx } from '../db/client.ts';
+import { all, run, tx } from '../db/client.ts';
 import { extractLinks, extractTags, extractTitle, parseFrontmatter, resolveLinkTarget } from './markdown.ts';
 import { KT, META, ensureKnowledgeSchema, setMeta } from './schema.ts';
 import { dirOf, listVaultMarkdown, readVaultFile, resolveVaultConfig, type VaultConfig } from './vault.ts';
@@ -126,15 +126,32 @@ export async function rebuildIndex(): Promise<IndexResult | null> {
   const cfg = resolveVaultConfig();
   setMeta(META.root, cfg.root ?? '');
   try {
+    // P2-5（验收打回）：收件箱内容并入现有目录树与阅读体系——
+    // 依依的整理产出作为虚拟目录「依依整理/」追加进索引（物理存 kb_drafts 表，不落 Vault、不碰只读承诺）。
+    // 用户在目录树/文档列表/搜索里看到它们，点开走既有阅读卡片。
+    const draftDocs = all<{ id: number; title: string; source_kind: string; source_ref: string; content: string; created_at: string }>(
+      `SELECT id, title, source_kind, source_ref, content, created_at FROM ${KT.drafts} ORDER BY id DESC`,
+    ).map((d) => ({
+      path: `依依整理/${d.id}.md`,
+      title: d.title,
+      dir: '依依整理',
+      tags: ['依依整理', d.source_kind === 'doc' ? '文档整理' : d.source_kind === 'hot' ? '素材卡' : d.source_kind === 'audit' ? '体检建议' : '未结构化'],
+      body: d.content,
+      hash: sha1(d.content),
+      mtime: d.created_at,
+      size: d.content.length,
+    }));
+
     if (!cfg.root) {
-      // 未连接不是错误：清空知识库表，保持「未连接 = 空索引」一致状态（板块 A 不受影响）
-      writeIndex([]);
-      setMeta(META.indexedAt, '');
+      // 未连接不是错误：清空知识库表，保持「未连接 = 空索引」一致状态（板块 A 不受影响）；
+      // 收件箱仍可见（依依产出不依赖 Vault 连接）
+      writeIndex(draftDocs);
+      setMeta(META.indexedAt, new Date().toISOString());
       setMeta(META.lastError, '');
       return null;
     }
     const { docs, skipped } = await collectDocs(cfg);
-    const result = writeIndex(docs);
+    const result = writeIndex([...docs, ...draftDocs]);
     const final = { ...result, skipped };
     setMeta(META.indexedAt, new Date().toISOString());
     setMeta(META.lastError, '');

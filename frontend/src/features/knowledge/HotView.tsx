@@ -51,14 +51,31 @@ function InfoBar({ panel }: { panel: HotPanel }) {
   const degraded = panel.sources.filter((s) => s.status === 'degraded');
   const daily = panel.daily as HotDailyInfo | null;
   const hasDaily = daily && daily.url;
+  // P1-14 追问修复：给出「条目本身的最新发布时间」——
+  // 让「热点停在 11 日」一眼可辨：是抓取时间旧（我们慢了）还是发布时间旧（上游没更新）。
+  // 二者分开讲，用户就不会把上游停更误判为刷新失灵。
+  const allLatest = (['mustRead', 'browse', 'other'] as const)
+    .flatMap((t) => panel.tiers[t] ?? [])
+    .map((i) => i.latestAt)
+    .filter((v): v is string => !!v)
+    .sort();
+  const newest = allLatest[allLatest.length - 1] ?? null;
+  const newestAgeDays = newest ? Math.floor((Date.now() - Date.parse(newest)) / 86400000) : null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }} data-hot-infobar>
       <span className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-        数据时间 {fmtTime(panel.fetchedAt)}
+        抓取于 {fmtTime(panel.fetchedAt)}
       </span>
-      <span className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-        缓存至 {fmtTime(panel.expiresAt)}
-      </span>
+      {newest ? (
+        <span
+          className="qs-meta"
+          style={{ color: newestAgeDays && newestAgeDays >= 1 ? 'var(--color-warn)' : 'var(--color-ink-soft)' }}
+          title={newestAgeDays && newestAgeDays >= 1 ? `上游最新内容发布于 ${newest.slice(0, 10)}，已 ${newestAgeDays} 天未更新——通常是信息源本身暂无新内容，与本工作台刷新无关` : '上游内容较新'}
+        >
+          条目最新发布 {newest.slice(0, 10)}
+          {newestAgeDays && newestAgeDays >= 1 ? `（${newestAgeDays} 天前 · 上游暂无更新）` : ''}
+        </span>
+      ) : null}
       <span className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
         源状态 {ok}/{panel.sources.length} 可用
         {degraded.length > 0 ? ` · ${degraded.map((s) => `${s.label}降级${s.error ? `：${s.error}` : ''}`).join('；')}` : ''}

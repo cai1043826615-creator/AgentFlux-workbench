@@ -8,7 +8,6 @@ import { dirDisplayName, dirDisplayPath } from './dirDisplayName.ts';
 import { KnowledgeOverviewBar } from './KnowledgeOverviewBar.tsx';
 import { VaultConfigModal } from './VaultConfigModal.tsx';
 import { KnowledgeSidebar } from './KnowledgeSidebar.tsx';
-import { InboxPanel } from './InboxPanel.tsx';
 import { Markdown } from './Markdown.tsx';
 
 
@@ -474,8 +473,6 @@ export function KnowledgeView() {
                   </div>
                 )}
               </div>
-              {/* P2-5：收件箱（依依整理产出；用户要求「即使草稿也要在知识库里体现」） */}
-              <InboxPanel />
             </>
           }
         >
