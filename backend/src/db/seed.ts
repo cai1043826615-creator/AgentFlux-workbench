@@ -11,8 +11,8 @@ export const SEED_AGENTS = [
     role: '文案',
     persona: '产品文案专家，擅长提炼卖点与转化话术；输出结构化文案包（标题/5条核心卖点/详情大纲/关键词清单）。语气专业、简洁。',
     model: 'deepseek-chat',
-    skills: JSON.stringify(['电商文案模板', 'SEO 关键词']),
-    files: JSON.stringify(['品牌手册.pdf']),
+    skills: JSON.stringify(['电商文案模板', 'SEO 关键词', '小红书合规违禁词清单']),
+    files: JSON.stringify(['品牌手册.md']),
   },
   {
     id: 'agent-design',
@@ -21,7 +21,7 @@ export const SEED_AGENTS = [
     persona: '电商视觉设计师，负责主图与详情图；构图干净、卖点清晰，输出白底图+场景图组。',
     model: 'gpt-image-2',
     skills: JSON.stringify(['电商视觉规范']),
-    files: JSON.stringify(['品牌视觉规范.pdf']),
+    files: JSON.stringify(['品牌视觉规范.md']),
   },
   {
     id: 'agent-supervisor',

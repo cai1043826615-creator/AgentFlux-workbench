@@ -8,7 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
-import type { CopyPackage, Deliverable, ImageItem, Task } from '@workbench/shared';
+import type { CopyPackage, Deliverable, ImageItem, NotePackage, Task } from '@workbench/shared';
 import { isXhsWorkflow } from '@workbench/shared';
 
 /** 上传图片目录（与 routes/tasks.ts UPLOAD_DIR 同源） */
@@ -220,10 +220,14 @@ export async function buildTaskPackage(task: Task, deliverables: Deliverable[]):
       cp = null;
     }
     if (cp) {
-      const asNote = isXhsWorkflow(task.workflowId) || copyStages.includes(copySource.stage);
+      // 仅 XHS 工作流的 xhs-* 阶段产物是 NotePackage（title/body/tags）；
+      // 电商 deliver 阶段与 copy 阶段的产物均为 CopyPackage（title/points/outline/keywords）。
+      // 此前用 copyStages.includes(copySource.stage) 判断，对电商恒为 true → points 被丢进 Note 分支。
+      const asNote = isXhsWorkflow(task.workflowId) && copySource.stage.startsWith('xhs-');
+      const note = asNote ? (cp as unknown as NotePackage) : null;
       const title = sanitizeName(cp.title || '文案') || '文案';
-      const md = asNote
-        ? `# ${cp.title}\n\n## 正文\n\n${cp.outline ?? ''}\n\n## 话题标签\n\n${(cp.keywords ?? []).join(' ')}\n`
+      const md = note
+        ? `# ${cp.title}\n\n## 正文\n\n${note.body ?? ''}\n\n## 话题标签\n\n${(note.tags ?? []).join(' ')}\n`
         : `# ${cp.title}\n\n## 核心卖点\n\n` +
           (cp.points ?? []).map((p) => `- ${p}`).join('\n') +
           `\n\n## 详情大纲\n\n${cp.outline ?? ''}\n\n## 关键词\n\n` +

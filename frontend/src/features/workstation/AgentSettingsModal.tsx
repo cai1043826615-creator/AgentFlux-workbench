@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import type { Agent, AgentSkillInfo, ChannelTestError, ChannelTestResult, LlmChannelConfig } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { api } from '../../lib/api.ts';
@@ -168,6 +168,32 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
   const skillDisplayName = (key: string) => catalog.find((s) => s.id === key || s.name === key)?.name ?? key;
   const fileMounted = (name: string) => files.includes(name);
 
+  /**
+   * 技能按业务域分区（目录即分类，后端已解析 category）：
+   * 电商 → 小红书 → 通用，未知分类排在已知分区之后原样展示。
+   * 空分区不渲染（含通用区），避免出现永远为空的分组标题。
+   */
+  const CATEGORY_ORDER = ['电商', '小红书', '通用'];
+  const skillGroups = useMemo(() => {
+    const map = new Map<string, AgentSkillInfo[]>();
+    for (const s of catalog) {
+      const c = s.category || '通用';
+      const list = map.get(c);
+      if (list) list.push(s);
+      else map.set(c, [s]);
+    }
+    return [...map.entries()].sort((a, b) => {
+      const ra = CATEGORY_ORDER.indexOf(a[0]);
+      const rb = CATEGORY_ORDER.indexOf(b[0]);
+      return (ra < 0 ? CATEGORY_ORDER.length : ra) - (rb < 0 ? CATEGORY_ORDER.length : rb);
+    });
+  }, [catalog]);
+
+  /** 已挂载项的分类（列表徽标用）；查不到 = 目录中已不存在 → 「已失效」 */
+  const skillCategory = (key: string) => catalog.find((s) => s.id === key || s.name === key)?.category ?? null;
+  /** 已挂载文件是否仍存在于目录（失效标记用） */
+  const fileResolves = (name: string) => fileCatalog.some((f) => f.id === name);
+
   const toggleSkill = (s: AgentSkillInfo) => {
     setSkills((prev) =>
       prev.includes(s.id) || prev.includes(s.name)
@@ -330,19 +356,33 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
       <div className="qs-card p-3">
         <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-soft)' }}>技能与文件</div>
         <div className="space-y-1.5">
-          {skills.map((s) => (
-            <div key={`s-${s}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
-              <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal-strong)' }}>SKILL</span>
-              <span className="min-w-0 flex-1 truncate text-[13px]">{skillDisplayName(s)}</span>
-              <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="移除" onClick={() => removeSkill(s)}>
-                ×
-              </button>
-            </div>
-          ))}
+          {skills.map((s) => {
+            const cat = skillCategory(s);
+            return (
+              <div key={`s-${s}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
+                <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal-strong)' }}>SKILL</span>
+                <span className="min-w-0 flex-1 truncate text-[13px]">{skillDisplayName(s)}</span>
+                {cat ? (
+                  <span className="qs-meta shrink-0 rounded-[3px] border px-1 text-[10px]" style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-soft)' }}>
+                    {cat}
+                  </span>
+                ) : (
+                  // 目录里找不到 → 幽灵挂载，标红提示而不是假装生效
+                  <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-danger)' }}>已失效</span>
+                )}
+                <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="移除" onClick={() => removeSkill(s)}>
+                  ×
+                </button>
+              </div>
+            );
+          })}
           {files.map((f) => (
             <div key={`f-${f}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
               <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)' }}>FILE</span>
               <span className="min-w-0 flex-1 truncate text-[13px]">{f}</span>
+              {fileResolves(f) ? null : (
+                <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-danger)' }}>已失效</span>
+              )}
               <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="移除" onClick={() => removeFile(f)}>
                 ×
               </button>
@@ -360,29 +400,44 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
           </Btn>
           {pickerOpen ? (
             <div className="qs-card absolute left-0 z-20 mt-1 w-full overflow-hidden" style={{ background: 'var(--color-surface)' }}>
-              {/* 技能区（意见7：勾选挂载，勾选后显示 ✓ / 紫色填充） */}
+              {/* 技能区（按业务域分区：电商/小红书/通用；区标题右侧显示已挂计数） */}
               <div className="border-b p-2" style={{ borderColor: 'var(--color-line)' }}>
                 <div className="qs-meta mb-1 px-1" style={{ color: 'var(--color-ink-soft)' }}>技能 SKILLS</div>
-                <div className="max-h-[150px] overflow-y-auto">
-                  {catalog.length === 0 ? (
+                <div className="max-h-[220px] overflow-y-auto">
+                  {skillGroups.length === 0 ? (
                     <div className="qs-meta px-2 py-2 text-center" style={{ color: 'var(--color-ink-faint)' }}>技能目录为空或暂不可用</div>
                   ) : (
-                    catalog.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-signal-soft)]"
-                        onClick={() => toggleSkill(s)}
-                      >
-                        {checkBox(skillMounted(s))}
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium">{s.name}</span>
-                          {s.description ? (
-                            <span className="qs-meta block truncate" style={{ color: 'var(--color-ink-faint)' }}>{s.description}</span>
-                          ) : null}
-                        </span>
-                      </button>
-                    ))
+                    skillGroups.map(([category, list]) => {
+                      const mountedCount = list.filter(skillMounted).length;
+                      return (
+                        <div key={category} className="mb-1.5 last:mb-0">
+                          <div className="flex items-center justify-between px-2 py-1">
+                            <span className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>{category}</span>
+                            {mountedCount > 0 ? (
+                              <span className="qs-meta text-[10px]" style={{ color: 'var(--color-signal-strong)' }}>
+                                已挂 {mountedCount}/{list.length}
+                              </span>
+                            ) : null}
+                          </div>
+                          {list.map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-signal-soft)]"
+                              onClick={() => toggleSkill(s)}
+                            >
+                              {checkBox(skillMounted(s))}
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[13px] font-medium">{s.name}</span>
+                                {s.description ? (
+                                  <span className="qs-meta block truncate" style={{ color: 'var(--color-ink-faint)' }}>{s.description}</span>
+                                ) : null}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>

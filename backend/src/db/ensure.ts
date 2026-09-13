@@ -1,4 +1,4 @@
-import { sqlite } from './client.ts';
+import { all, run, sqlite } from './client.ts';
 
 /** 幂等建表（启动保底；dev / test / prod 一致） */
 export function ensureSchema(): void {
@@ -146,4 +146,43 @@ export function ensureSchema(): void {
       value TEXT NOT NULL
     );
   `);
+  migrateAgentFileMounts();
+}
+
+/**
+ * 旧库迁移：文件挂载扩展名修正（skill-category-sections）。
+ * 存量库 agents.files 里的「品牌手册.pdf / 品牌视觉规范.pdf」指向白名单外文件（readFileContent 必然读空），
+ * 替换为同名 .md 对应物（已在 backend/files/ 落地），使存量库的文件挂载同样可解析。
+ * 幂等：仅精确匹配这两个元素；JSON 坏行跳过不动（保持既有容错语义）；其余元素原样保留。
+ */
+const FILE_MOUNT_RENAMES: Record<string, string> = {
+  '品牌手册.pdf': '品牌手册.md',
+  '品牌视觉规范.pdf': '品牌视觉规范.md',
+};
+
+function migrateAgentFileMounts(): void {
+  let rows: { id: string; files: string }[] = [];
+  try {
+    rows = all<{ id: string; files: string }>('SELECT id, files FROM agents');
+  } catch {
+    return; // 表尚未建好等异常场景：交给下次启动
+  }
+  for (const row of rows) {
+    let list: unknown;
+    try {
+      list = JSON.parse(row.files);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(list)) continue;
+    let changed = false;
+    const next = list.map((x) => {
+      if (typeof x === 'string' && FILE_MOUNT_RENAMES[x]) {
+        changed = true;
+        return FILE_MOUNT_RENAMES[x];
+      }
+      return x;
+    });
+    if (changed) run('UPDATE agents SET files = ? WHERE id = ?', [JSON.stringify(next), row.id]);
+  }
 }

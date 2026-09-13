@@ -300,7 +300,8 @@ export interface AgentSkillInfo {
   id: string;
   name: string;
   description: string;
-  category?: string;
+  /** 业务域分类（电商 / 小红书 / 通用），由技能所在目录决定、文件头「> 分类：」可覆盖；用于挂载面板分区展示 */
+  category: string;
 }
 
 // ===== 环境/运行常量 =====
