@@ -71,9 +71,9 @@ function TaskCard({
       className="qs-card qs-interactive relative flex flex-col overflow-hidden p-3"
       style={{
         borderColor: task.column === 'awaiting' ? 'var(--color-warn)' : undefined,
-        // 新7：固定 200px（此前 minHeight 会让内容多的卡突破到 300px，高度不齐）。
+        // 新7·修订：固定 165px（更紧凑的看板节奏），内部间距同步收紧避免挤压/溢出。
         // 溢出裁剪：overflow-hidden；点卡片打开详情可见完整信息，卡面只承担概览。
-        height: 200,
+        height: 165,
       }}
       onClick={() => onOpen(task)}
       title="查看详情"
@@ -94,7 +94,7 @@ function TaskCard({
         </span>
       </div>
 
-      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
         <Tag task={task} />
         {/* B6 · 9.1 看板卡片失效角标（kbRefsInvalid > 0 才显示） */}
         <KbInvalidBadge task={task} />
@@ -103,9 +103,9 @@ function TaskCard({
       {/* flowbar：段数与确认点均按任务所属工作流取（电商 6 段 / XHS 6 段各自独立）
           颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰；确认点仅在 hover title 标注
           新7·修订：不再 flex-1 justify-end —— 那会把剩余高度全吸到 badge 与进度条之间，
-          卡片中部出现大片空洞（截图实测 90px）；改为自然流，进度条紧跟 badge 行，
-          多余高度留作底部呼吸留白（在按钮/操作行之下，视觉为留白而非中空） */}
-      <div className="mt-2 flex flex-col gap-[3px]">
+          卡片中部出现大片空洞（截图实测 90px）；改为自然流，进度条紧跟 badge 行。
+          165px 版：mt-1.5，与徽标行保持紧凑 */}
+      <div className="mt-1.5 flex flex-col gap-[3px]">
         <div className="flex gap-[3px]">
         {stageKeysOf(task.workflowId).map((k, i) => {
           const isApproval = approvalPointsOf(task.workflowId).includes(k);
@@ -134,15 +134,15 @@ function TaskCard({
 
       {/* 主操作独占一行 */}
       {task.column === 'planned' ? (
-        <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+        <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
           <Btn size="sm" variant="primary" className="w-full" onClick={() => onConfirm(task.id)}>
             确认开工
           </Btn>
         </div>
       ) : null}
 
-      {/* 底部操作行（新7：固定 200px 内贴底；stageNote 单行截断，完整内容看详情） */}
-      <div className="mt-auto flex shrink-0 items-center gap-2 pt-2.5" onClick={(e) => e.stopPropagation()}>
+      {/* 底部操作行（新7：固定 165px 内贴底；stageNote 单行截断，完整内容看详情） */}
+      <div className="mt-auto flex shrink-0 items-center gap-2 pt-1.5" onClick={(e) => e.stopPropagation()}>
         {task.column === 'progress' ? (
           <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
             <span className="qs-dot signal busy" />
