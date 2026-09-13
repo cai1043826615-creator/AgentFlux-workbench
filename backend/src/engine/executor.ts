@@ -63,13 +63,46 @@ function progressOf(wf: WorkflowDefinition, stage: string, done: boolean): numbe
   return Math.round((idx / (wf.nodes.length - 1)) * 100);
 }
 
+/** 把毫秒差格式化为「已等待 X 小时 / X 分钟」（粗粒度，避免无意义精度） */
+function waitedText(sinceIso: string): string {
+  const ms = Date.now() - new Date(sinceIso).getTime();
+  if (!Number.isFinite(ms) || ms < 60_000) return '已等待不到 1 分钟';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `已等待 ${mins} 分钟`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `已等待 ${hours} 小时`;
+  return `已等待 ${Math.floor(hours / 24)} 天`;
+}
+
+/** 该任务最近一次进入待确认的时刻（STAGE_COMPLETED 且 awaitingApproval=true）；无则返回 null */
+function awaitingSince(taskId: number): string | null {
+  const rows = all<TaskEventRow>('SELECT * FROM task_events WHERE task_id = ? ORDER BY id DESC LIMIT 60', [taskId]);
+  for (const r of rows) {
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(r.payload) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (r.type === 'STAGE_COMPLETED' && payload.awaitingApproval === true) return r.created_at;
+    // 往回遇到「已离开待确认」的事件（确认采纳/打回/放行/回退）即停止，避免取到上一轮
+    if (r.type === 'APPROVED' || r.type === 'REJECTED' || r.type === 'REVIEW_PASSED' || r.type === 'REVIEW_ROLLBACK') return null;
+  }
+  return null;
+}
+
 /**
  * 卡片副标题（stage note）。
  * P1·1.7：这里只产出「补足信息」，不再复述状态列/阶段——状态已由卡片上的 badge 表达，
  * 两边说同一件事会让卡片显得啰嗦。done 列不再返回重复文案（调用方亦不再渲染该行）。
+ * 待确认时补「已等待 X 小时」：等待时长从事件日志推导（不新增列），
+ * 缺失时退回「等待你处理」，绝不渲染空文案。
  */
-function stageNoteOf(stageNode: WorkflowNode | undefined, column: BoardColumn, ownerName?: string): string {
-  if (column === 'awaiting' && stageNode) return '等待你处理';
+function stageNoteOf(stageNode: WorkflowNode | undefined, column: BoardColumn, ownerName?: string, taskId?: number): string {
+  if (column === 'awaiting' && stageNode) {
+    const since = taskId != null ? awaitingSince(taskId) : null;
+    return since ? `等待你处理 · ${waitedText(since)}` : '等待你处理';
+  }
   if (column === 'done') return '';
   if (stageNode) {
     return ownerName ? `由 ${ownerName} 处理中` : '处理中';
@@ -162,13 +195,14 @@ export class TaskExecutor {
       }
 
       if (node?.approvalPoint) {
+        // 先记事件再算副标题：等待时长取自本次 STAGE_COMPLETED 的时间戳
+        this.logEventSync(taskId, 'STAGE_COMPLETED', { stage: stageId, stageLabel: node.label, awaitingApproval: true });
         run('UPDATE tasks SET column = ?, stage_note = ?, owner_agent_id = ? WHERE id = ?', [
           'awaiting',
-          stageNoteOf(node, 'awaiting'),
+          stageNoteOf(node, 'awaiting', undefined, taskId),
           AGENT_BY_ROLE[node.ownerRole] ?? row.owner_agent_id,
           taskId,
         ]);
-        this.logEventSync(taskId, 'STAGE_COMPLETED', { stage: stageId, stageLabel: node.label, awaitingApproval: true });
         bus.emitApproval(taskId, stageId);
         return toTask(getTaskRow(taskId)!);
       }

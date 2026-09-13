@@ -10,6 +10,9 @@ import {
 /**
  * 通知设置分区（P1·3.2：从顶栏 NotifyControl 迁入「运行设置」弹窗）。
  *
+ * UI 对齐（P1-5 验收打回）：与同弹窗内「任务推进方式」的卡片式布局保持一致——
+ * 统一 `rounded-[4px] border px-3 py-2.5` 容器、选中/生效态用 signal 边框与浅底、主副文案两行结构。
+ *
  * 语义保持不变（B9 · 13.1/12.5）：
  * - 本地开关存 localStorage，不落库；
  * - **仅显式点击「开启通知」才申请浏览器权限**——打开设置弹窗本身不得触发申请；
@@ -25,8 +28,15 @@ export function NotifySettingsSection() {
   };
 
   return (
-    <div className="space-y-3">
-      <label className="flex cursor-pointer select-none items-start gap-2.5" title="待确认浏览器通知（本地保存，不落库）">
+    <div className="space-y-2">
+      {/* 本地开关（卡片式，与「任务推进方式」选项同构） */}
+      <label
+        className="flex cursor-pointer items-start gap-2 rounded-[4px] border px-3 py-2.5 transition-colors"
+        style={{
+          borderColor: enabled ? 'var(--color-signal)' : 'var(--color-line-strong)',
+          background: enabled ? 'var(--color-signal-soft)' : 'var(--color-surface)',
+        }}
+      >
         <input
           type="checkbox"
           className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-signal)]"
@@ -38,20 +48,36 @@ export function NotifySettingsSection() {
             setEnabled(v);
           }}
         />
-        <span className="min-w-0">
-          <span className="block text-[13px]">待确认时发送浏览器通知</span>
-          <span className="qs-meta block text-[12px]" style={{ color: 'var(--color-ink-faint)' }}>
+        <span className="min-w-0 text-[13px] leading-snug">
+          <span className="block font-medium">待确认时发送浏览器通知</span>
+          <span className="qs-meta block" style={{ color: 'var(--color-ink-faint)' }}>
             仅保存在本机，不上传、不落库
           </span>
         </span>
       </label>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)' }}>
-          浏览器授权
+      {/* 浏览器授权（同一卡片式；状态右置） */}
+      <div
+        className="flex items-start gap-2 rounded-[4px] border px-3 py-2.5"
+        style={{
+          borderColor: perm === 'granted' ? 'var(--color-signal)' : 'var(--color-line-strong)',
+          background: perm === 'granted' ? 'var(--color-signal-soft)' : 'var(--color-surface)',
+        }}
+      >
+        <span className="min-w-0 flex-1 text-[13px] leading-snug">
+          <span className="block font-medium">浏览器授权</span>
+          <span className="qs-meta block" style={{ color: 'var(--color-ink-faint)' }}>
+            {perm === 'granted'
+              ? '已允许本站在系统层面弹出通知'
+              : perm === 'denied'
+                ? '已被浏览器拒绝，需在站点设置中手动开启'
+                : perm === 'unsupported'
+                  ? '当前浏览器不支持通知'
+                  : '尚未授权，点右侧按钮申请'}
+          </span>
         </span>
         {perm === 'default' ? (
-          <Btn size="sm" variant="ghost" onClick={() => void request()}>
+          <Btn size="sm" variant="ghost" onClick={() => void request()} className="shrink-0">
             开启通知
           </Btn>
         ) : perm === 'granted' ? (
@@ -59,9 +85,7 @@ export function NotifySettingsSection() {
         ) : perm === 'denied' ? (
           <Badge tone="no">已拒绝</Badge>
         ) : (
-          <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-            当前浏览器不支持
-          </span>
+          <Badge>不支持</Badge>
         )}
       </div>
 

@@ -14,7 +14,7 @@ export const BOARD_COLUMNS: { key: BoardColumn; label: string }[] = [
 ];
 
 // ===== Agent =====
-/** 助理：知识库小助理（涵涵）。不参与电商工作流（派发/阶段条/播报均为三角色白名单），只在知识库侧活动 */
+/** 助理：知识库小助理（依依）。不参与电商工作流（派发/阶段条/播报均为三角色白名单），只在知识库侧活动 */
 export type AgentRole = '文案' | '设计师' | '主管' | '助理';
 /** unconfigured：渠道未配置（API 未连接） */
 export type AgentOnlineStatus = 'online' | 'busy' | 'idle' | 'unconfigured';
@@ -129,6 +129,50 @@ export interface ImageItem {
   error?: string;
   /** 累计生图尝试次数（含自动重试与手动重试；上限 3 次） */
   attempts?: number;
+}
+
+// ===== 小红书种草笔记产出类型（xhs-note-workflow） =====
+
+/** 选题方向（选题策划阶段产出 3 个，用户单选其一） */
+export interface TopicOption {
+  /** 切入角度，如「场景痛点种草」 */
+  angle: string;
+  /** 方向描述 */
+  desc: string;
+  /** 话题锚点，如 #打工人日常 */
+  anchors: string[];
+}
+
+/** 笔记文案（笔记撰写阶段产出） */
+export interface XhsNote {
+  /** 标题（含 emoji，≤20 字） */
+  title: string;
+  /** 种草笔记体正文 */
+  body: string;
+  /** 话题标签 */
+  tags: string[];
+}
+
+/** 发布包（发布包装阶段产出） */
+export interface NotePackage {
+  /** 含 emoji，≤20 字 */
+  title: string;
+  /** 种草笔记体正文 */
+  body: string;
+  /** 话题标签 */
+  tags: string[];
+  /** 发布时图片顺序（deliverable 内图片 id 列表） */
+  imageOrder: string[];
+}
+
+/** 合规审核结果（合规审核阶段产出；自动节点，无人工决策） */
+export interface ComplianceReport {
+  /** 合规检查结论 */
+  report: string;
+  /** 检查项：通过/未通过 + 说明 */
+  checks: { passed: boolean; label: string; note?: string }[];
+  /** 发现问题时的回退目标（xhs-copy 或 xhs-image）；无问题为空数组 */
+  issues: { targetStage: 'xhs-copy' | 'xhs-image'; note: string }[];
 }
 
 export interface Deliverable {

@@ -614,6 +614,11 @@ body {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
+  /* P1-15 验收打回：滚动条不再压住最右列卡片边框——
+     预留滚动条槽位 + 右侧留白，让滚动条落在留白里而非卡片上 */
+  scrollbar-gutter: stable;
+  padding-right: 8px;
+  padding-bottom: 2px;
 }
 @media (min-width: 1024px) and (max-width: 1439px) {
   .hot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -272,58 +272,22 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   };
 
   /* ---------- 审批条（对齐线框 approve-box；QS 焦点信号） ----------
-     P1·组4：审批条承载决策操作——把「采纳 / 打回」从卡片内提升到条内，
-     说明缩为一行短文案（原为 55 字长句解释按钮在哪）。
-     与卡片内按钮**共用** busy 状态与 doDecide，避免双入口重复推进。 */
+     用户验收定案（P1-4 打回）：审批条只作提醒，不承载决策按钮——
+     采纳/打回统一在下方内容卡内操作。条内只保留一行短说明。 */
   const pendingKind: 'copy' | 'image' | null =
     task && task.column === 'awaiting' ? (task.stage === 'copy' ? 'copy' : 'image') : null;
 
   const approveBox =
     task && task.column === 'awaiting' ? (
       <div className="rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
-        <div className="mb-2 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
+        <div className="mb-1.5 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
           审批 · 待你确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="qs-meta min-w-0 flex-1" style={{ color: 'var(--color-ink-soft)' }}>
-            {pendingKind === 'copy'
-              ? '待你确认 · 采纳后自动进入图片设计'
-              : '待逐张确认 · 全部采纳后自动推进'}
-          </span>
-          {pendingKind === 'copy' ? (
-            <>
-              <Btn variant="danger" size="sm" disabled={busy} onClick={() => setRejectingCopy(true)}>
-                打回
-              </Btn>
-              <Btn variant="primary" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'approve')}>
-                采纳
-              </Btn>
-            </>
-          ) : (
-            <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-              图片需逐张决策，请在下方图片卡内操作
-            </span>
-          )}
+        <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
+          {pendingKind === 'copy'
+            ? '待你确认 · 采纳后自动进入图片设计（在下方文案卡内操作）'
+            : '待逐张确认 · 全部采纳后自动推进（在下方图片卡内逐张操作）'}
         </div>
-        {/* 打回原因输入（与卡片内共用 rejectingCopy / copyNote 状态） */}
-        {pendingKind === 'copy' && rejectingCopy ? (
-          <div className="mt-2 space-y-2">
-            <input
-              className="qs-input"
-              placeholder={`打回原因（将发给 ${task.ownerName || '文案 Agent'} 重新输出）…`}
-              value={copyNote}
-              onChange={(e) => setCopyNote(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <Btn variant="ghost" size="sm" onClick={() => setRejectingCopy(false)}>
-                取消
-              </Btn>
-              <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'reject', undefined, copyNote)}>
-                确认打回
-              </Btn>
-            </div>
-          </div>
-        ) : null}
       </div>
     ) : null;
 

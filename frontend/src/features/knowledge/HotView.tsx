@@ -45,16 +45,6 @@ function fmtTime(iso: string | null): string {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** 5.1 顶部统计药丸（数值取接口 counts，前端不重算） */
-function Pill({ label, value }: { label: string; value: number }) {
-  return (
-    <span className="hot-pill" data-hot-pill={label}>
-      <b>{value}</b>
-      <span>{label}</span>
-    </span>
-  );
-}
-
 /** 5.2 信息条：新鲜度 + 源状态摘要 + 上游日报外链（无日报时退化为仅新鲜度） */
 function InfoBar({ panel }: { panel: HotPanel }) {
   const ok = panel.sources.filter((s) => s.status === 'ok').length;
@@ -723,24 +713,36 @@ export function HotView() {
         <Empty text={KB_EMPTY_STATES.hotEmptyNone.text} hint={KB_EMPTY_STATES.hotEmptyNone.hint} emptyKey={KB_EMPTY_STATES.hotEmptyNone.key} />
       ) : (
         <>
-          {/* 5.1 统计区（P1·8.2：今日必看为 0 时降级为一行灰字，不占药丸位且不用「多源共振」内部术语；
-               P1·8.3：分层规则帮助不再以孤立「?」符号与药丸并排，改为后缀在内联灰字中） */}
-          <div className="flex flex-wrap items-center gap-2" data-hot-pills>
-            <Pill label="多源热点" value={panel.counts.upstream} />
-            {panel.counts.mustRead > 0 ? (
-              <Pill label="今日必看" value={panel.counts.mustRead} />
-            ) : (
+          {/* 统计区（P1-14 验收打回后重梳理）：
+              原「多源热点 92」是从上游抓到的原始条数，但界面只展示分层后的少量条目 →
+              数字与列表对不上，属口径失真。改为讲「抓了多少 / 现在能看多少」：
+              · 上游抓取 = 原始条数（并注明来源数，解释 92 从哪来）
+              · 今日必看 / 24H 精选 = 实际可读的分层计数
+              · 刷新时间 = 让「点刷新」有可见反馈（此前刷新成功也看不出变化） */}
+          <div className="qs-card flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5" data-hot-pills>
+            <span className="inline-flex items-baseline gap-1.5">
               <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                今日暂无必看热点
+                今日收集
               </span>
-            )}
-            <Pill label="24H 精选" value={panel.counts.selected24h} />
-            <span
-              className="qs-meta cursor-help"
-              style={{ color: 'var(--color-ink-faint)' }}
-              title="分层规则：命中关注域且多信源 → 必看；命中但信源少 → 浏览；未命中 → 其他。排除词命中直接作废该域。"
-            >
-              分层说明
+              <span className="font-display tabular text-[15px] font-bold">{panel.counts.upstream}</span>
+              <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                条 · 来自 {panel.sources.filter((s) => s.status === 'ok').length} 个公开源
+              </span>
+            </span>
+            <span className="inline-flex items-baseline gap-1.5">
+              <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                今日必看
+              </span>
+              <span className="font-display tabular text-[15px] font-bold">{panel.counts.mustRead}</span>
+            </span>
+            <span className="inline-flex items-baseline gap-1.5">
+              <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                24H 精选
+              </span>
+              <span className="font-display tabular text-[15px] font-bold">{panel.counts.selected24h}</span>
+            </span>
+            <span className="qs-meta ml-auto" style={{ color: 'var(--color-ink-faint)' }} title="最近一次抓取完成时间；点右上「刷新」可立即重抓">
+              更新于 {fmtTime(panel.fetchedAt)}
             </span>
           </div>
 
@@ -753,7 +755,7 @@ export function HotView() {
                折叠态与展开态共用同一标题行，保证任何状态下都能收能展。 */
             const header = (
               <div
-                className={`flex items-baseline gap-2 border-b pb-1.5 ${collapsible ? 'qs-clickable' : ''}`}
+                className={`flex w-full items-baseline gap-2 border-b pb-1.5 ${collapsible ? 'qs-clickable' : ''}`}
                 style={{ borderColor: 'var(--color-line)' }}
                 title={TIER_HINT[tier]}
                 onClick={collapsible ? () => setCollapsedOther((p) => !p) : undefined}
@@ -761,17 +763,19 @@ export function HotView() {
                 aria-expanded={collapsible ? !collapsed : undefined}
               >
                 {collapsible ? (
-                  <span aria-hidden="true" className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
+                  <span aria-hidden="true" className="qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)', width: 12, display: 'inline-block' }}>
                     {collapsed ? '▸' : '▾'}
                   </span>
                 ) : null}
+                {/* P1-15/新6 验收打回：折叠与展开共用同一字号，消除切换时的字体跳动；
+                    折叠态仅以颜色降级区分，不改字号、不改行高 */}
                 <h3
-                  className={`font-display font-semibold ${collapsed ? 'qs-meta text-[13px]' : 'text-[15px]'}`}
+                  className="font-display text-[15px] font-semibold leading-6"
                   style={{ fontFamily: 'var(--font-display)', color: collapsed ? 'var(--color-ink-soft)' : undefined }}
                 >
                   {TIER_LABEL[tier]}
                 </h3>
-                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                <span className="qs-meta leading-6" style={{ color: 'var(--color-ink-faint)' }}>
                   {list.length} 条
                 </span>
               </div>

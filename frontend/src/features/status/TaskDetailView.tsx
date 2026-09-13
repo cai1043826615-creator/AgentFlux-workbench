@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { APPROVAL_POINT_STAGES, STAGE_OWNER_ROLE, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS, type Agent, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef } from '@workbench/shared';
+import { WORKFLOW_STAGE_LABELS, isXhsWorkflow, nodeOfStage, stageKeysOf, approvalPointsOf, type Agent, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
+import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
 import { DownloadButton, KbInvalidBadge, fmtRelative } from '../board/TaskListView.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
@@ -79,17 +80,18 @@ interface EventGroup {
   items: TaskEvent[];
 }
 
-function groupTitle(g: EventGroup): string {
+function groupTitle(g: EventGroup, workflowId?: string): string {
   if (g.items.length === 1) return EVENT_LABELS[g.type];
   if (g.type === 'SUB_TASK_COMPLETE' && g.stageKey) {
-    const unit = g.stageKey === 'main-image' || g.stageKey === 'detail-image' ? '张' : '项';
+    // 图片类阶段按「节点是否声明并行子任务分组」判定，不再硬编码电商 stage key
+    const unit = nodeOfStage(workflowId, g.stageKey)?.parallelGroups?.length ? '张' : '项';
     return `${stageLabelOf(g.items[0])} · ${g.items.length} ${unit}完成`;
   }
   return `${EVENT_LABELS[g.type]} × ${g.items.length}`;
 }
 
 /** 活动日志（意见16 后半：最新在前 + 同类折叠可展开 + 文字图标前缀） */
-function EventTimeline({ events }: { events: TaskEvent[] }) {
+function EventTimeline({ events, workflowId }: { events: TaskEvent[]; workflowId?: string }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const groups = useMemo<EventGroup[]>(() => {
@@ -127,7 +129,7 @@ function EventTimeline({ events }: { events: TaskEvent[] }) {
                 ›
               </span>
             ) : null}
-            <span className="truncate text-[12px] font-medium">{groupTitle(g)}</span>
+            <span className="truncate text-[12px] font-medium">{groupTitle(g, workflowId)}</span>
           </span>
         );
         return (
@@ -194,18 +196,21 @@ const ROLE_TO_AGENT_NAME: Record<string, string> = {
  */
 function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] }) {
   const done = task.column === 'done';
-  const curIdx = WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]);
-  const count = WORKFLOW_STAGE_KEYS.length;
+  // 按任务所属工作流取阶段：电商六阶段或 XHS 六阶段（不再硬编码电商常量）
+  const stageKeys = useMemo(() => stageKeysOf(task.workflowId), [task.workflowId]);
+  const approvals = useMemo(() => approvalPointsOf(task.workflowId), [task.workflowId]);
+  const curIdx = stageKeys.indexOf(task.stage);
+  const count = stageKeys.length;
   return (
     <div className="select-none overflow-x-auto py-1" role="group" aria-label="工作流阶段">
       <div className="flex min-w-[600px] items-start">
-        {WORKFLOW_STAGE_KEYS.map((k, i) => {
+        {stageKeys.map((k, i) => {
           const state = done || i < curIdx ? 'done' : i === curIdx ? 'current' : 'todo';
-          const isApproval = (APPROVAL_POINT_STAGES as string[]).includes(k);
+          const isApproval = approvals.includes(k);
           // 本节点已完成 → 它向右的进度线填充（弹簧：宽度 0→100%，300ms）
           const filled = done || i < curIdx;
-          // 负责 Agent（意见3）：角色 → 名 → agents 按名查头像；查不到回退数字/✓
-          const ownerName = ROLE_TO_AGENT_NAME[STAGE_OWNER_ROLE[k] ?? ''];
+          // 负责 Agent（意见3）：节点 ownerRole → 名 → agents 按名查头像；查不到回退数字/✓
+          const ownerName = ROLE_TO_AGENT_NAME[nodeOfStage(task.workflowId, k)?.ownerRole ?? ''];
           const owner = ownerName ? agents.find((a) => a.name === ownerName) : undefined;
           return (
             <div key={k} className="flex min-w-0 flex-1 items-start">
@@ -505,9 +510,12 @@ export function TaskDetailView({
   const done = task.column === 'done';
 
   // 24：进度与阶段条统一数据源（均由 task.stage 推导），消除「进度 0% 但阶段已是 1/6」的语义冲突
-  const stageIdx = Math.max(0, WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]));
-  const stagePct = Math.round(((done ? WORKFLOW_STAGE_KEYS.length : stageIdx + 1) / WORKFLOW_STAGE_KEYS.length) * 100);
-  const progressText = `阶段 ${done ? WORKFLOW_STAGE_KEYS.length : stageIdx + 1}/${WORKFLOW_STAGE_KEYS.length} · ${stagePct}%`;
+  // 按任务所属工作流计算阶段进度（电商与 XHS 各自 6 段，互不干扰）
+  const stageKeys = stageKeysOf(task.workflowId);
+  const stageIdx = Math.max(0, stageKeys.indexOf(task.stage));
+  const total = stageKeys.length;
+  const stagePct = Math.round(((done ? total : stageIdx + 1) / total) * 100);
+  const progressText = `阶段 ${done ? total : stageIdx + 1}/${total} · ${stagePct}%`;
 
   // 产出摘要（文案标题 + 图片张数）
   const deliverables = deliverablesByTask[task.id] ?? [];
@@ -585,7 +593,12 @@ export function TaskDetailView({
       />
 
       {taskTab === 'deliver' ? (
-        <ContentDeliveryView taskId={taskId} />
+        // 按工作流分派交付视图：电商沿用两栏并排；XHS 用按阶段纵向序列（属性右栏不受影响）
+        isXhsWorkflow(task?.workflowId) ? (
+          <XhsDeliveryView task={task} deliverables={deliverables} />
+        ) : (
+          <ContentDeliveryView taskId={taskId} />
+        )
       ) : (
         /* status-grid：内容区 + 280 属性面板 */
         <div className="flex gap-4">
@@ -633,7 +646,7 @@ export function TaskDetailView({
             {/* 活动日志 */}
             <div className="qs-card p-4">
               <h3 className="font-display mb-3 text-[15px] font-semibold">活动日志</h3>
-              <EventTimeline events={eventsByTask[task.id] ?? []} />
+              <EventTimeline events={eventsByTask[task.id] ?? []} workflowId={task.workflowId} />
             </div>
           </div>
 

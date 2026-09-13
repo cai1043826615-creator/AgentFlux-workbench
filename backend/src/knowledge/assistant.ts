@@ -1,5 +1,5 @@
 /**
- * 知识库小助理「涵涵」执行链（P2·F3）。
+ * 知识库小助理「依依」执行链（P2·F3）。
  *
  * 设计（design.md 决策 3）：走既有 Agent 执行基建——callLlm 调用 + logExecution 记录
  * （agent_id = agent-assistant，Agent 状态页统计自动工作），产出一律写入草稿区（drafts.ts）。
@@ -185,7 +185,7 @@ export async function runAssistant(req: AssistantRequest): Promise<
       error: failed ?? 'LLM 无返回',
       durationMs,
     });
-    return { ok: false, error: `涵涵暂时无法完成整理（${failed ?? '模型无返回'}），请稍后重试` };
+    return { ok: false, error: `依依暂时无法完成整理（${failed ?? '模型无返回'}），请稍后重试` };
   }
 
   // 输出解析保守处理：结构化失败不丢内容——整篇存为 raw 草稿

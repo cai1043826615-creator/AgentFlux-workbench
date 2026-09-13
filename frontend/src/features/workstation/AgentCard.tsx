@@ -3,22 +3,21 @@ import { Avatar, Badge } from '../../components/ui.tsx';
 import { agentColor, agentDotClass, agentLabel } from '../../lib/agentStatus.ts';
 
 /**
- * 工位 Agent 卡（P1·5.3 从 WorkstationBar 抽出为可复用组件）。
- * 用途一：工位栏展开态，遍历 agents 渲染多张。
- * 用途二：知识库总览带的「小助理」入口位（P1·5.4）——同一形态，P2 挂上 assistant 实例即可自动出现。
+ * Agent 卡（P1·5.3 从 WorkstationBar 抽出为可复用组件）。
+ * 用途一：工位栏展开态，遍历工作流班组（文案/设计师/主管）渲染多张。
+ * 用途二：知识库总览带的「依依」入口位（P2）——**同一张卡、同一尺寸与信息密度**。
  *
- * 行为与抽取前一致：展示头像（右下状态点）、名字、角色、模型与活动、状态文案与「配置」入口。
+ * 展示头像（右下状态点）、名字、角色、模型与活动、状态文案与「配置」入口。
+ * 注：早期有 `compact` 变体（省略模型行），因总览带卡与工位卡视觉不一致（P2-1 验收打回）
+ * 已移除——两处统一使用完整卡。
  */
 export function AgentCard({
   agent,
   onConfigure,
-  compact = false,
 }: {
   agent: Agent;
-  /** 提供时渲染「配置」按钮并回调；总览带占位场景可不传 */
+  /** 提供时渲染「配置」按钮并回调 */
   onConfigure?: (agent: Agent) => void;
-  /** 紧凑模式：不渲染模型/活动行，用于空间受限的入口位 */
-  compact?: boolean;
 }) {
   return (
     <div
@@ -28,24 +27,22 @@ export function AgentCard({
       {/* 头像（放大）+ 状态点右下（参照 ChatPanel：relative 包裹 + 白描边）
           tooltip 统一为「名字（岗位）· 状态」，直接传给 Avatar —— 外包层设 title 会被 Avatar 自身的覆盖 */}
       <span className="relative shrink-0">
-        <Avatar name={agent.name} id={agent.id} size={compact ? 40 : 56} title={`${agent.name}（${agent.role}）· ${agentLabel(agent.onlineStatus)}`} />
+        <Avatar name={agent.name} id={agent.id} size={56} title={`${agent.name}（${agent.role}）· ${agentLabel(agent.onlineStatus)}`} />
         <span
           className={`qs-dot absolute -bottom-0.5 -right-0.5 ${agentDotClass(agent.onlineStatus)}`}
           style={{ boxShadow: '0 0 0 2px var(--color-surface)', width: 10, height: 10 }}
         />
       </span>
-      {/* 信息列：名字+角色一行、模型+活动一行、状态文字一行（模型等细节仅展开态显示） */}
+      {/* 信息列：名字+角色一行、模型+活动一行、状态文字一行 */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[15px] font-semibold">{agent.name}</span>
           <Badge>{agent.role}</Badge>
         </div>
-        {!compact ? (
-          <div className="qs-meta truncate text-[13px]" style={{ color: 'var(--color-ink-faint)' }}>
-            {agent.model ? `模型 ${agent.model}` : '未配置模型'}
-            {agent.activity ? ` · ${agent.activity}` : ''}
-          </div>
-        ) : null}
+        <div className="qs-meta truncate text-[13px]" style={{ color: 'var(--color-ink-faint)' }}>
+          {agent.model ? `模型 ${agent.model}` : '未配置模型'}
+          {agent.activity ? ` · ${agent.activity}` : ''}
+        </div>
         <div className="qs-meta text-[13px]" style={{ color: agentColor(agent.onlineStatus) }}>
           {agentLabel(agent.onlineStatus)}
         </div>

@@ -6,12 +6,12 @@ import { NotifySettingsSection } from './workstation/NotifySettingsSection.tsx';
 
 type OrchestrationMode = 'graph' | 'linear';
 
-/** 工作流菜单项（参考图2：图标+文字，选中浅紫圆角高亮；右侧任务总数） */
-function WorkflowItem({ active, count, onClick }: { active: boolean; count: number; onClick: () => void }) {
+/** 工作流菜单项（图标 + 名称，选中浅紫高亮；右侧为该工作流自己的任务数） */
+function WorkflowItem({ label, active, count, onClick }: { label: string; active: boolean; count: number; onClick: () => void }) {
   return (
     <button type="button" className={`qs-nav-item ${active ? 'active' : ''}`} onClick={onClick}>
       <Glyph name="flow" size={14} className="shrink-0" />
-      <span className="flex-1 truncate">电商工作流</span>
+      <span className="flex-1 truncate">{label}</span>
       <span className="qs-meta tabular shrink-0" style={{ color: active ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}>
         {count}
       </span>
@@ -19,27 +19,21 @@ function WorkflowItem({ active, count, onClick }: { active: boolean; count: numb
   );
 }
 
-/** 占位工作流（灰字不可点） */
-function PlaceholderItem({ label }: { label: string }) {
-  return (
-    <button type="button" className="qs-nav-item disabled" tabIndex={-1} aria-disabled="true">
-      <Glyph name="box" size={14} className="shrink-0" />
-      <span className="flex-1 truncate">{label}</span>
-      <span className="qs-meta shrink-0">占位</span>
-    </button>
-  );
-}
-
 /** 左侧栏（对齐线框 left）：工作流卡 + 通用（Agent 状态/运行设置）
  *  openSettingsSignal：折叠态图标列触发的设置弹窗打开信号（>0 时打开，展示当前编排模式） */
 export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: () => void; onBack: () => void; openSettingsSignal?: number }) {
-  const { settings, refresh, tasks, view, setView } = useWorkbench();
+  const { settings, refresh, tasks, view, setView, workflows, currentWorkflowId, setCurrentWorkflowId } = useWorkbench();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mode, setMode] = useState<OrchestrationMode>('graph');
 
   const rawMode = (settings.orchestrationMode as { mode?: string } | undefined)?.mode;
   const orchestrationMode: OrchestrationMode = rawMode === 'linear' ? 'linear' : 'graph';
-  const workflowActive = view === 'board' || view === 'task';
+
+  /** 选中该工作流 → 切换当前工作流并回到看板 */
+  const pickWorkflow = (id: string) => {
+    setCurrentWorkflowId(id);
+    setView('board');
+  };
 
   const openSettings = () => {
     setMode(orchestrationMode); // 意见6：打开时预置为当前模式（而非相反值）
@@ -79,7 +73,18 @@ export function LeftPanel({ onNew, onBack, openSettingsSignal = 0 }: { onNew: ()
 
       <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
         <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-faint)' }}>工作流</div>
-        <WorkflowItem active={workflowActive} count={tasks.length} onClick={onBack} />
+        {workflows.map((wf) => {
+          const active = currentWorkflowId === wf.id && (view === 'board' || view === 'task');
+          return (
+            <WorkflowItem
+              key={wf.id}
+              label={wf.name}
+              active={active}
+              count={tasks.filter((t) => (t.workflowId ?? '') === wf.id && !t.archived).length}
+              onClick={() => (active ? onBack() : pickWorkflow(wf.id))}
+            />
+          );
+        })}
       </div>
 
       <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>

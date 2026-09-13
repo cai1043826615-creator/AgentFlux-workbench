@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { WORKFLOW_STAGE_LABELS, type Agent, type Deliverable, type Message, type Task, type TaskCreateInput, type TaskEvent, type WSServerMessage } from '@workbench/shared';
+import { WORKFLOW_ID, WORKFLOW_STAGE_LABELS, type Agent, type Deliverable, type Message, type Task, type TaskCreateInput, type TaskEvent, type WSServerMessage, type WorkflowDefinition } from '@workbench/shared';
 import { api } from '../lib/api.ts';
 import { connectWs } from '../lib/ws.ts';
 import { mergeTaskUpdate, taskWithMeta, type TaskWithMeta } from '../lib/taskMerge.ts';
@@ -51,6 +51,11 @@ interface WorkbenchState {
   approvalQueue: { taskId: number; stage: string; title: string }[];
   settings: Record<string, unknown>;
   loading: boolean;
+  /** 全部工作流定义（GET /api/workflows） */
+  workflows: WorkflowDefinition[];
+  /** 当前选中的工作流 id（左栏切换 / 新建任务默认） */
+  currentWorkflowId: string;
+  setCurrentWorkflowId: (id: string) => void;
   /** 知识库阅读定位（星图/任务详情跳转原文用） */
   kbDocPath: string | null;
   /** P2·F1：文档预览弹窗（叠加层，不产生路由变化；与 kbDocPath 并列，不替换） */
@@ -120,6 +125,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [approvalQueue, setApprovalQueue] = useState<{ taskId: number; stage: string; title: string }[]>([]);
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(true);
+  const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<string>(WORKFLOW_ID);
   const [kbDocPath, setKbDocPath] = useState<string | null>(null);
   const [kbNodeId, setKbNodeId] = useState<string | null>(null);
   const [newTask, setNewTask] = useState<NewTaskState>({ open: false });
@@ -148,10 +155,13 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [t, a, s] = await Promise.all([api.listTasks(), api.listAgents(), api.getSettings()]);
+      const [t, a, s, w] = await Promise.all([api.listTasks(), api.listAgents(), api.getSettings(), api.listWorkflows()]);
       setTasks(t.tasks);
       setAgents(a.agents);
       setSettings(s);
+      setWorkflows(w.workflows);
+      // 首次加载或当前 id 已不在列表中 → 回落到第一条（电商优先由后端顺序保证）
+      setCurrentWorkflowId((prev) => (w.workflows.some((x) => x.id === prev) ? prev : (w.workflows[0]?.id ?? WORKFLOW_ID)));
     } finally {
       setLoading(false);
     }
@@ -455,6 +465,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       approvalQueue,
       settings,
       loading,
+      workflows,
+      currentWorkflowId,
+      setCurrentWorkflowId,
       kbDocPath,
       docPreviewPath,
       openDocPreview,
@@ -488,7 +501,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       pushToast,
       dismissToast,
     }),
-    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, kbDocPath, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
+    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, workflows, currentWorkflowId, kbDocPath, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

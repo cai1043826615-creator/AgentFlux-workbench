@@ -1,18 +1,47 @@
 import { ECOM_WORKFLOW, WORKFLOW_ID } from '@workbench/shared';
 import type { WorkflowDefinition, WorkflowEdge, WorkflowNode } from '@workbench/shared';
-import { get } from '../db/client.ts';
+import { all, get } from '../db/client.ts';
 
-/** 从库中加载工作流图定义（v1 预置「电商新品上架」；缺失时回退内置图） */
+/** 非默认工作流缺失或不可解析 → 抛错，绝不静默套用电商图 */
+export class WorkflowNotFoundError extends Error {
+  constructor(workflowId: string) {
+    super(`工作流定义缺失或不可解析：${workflowId}`);
+    this.name = 'WorkflowNotFoundError';
+  }
+}
+
+/**
+ * 从库中加载工作流图定义。
+ * 默认工作流（电商）缺失/损坏时回退内置图，保证存量任务可用；
+ * 其他工作流缺失或损坏时抛错——否则任务会静默跑在错误的图上
+ * （XHS 阶段 key 在电商图中不存在，nodeOf 返回 undefined 导致任务卡死）。
+ */
 export function loadWorkflow(id: string = WORKFLOW_ID): WorkflowDefinition {
-  const row = get<{ stagesJson: string }>('SELECT stages_json FROM workflows WHERE id = ?', [id]);
+  const row = get<{ stages_json: string }>('SELECT stages_json FROM workflows WHERE id = ?', [id]);
   if (row) {
     try {
-      return JSON.parse(row.stagesJson) as WorkflowDefinition;
+      return JSON.parse(row.stages_json) as WorkflowDefinition;
     } catch {
-      /* fall through */
+      if (id === WORKFLOW_ID) return ECOM_WORKFLOW;
+      throw new WorkflowNotFoundError(id);
     }
   }
-  return ECOM_WORKFLOW;
+  if (id === WORKFLOW_ID) return ECOM_WORKFLOW;
+  throw new WorkflowNotFoundError(id);
+}
+
+/** 库内全部工作流定义（GET /api/workflows 用；无有效记录时回退内置电商图） */
+export function loadAllWorkflows(): WorkflowDefinition[] {
+  const rows = all<{ id: string; stages_json: string }>('SELECT id, stages_json FROM workflows');
+  const wfs: WorkflowDefinition[] = [];
+  for (const r of rows) {
+    try {
+      wfs.push(JSON.parse(r.stages_json) as WorkflowDefinition);
+    } catch {
+      // 损坏记录跳过，不影响其余工作流返回
+    }
+  }
+  return wfs.length > 0 ? wfs : [ECOM_WORKFLOW];
 }
 
 export function getNode(wf: WorkflowDefinition, nodeId: string): WorkflowNode | undefined {

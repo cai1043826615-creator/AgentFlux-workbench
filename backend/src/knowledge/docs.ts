@@ -172,13 +172,30 @@ export async function readDoc(relPath: string): Promise<KnowledgeDoc | null> {
   const path = normalizeRel(relPath);
   if (!path) return null;
   let row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [path]);
+
+  // 兼容回退（P0-6/新4）：三步解析，覆盖 wiki 裸名与旧英文目录两种形态
+  // ① 精确未命中 → 按文件名（忽略 .md 后缀差异）唯一同名回退——
+  //    wiki 链接常传「文案语气指南」裸名，而索引路径是「知识库/品牌规范/文案语气指南.md」，
+  //    必须同时试「带 / 分隔的裸名」与「带 .md 后缀」两种 LIKE，缺一个就 404。
+  // ② 唯一同名才采纳：多篇同名宁可用 error 提示，不猜错引用目标。
   if (!row) {
     const base = path.split('/').pop() ?? '';
-    if (base) {
-      const sameName = all<{ path: string }>(`SELECT path FROM ${KT.docs} WHERE path LIKE ? ESCAPE '\\'`, [
-        `%/${base.replace(/[\\%_]/g, (m) => `\\${m}`)}`,
-      ]);
-      if (sameName.length === 1) row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [sameName[0].path]);
+    const baseNoExt = base.replace(/\.md$/i, '');
+    if (baseNoExt) {
+      const escaped = baseNoExt.replace(/[\\%_]/g, (m) => `\\${m}`);
+      const sameName = all<{ path: string }>(
+        `SELECT path FROM ${KT.docs} WHERE (path LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\')`,
+        [`%/${escaped}`, `%/${escaped}.md`],
+      );
+      // 也允许根目录文档（无 / 前缀）
+      if (sameName.length === 0) {
+        sameName.push(
+          ...all<{ path: string }>(`SELECT path FROM ${KT.docs} WHERE path = ? OR path = ?`, [baseNoExt, `${baseNoExt}.md`]),
+        );
+      }
+      // 去重后唯一才采纳
+      const uniq = [...new Set(sameName.map((s) => s.path))];
+      if (uniq.length === 1) row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [uniq[0]]);
     }
   }
   const effectivePath = row?.path ?? path;

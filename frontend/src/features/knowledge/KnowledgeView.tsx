@@ -8,6 +8,7 @@ import { dirDisplayName, dirDisplayPath } from './dirDisplayName.ts';
 import { KnowledgeOverviewBar } from './KnowledgeOverviewBar.tsx';
 import { VaultConfigModal } from './VaultConfigModal.tsx';
 import { KnowledgeSidebar } from './KnowledgeSidebar.tsx';
+import { InboxPanel } from './InboxPanel.tsx';
 import { Markdown } from './Markdown.tsx';
 
 
@@ -324,10 +325,10 @@ export function KnowledgeView() {
       {/* 头部：状态 + 索引范围 + 操作 */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="font-display text-[20px] font-bold">知识库</h2>
-          <p className="qs-meta mt-1" style={{ color: 'var(--color-ink-faint)' }} title={status.root ?? ''}>
-            已连接 · 只读接入
-          </p>
+          {/* 新3：页面大标题字号统一为 22px（与「每日热点」页一致；原 20px 造成同级页面不齐） */}
+          <h2 className="font-display text-[22px] font-bold leading-tight" style={{ fontFamily: 'var(--font-display)' }}>
+            知识库
+          </h2>
         </div>
         <div className="flex items-center gap-2">
           {status.indexing ? <Badge tone="signal">索引中…</Badge> : <Badge tone="ok">已连接</Badge>}
@@ -443,35 +444,39 @@ export function KnowledgeView() {
           onToggle={() => setCatalogOpen(false)}
           onExpand={() => setCatalogOpen(true)}
           footer={
-            <div className="qs-card mt-4 p-3">
-              <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
-                标签
-              </div>
-              {tags.length === 0 ? (
-                <Empty text={KB_EMPTY_STATES.kbNoTags.text} hint={KB_EMPTY_STATES.kbNoTags.hint} emptyKey={KB_EMPTY_STATES.kbNoTags.key} />
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {tags.map((t) => {
-                    const active = filter.tag === t.tag;
-                    return (
-                      <button
-                        key={t.tag}
-                        type="button"
-                        className="cursor-pointer rounded-[4px] border px-1.5 py-0.5 text-[11px] transition-colors"
-                        style={{
-                          borderColor: active ? 'var(--color-signal)' : 'var(--color-line-strong)',
-                          background: active ? 'var(--color-signal-soft)' : 'transparent',
-                          color: active ? 'var(--color-signal)' : 'var(--color-ink-soft)',
-                        }}
-                        onClick={() => void pick({ dir: null, tag: active ? null : t.tag })}
-                      >
-                        {t.tag} <span className="tabular">{t.count}</span>
-                      </button>
-                    );
-                  })}
+            <>
+              <div className="qs-card mt-4 p-3">
+                <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
+                  标签
                 </div>
-              )}
-            </div>
+                {tags.length === 0 ? (
+                  <Empty text={KB_EMPTY_STATES.kbNoTags.text} hint={KB_EMPTY_STATES.kbNoTags.hint} emptyKey={KB_EMPTY_STATES.kbNoTags.key} />
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {tags.map((t) => {
+                      const active = filter.tag === t.tag;
+                      return (
+                        <button
+                          key={t.tag}
+                          type="button"
+                          className="cursor-pointer rounded-[4px] border px-1.5 py-0.5 text-[11px] transition-colors"
+                          style={{
+                            borderColor: active ? 'var(--color-signal)' : 'var(--color-line-strong)',
+                            background: active ? 'var(--color-signal-soft)' : 'transparent',
+                            color: active ? 'var(--color-signal)' : 'var(--color-ink-soft)',
+                          }}
+                          onClick={() => void pick({ dir: null, tag: active ? null : t.tag })}
+                        >
+                          {t.tag} <span className="tabular">{t.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              {/* P2-5：收件箱（依依整理产出；用户要求「即使草稿也要在知识库里体现」） */}
+              <InboxPanel />
+            </>
           }
         >
           {dirs.length === 0 ? (

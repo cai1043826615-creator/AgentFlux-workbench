@@ -39,18 +39,26 @@ const { aihotAdapter } = await import('../hot-sources/aihot.ts');
 const { ADAPTERS, instantiateAdapters } = await import('../hot-sources/index.ts');
 
 // ===== fixture（2026-09-11 真实探测的源结构，脱敏） =====
+// 时间字段统一用「相对 now」生成：面板的 selected24h 统计按最近 24h 窗口过滤，
+// 固定日期会随时间流逝溢出窗口（曾导致「最近 24h 条目数应 > 0」断言失败的时间炸弹）。
+
+const NOW = Date.now();
+/** n 小时前的 ISO 时间戳（用真实结构 + 活动时间） */
+function hoursAgoIso(n: number): string {
+  return new Date(NOW - n * 60 * 60 * 1000).toISOString();
+}
 
 const PAI_HTML = `<!doctype html><html><head><title>快讯</title></head><body>
 <script>(window[Symbol.for("ApolloSSRDataTransport")] ??= []).push({"json":{"rehydrate":{":R4puucupkq:":{"data":{"posts":{"__typename":"PostConnection","edges":[
-{"__typename":"PostEdge","node":{"__typename":"Post","id":"426254","title":"2026年8月份全国网约车订单达10.69亿单","slug":"01m27v234n9yzfg7yv105n2abe","show_mode":"News","summary":"9月11日消息，据网约车监管信息交互系统监测，截至2026年8月31日，全国共有402家网约车平台公司取得网约车平台经营许可，与上月持平。","url":"/news/01m27v234n9yzfg7yv105n2abe","publish_status":"Published"}},
+{"__typename":"PostEdge","node":{"__typename":"Post","id":"426254","title":"2026年8月份全国网约车订单达10.69亿单","slug":"01m27v234n9yzfg7yv105n2abe","show_mode":"News","summary":"据网约车监管信息交互系统监测，截至2026年8月31日，全国共有402家网约车平台公司取得网约车平台经营许可，与上月持平。","url":"/news/01m27v234n9yzfg7yv105n2abe","publish_status":"Published"}},
 {"__typename":"PostEdge","node":{"__typename":"Post","id":"426253","title":"抖音电商：过去一年特色风味商品订单量增长78%","slug":"01m27khnmzqkjfxwr1mpc0qhk9","show_mode":"News","summary":"抖音电商宣布特色风味商品订单量显著增长。","url":"/news/01m27khnmzqkjfxwr1mpc0qhk9","publish_status":"Published"}}
 ]}}}}}})</script>
 </body></html>`;
 
 const EC100_HTML = `<div class="search_result" id="">
-<dl><dt><a href="detail--6663873.html" target="_blank">高德扫街榜2026发布 西湖年专程导航总里程超1000万公里</a><span>2026-09-11 17:09:13</span></dt><dd><span>2026-09-11 17:09:13</span></dd></dl>
-<dl><dt><a href="detail--6663872.html" target="_blank">Temu自营店突然上线 拼多多千亿布局浮出水面 平台回应</a><span>2026-09-11 16:02:47</span></dt><dd><span>2026-09-11 16:02:47</span></dd></dl>
-<dl><dt><a href="detail--6663871.html" target="_blank">天猫双11预售规则更新 商家报名开启</a><span>2026-09-11 15:30:00</span></dt><dd><span>2026-09-11 15:30:00</span></dd></dl>
+<dl><dt><a href="detail--6663873.html" target="_blank">高德扫街榜2026发布 西湖年专程导航总里程超1000万公里</a><span>${hoursAgoIso(2).replace('T', ' ').slice(0, 19)}</span></dt><dd><span>${hoursAgoIso(2).replace('T', ' ').slice(0, 19)}</span></dd></dl>
+<dl><dt><a href="detail--6663872.html" target="_blank">Temu自营店突然上线 拼多多千亿布局浮出水面 平台回应</a><span>${hoursAgoIso(3).replace('T', ' ').slice(0, 19)}</span></dt><dd><span>${hoursAgoIso(3).replace('T', ' ').slice(0, 19)}</span></dd></dl>
+<dl><dt><a href="detail--6663871.html" target="_blank">天猫双11预售规则更新 商家报名开启</a><span>${hoursAgoIso(4).replace('T', ' ').slice(0, 19)}</span></dt><dd><span>${hoursAgoIso(4).replace('T', ' ').slice(0, 19)}</span></dd></dl>
 </div>`;
 
 const STATS_HTML = `<html><body>
@@ -63,12 +71,12 @@ const STATS_HTML = `<html><body>
 const HOT_TOPICS_JSON = JSON.stringify({
   items: [
     {
-      id: 'h1', title: '天猫双11新规：预售期延长', sourceCount: 5, latestAt: '2026-09-11T00:00:00Z',
+      id: 'h1', title: '天猫双11新规：预售期延长', sourceCount: 5, latestAt: hoursAgoIso(6),
       links: { story: '/api/v1/stories/s1', original: 'https://x/1' },
       source: { name: '电商报' },
     },
     {
-      id: 'h2', title: 'Apple 发布首款折叠屏 iPhone Duo，$1,999', sourceCount: 3, latestAt: '2026-09-11T00:00:00Z',
+      id: 'h2', title: 'Apple 发布首款折叠屏 iPhone Duo，$1,999', sourceCount: 3, latestAt: hoursAgoIso(6),
       links: { story: '/api/v1/stories/s2', original: 'https://x/2' },
       source: { name: 'Apple Newsroom' },
     },
@@ -77,9 +85,9 @@ const HOT_TOPICS_JSON = JSON.stringify({
 
 const SELECTED_JSON = JSON.stringify({
   items: [
-    { id: 'sel1', title: '精选：某电商平台大促战报', summary: '成交额增长 120%', publishedAt: '2026-09-10T10:00:00Z', links: { original: 'https://x/sel1' }, source: { name: '平台方' } },
-    { id: 's1', title: '天猫双11新规全文', digest: '预售期延长至 10 天。', latest: '新增商家扶持细则', latestAt: '2026-09-11T08:00:00Z', url: '/api/v1/stories/s1', links: {} },
-    { id: 's2', title: 'Apple 发布首款折叠屏 iPhone Duo', digest: '起售价 $1,999。', latest: '国内上市时间待定', latestAt: '2026-09-11T09:00:00Z', url: '/api/v1/stories/s2', links: {} },
+    { id: 'sel1', title: '精选：某电商平台大促战报', summary: '成交额增长 120%', publishedAt: hoursAgoIso(10), links: { original: 'https://x/sel1' }, source: { name: '平台方' } },
+    { id: 's1', title: '天猫双11新规全文', digest: '预售期延长至 10 天。', latest: '新增商家扶持细则', latestAt: hoursAgoIso(8), url: '/api/v1/stories/s1', links: {} },
+    { id: 's2', title: 'Apple 发布首款折叠屏 iPhone Duo', digest: '起售价 $1,999。', latest: '国内上市时间待定', latestAt: hoursAgoIso(9), url: '/api/v1/stories/s2', links: {} },
   ],
 });
 
@@ -291,7 +299,9 @@ describe('3.2-3.4 多源适配器解析（fixture 结构）', () => {
     assert.equal(r.items.length, 3);
     const temu = r.items.find((i) => i.title.includes('Temu'))!;
     assert.equal(temu.url, 'https://www.100ec.cn/detail--6663872.html');
-    assert.ok(temu.latestAt!.startsWith('2026-09-11'));
+    // 时间字段为活动生成的 hoursAgoIso(3)，只断言「可解析且在 24h 内」
+    const t = Date.parse(temu.latestAt ?? '');
+    assert.ok(Number.isFinite(t) && Date.now() - t <= 24 * 60 * 60 * 1000, `latestAt 应在最近 24h 内，实际 ${temu.latestAt}`);
   });
 
   test('stats-sjjd 适配器：相对链接解析 + 路径日期提取', async () => {

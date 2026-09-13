@@ -597,7 +597,10 @@ export function KnowledgeGraphView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="font-display text-[20px] font-bold">知识星图</h2>
+          {/* 新3：页面大标题字号统一为 22px（与知识库页 / 每日热点页一致） */}
+          <h2 className="font-display text-[22px] font-bold leading-tight" style={{ fontFamily: 'var(--font-display)' }}>
+            知识星图
+          </h2>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <input

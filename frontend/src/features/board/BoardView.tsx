@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardColumn } from '@workbench/shared';
-import { APPROVAL_POINT_STAGES, WORKFLOW_STAGE_KEYS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
-import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
+import { WORKFLOW_STAGE_LABELS, approvalPointsOf, stageIndexOf, stageKeysOf } from '@workbench/shared';import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { applyTaskFilters } from '../../lib/taskFilters.ts';
 import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { ArchivedTasksModal } from './ArchivedTasksModal.tsx';
@@ -22,9 +21,9 @@ function stageText(task: TaskWithMeta): string {
   return WORKFLOW_STAGE_LABELS[task.stage] || task.stageLabel || task.stage;
 }
 
-/** 阶段序号（0 基），供 flowbar 用 */
+/** 阶段序号（0 基），供 flowbar 用；按任务所属工作流取值 */
 function stageIdxOf(task: TaskWithMeta): number {
-  const i = WORKFLOW_STAGE_KEYS.indexOf(task.stage as (typeof WORKFLOW_STAGE_KEYS)[number]);
+  const i = stageIndexOf(task.workflowId, task.stage);
   return i < 0 ? 0 : i;
 }
 
@@ -69,8 +68,8 @@ function TaskCard({
 
   return (
     <article
-      className="qs-card qs-interactive relative p-3"
-      style={task.column === 'awaiting' ? { borderColor: 'var(--color-warn)' } : undefined}
+      className="qs-card qs-interactive relative flex flex-col p-3"
+      style={{ borderColor: task.column === 'awaiting' ? 'var(--color-warn)' : undefined, minHeight: 200 }}
       onClick={() => onOpen(task)}
       title="查看详情"
     >
@@ -90,23 +89,19 @@ function TaskCard({
         </span>
       </div>
 
-      {task.stageNote ? (
-        <p className="qs-meta mb-2 leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
-          {task.stageNote}
-        </p>
-      ) : null}
-
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
         <Tag task={task} />
         {/* B6 · 9.1 看板卡片失效角标（kbRefsInvalid > 0 才显示） */}
         <KbInvalidBadge task={task} />
       </div>
 
-      {/* 6 段 flowbar（对齐线框 flowbar；意见5 视觉降级版，颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰；
-          确认点（APPROVAL_POINT_STAGES，含 detail-image）仅在 hover title 标注「确认点」，不再渲染微标 */}
-      <div className="mt-2 flex gap-[3px]">
-        {WORKFLOW_STAGE_KEYS.map((k, i) => {
-          const isApproval = (APPROVAL_POINT_STAGES as string[]).includes(k);
+      {/* flowbar：段数与确认点均按任务所属工作流取（电商 6 段 / XHS 6 段各自独立）
+          颜色语义与详情页一致：完成=绿 / 当前=黑 / 未到=灰；确认点仅在 hover title 标注
+          新7：外层 flex-1 —— 让进度条区吸收卡片剩余高度，操作行自然贴底且不留空洞 */}
+      <div className="mt-2 flex flex-1 flex-col justify-end gap-[3px]">
+        <div className="flex gap-[3px]">
+        {stageKeysOf(task.workflowId).map((k, i) => {
+          const isApproval = approvalPointsOf(task.workflowId).includes(k);
           return (
             <div
               key={k}
@@ -127,9 +122,10 @@ function TaskCard({
             </div>
           );
         })}
+        </div>
       </div>
 
-      {/* 主操作独占一行（次要操作已收进下方 ⋯ 溢出菜单，避免三按钮挤在一行导致中文折行） */}
+      {/* 主操作独占一行 */}
       {task.column === 'planned' ? (
         <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
           <Btn size="sm" variant="primary" className="w-full" onClick={() => onConfirm(task.id)}>
@@ -138,7 +134,7 @@ function TaskCard({
         </div>
       ) : null}
 
-      {/* 次要操作：交付包下载 / 归档 收进 ⋯ 溢出菜单 */}
+      {/* 底部操作行（新7：整段文案已移出卡面；状态文字与 ⋯ 同行，紧贴内容而非推到底部空洞） */}
       <div className="mt-2.5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         {task.column === 'progress' ? (
           <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
@@ -147,10 +143,14 @@ function TaskCard({
           </span>
         ) : null}
         {task.column === 'done' ? (
-          // P1·1.6：已交付/已完成已由上方 badge 表达，此处不再重复；仅保留「查看交付物 →」入口
           <button type="button" className="qs-clickable qs-meta inline-flex items-center gap-1" style={{ color: 'var(--color-signal)' }} onClick={() => onOpen(task)}>
             查看交付物 →
           </button>
+        ) : null}
+        {task.column === 'awaiting' && task.stageNote ? (
+          <span className="qs-meta truncate" style={{ color: 'var(--color-ink-faint)' }} title={task.stageNote}>
+            {task.stageNote}
+          </span>
         ) : null}
         <div className="flex-1" />
         {/* B4 · 4.10 下载失败原因（409 中文）现在卡片层级展示，避免藏在菜单里被忽略 */}
@@ -201,12 +201,13 @@ function TaskCard({
 
 /** 任务看板（对齐线框 renderBoard：标题行 + 看板/列表切换 + 筛选 + 搜索 + ＋新建任务 + 四列） */
 export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onNew: () => void }) {
-  const { tasks, loading, confirmTask, openTask, archiveTask, restoreTask, pushToast, boardMode, setBoardMode, filters } = useWorkbench();
+  const { tasks, loading, confirmTask, openTask, archiveTask, restoreTask, pushToast, boardMode, setBoardMode, filters, currentWorkflowId, workflows } = useWorkbench();
   const [archiveOpen, setArchiveOpen] = useState(false);
 
-  // 两视图共用同一数据源：未归档 + 筛选/排序（B5 · 5.2/5.4）
-  const visible = useMemo(() => applyTaskFilters(tasks, filters), [tasks, filters]);
-  const archivedCount = useMemo(() => tasks.filter((t) => t.archived).length, [tasks]);
+  // 两视图共用同一数据源：当前工作流 → 未归档 → 筛选/排序（B5 · 5.2/5.4）
+  const inWorkflow = useMemo(() => tasks.filter((t) => (t.workflowId ?? '') === currentWorkflowId), [tasks, currentWorkflowId]);
+  const visible = useMemo(() => applyTaskFilters(inWorkflow, filters), [inWorkflow, filters]);
+  const archivedCount = useMemo(() => inWorkflow.filter((t) => t.archived).length, [inWorkflow]);
 
   if (loading && tasks.length === 0) {
     return (
@@ -238,6 +239,9 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
       {/* 标题行（对齐线框 board-title-row；B5：看板/列表切换 + 交付物搜索） */}
       <div className="mb-3.5 flex flex-wrap items-center gap-3">
         <span className="font-display text-xl font-bold">任务看板</span>
+        <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+          {workflows.find((w) => w.id === currentWorkflowId)?.name ?? ''}
+        </span>
         <span className="qs-meta hidden sm:inline" style={{ color: 'var(--color-ink-faint)' }}>
           {visible.length}个任务{archivedCount > 0 ? ` · ${archivedCount} 个已归档` : ''}
         </span>

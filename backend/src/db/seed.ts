@@ -1,4 +1,4 @@
-import { ECOM_WORKFLOW, WORKFLOW_ID, WORKFLOW_NAME } from '@workbench/shared';
+import { ECOM_WORKFLOW, WORKFLOW_ID, WORKFLOW_NAME, XHS_WORKFLOW, XHS_WORKFLOW_ID, XHS_WORKFLOW_NAME } from '@workbench/shared';
 import { CHANNEL } from '../config.ts';
 import { get, run, tx } from './client.ts';
 import { ensureSchema } from './ensure.ts';
@@ -33,10 +33,10 @@ export const SEED_AGENTS = [
     files: JSON.stringify([]),
   },
   {
-    // P2·F3：知识库小助理「涵涵」。不参与电商工作流（AGENT_BY_ROLE 三角色白名单不含「助理」），
+    // P2·F3：知识库小助理「依依」。不参与电商工作流（AGENT_BY_ROLE 三角色白名单不含「助理」），
     // 只做知识库侧整理（文档→md / 热点素材卡 / 知识库体检），产出一律进草稿区，对 Vault 只读。
     id: 'agent-assistant',
-    name: '涵涵',
+    name: '依依',
     role: '助理',
     persona: '知识库整理助理，负责把产品资料与每日热点素材整理成结构化 Markdown（保留关键事实与来源路径），并能对知识库做体检给出整理建议（重复主题/缺失标签/可互链孤岛）。只读知识库，绝不修改 Vault 内任何文件。',
     model: 'deepseek-chat',
@@ -51,17 +51,26 @@ export function seed(): void {
   tx(() => {
     const now = new Date().toISOString();
     for (const a of SEED_AGENTS) {
-      const exists = get<{ id: string }>('SELECT id FROM agents WHERE id = ?', [a.id]);
+      const exists = get<{ id: string; name: string }>('SELECT id, name FROM agents WHERE id = ?', [a.id]);
       if (!exists) {
         run(
           'INSERT INTO agents (id,name,role,persona,model,skills,files,online_status,activity,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
           [a.id, a.name, a.role, a.persona, a.model, a.skills, a.files, 'idle', '待命', now],
         );
+      } else if (exists.name !== a.name) {
+        // P2·新1：内置 Agent 的显示名以 seed 为准同步（如小助理「涵涵」→「依依」）。
+        // 只同步姓名——人设/模型/技能仍归用户，不被 seed 覆盖。
+        run('UPDATE agents SET name = ? WHERE id = ?', [a.name, a.id]);
       }
     }
     const wf = get<{ id: string }>('SELECT id FROM workflows WHERE id = ?', [WORKFLOW_ID]);
     if (!wf) {
       run('INSERT INTO workflows (id,name,stages_json) VALUES (?,?,?)', [WORKFLOW_ID, WORKFLOW_NAME, JSON.stringify(ECOM_WORKFLOW)]);
+    }
+    // 第二条业务工作流「小红书种草笔记」（幂等；阶段 key 全带 xhs- 前缀，不与电商同名）
+    const xhs = get<{ id: string }>('SELECT id FROM workflows WHERE id = ?', [XHS_WORKFLOW_ID]);
+    if (!xhs) {
+      run('INSERT INTO workflows (id,name,stages_json) VALUES (?,?,?)', [XHS_WORKFLOW_ID, XHS_WORKFLOW_NAME, JSON.stringify(XHS_WORKFLOW)]);
     }
     const mode = get<{ key: string }>('SELECT key FROM settings WHERE key = ?', ['orchestrationMode']);
     if (!mode) {

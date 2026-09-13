@@ -144,18 +144,43 @@ export async function buildSystemPrompt(agentId: string, base: string): Promise<
 }
 
 /**
- * 组装 producer 最终 system prompt：基础 system + 挂载技能/文件 + 关联知识库资料 + 任务背景·外部环境情报 + 上次返工意见。
- * 段序固定（主文档 §6.3 + hot-intel D2）：base → 【挂载技能】→【挂载文件】→【关联知识库资料】→【任务背景 · 外部环境情报】→【上次返工意见】。
+ * 工作流专属技能：按 workflowId 注入，不占用 Agent 的个人技能位。
+ * 场景：同一 Agent 服务多条工作流（如美美既写电商文案又写小红书笔记），
+ * 工作流红线（如《小红书合规违禁词清单》）只应出现在对应工作流的 prompt 里。
+ * 键为技能 id，值为适用的工作流 id 列表；未列出任何工作流技能时本函数不产生任何内容。
+ */
+const WORKFLOW_SKILLS: Record<string, string[]> = {
+  小红书合规违禁词清单: ['xhs-note'],
+};
+
+/** 收集适用于某工作流的工作流专属技能段（无则返回空串，prompt 与既有完全一致） */
+async function workflowSkillBlock(workflowId?: string): Promise<string> {
+  if (!workflowId) return '';
+  const blocks: string[] = [];
+  for (const [skillId, wfIds] of Object.entries(WORKFLOW_SKILLS)) {
+    if (!wfIds.includes(workflowId)) continue;
+    const content = await readSkillContent(skillId);
+    if (content) blocks.push(`## 工作流专属技能：${skillId}\n${content}`);
+  }
+  return blocks.length > 0 ? `【工作流专属技能】\n\n${blocks.join('\n\n')}` : '';
+}
+
+/**
+ * 组装 producer 最终 system prompt：基础 system + 挂载技能/文件 + 工作流专属技能 + 关联知识库资料 + 任务背景·外部环境情报 + 上次返工意见。
+ * 段序固定：base → 【挂载技能】→【挂载文件】→【工作流专属技能】→【关联知识库资料】→【任务背景 · 外部环境情报】→【上次返工意见】。
  * - 知识库段为既有一级通道（不改既有段序与行为）；
+ * - 工作流专属技能段按 workflowId 注入：电商任务无此段，最终 prompt 与既有完全一致（板块独立性）；
  * - 热点段为 hot-intel 追加：仅当任务挂了热点背景时才出现，标题「【任务背景 · 外部环境情报】」，
  *   含「不得作为产品品类/主体/功能规格依据」约束；持久化快照注入，不依赖热点面板当前状态（源不可用时仍可用）。
  * - taskId 无关联资料 / 无热点背景 / 无待处理返工意见时对应段为空，最终 prompt 与既有完全一致（板块独立性）。
  */
-export async function buildProducerSystemPrompt(agentId: string, base: string, taskId?: number): Promise<string> {
+export async function buildProducerSystemPrompt(agentId: string, base: string, taskId?: number, workflowId?: string): Promise<string> {
   const withMounts = await buildSystemPrompt(agentId, base);
+  const wfSkills = await workflowSkillBlock(workflowId);
   const kb = await buildKnowledgeContext(taskId);
   const hot = buildHotContext(taskId); // 同步只读快照表；异常内部降级为空串
   const parts: string[] = [withMounts];
+  if (wfSkills) parts.push(wfSkills);
   if (kb) parts.push(kb);
   if (hot) parts.push(hot); // hot-intel D2：热点段在「关联知识库资料」段之后追加
   if (taskId != null) {
@@ -181,9 +206,10 @@ export class SmartProducer implements StageProducer {
     fallback: () => Promise<T>,
     parser: (text: string) => T | null,
     taskId?: number,
+    workflowId?: string,
   ): Promise<T> {
     try {
-      const finalSystem = await buildProducerSystemPrompt(agentId, system, taskId);
+      const finalSystem = await buildProducerSystemPrompt(agentId, system, taskId, workflowId);
       const { content: text } = await callLlm({ agentId, system: finalSystem, user });
       const parsed = parser(text);
       if (parsed) return parsed;
@@ -204,6 +230,7 @@ export class SmartProducer implements StageProducer {
       () => this.mock.produceRequirement(task),
       (text) => ({ summary: text.trim().slice(0, 300) }),
       task.id,
+      task.workflowId,
     );
   }
 
@@ -226,6 +253,7 @@ export class SmartProducer implements StageProducer {
         };
       },
       task.id,
+      task.workflowId,
     );
   }
 
@@ -330,6 +358,7 @@ export class SmartProducer implements StageProducer {
           };
         },
         task.id,
+        task.workflowId,
       );
 
     const baseline = (await resolveReferenceImage(task, false)) || (await resolveReferenceImage(task, true)) || task.referenceImage;
@@ -397,6 +426,7 @@ export class SmartProducer implements StageProducer {
         return { packName: parsed.packName, entries: parsed.entries };
       },
       task.id,
+      task.workflowId,
     );
   }
 }

@@ -62,10 +62,21 @@ export function Modal({ open, title, onClose, children, width = 520 }: { open: b
   );
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * 表单字段。`required` 为真时在标签后渲染红色星号（必填标识）。
+ * 用参数而非在标签文本里手写「*」，保证全站必填标识样式一致。
+ */
+export function Field({ label, children, required = false }: { label: string; children: ReactNode; required?: boolean }) {
   return (
     <label className="block mb-3">
-      <span className="qs-label">{label}</span>
+      <span className="qs-label">
+        {label}
+        {required ? (
+          <span aria-hidden="true" style={{ color: 'var(--color-danger)', marginLeft: 3 }} title="必填">
+            *
+          </span>
+        ) : null}
+      </span>
       {children}
     </label>
   );
@@ -129,6 +140,8 @@ function avatarUrl(id: string | undefined, name: string): string | null {
   if ((id ?? '').includes('copy') || hay.includes('美美')) return '/avatars/meimei.png';
   if ((id ?? '').includes('design') || hay.includes('平平')) return '/avatars/pingping.png';
   if ((id ?? '').includes('supervisor') || hay.includes('波波')) return '/avatars/bobo.png';
+  // P2·新1：知识库小助理「依依」（圆框眼镜 + 知性气质，与三人同款 3D 渲染风格）
+  if ((id ?? '').includes('assistant') || hay.includes('依依')) return '/avatars/yiyi.png';
   return null;
 }
 

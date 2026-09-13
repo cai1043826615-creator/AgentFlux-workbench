@@ -96,7 +96,7 @@ function RailIcon({ glyph, title, active, disabled, onClick }: { glyph: GlyphNam
 /** 新建任务：三步弹窗（第1步 表单 → 第2步 关联知识库资料 → 第3步 确认摘要 → 确认并开工）
  *  第2步是板块 A/B 的唯一耦合点；知识库未连接时该步骤仅提示并可跳过，流程与既有完全一致。 */
 function NewTaskModal() {
-  const { createTask, newTask, closeNewTask } = useWorkbench();
+  const { createTask, newTask, closeNewTask, workflows, currentWorkflowId } = useWorkbench();
   const open = newTask.open;
   const [step, setStep] = useState<'form' | 'kb' | 'confirm'>('form');
   const [title, setTitle] = useState('');
@@ -105,6 +105,8 @@ function NewTaskModal() {
   const [refDataUrl, setRefDataUrl] = useState<string | null>(null);
   const [kbRefs, setKbRefs] = useState<TaskKbRefInput[]>([]);
   const [busy, setBusy] = useState(false);
+  /** 所选工作流（打开时预置为左栏当前工作流） */
+  const [workflowId, setWorkflowId] = useState<string>(currentWorkflowId);
   // §6.3：校验提示仅在用户交互后出现，避免"打开即满屏红字"
   const [touched, setTouched] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -119,6 +121,7 @@ function NewTaskModal() {
     setRefDataUrl(null);
     setKbRefs([]);
     setTouched(false);
+    setWorkflowId(currentWorkflowId); // 每次打开同步左栏当前工作流
     if (fileRef.current) fileRef.current.value = '';
   }, [open]);
 
@@ -161,7 +164,7 @@ function NewTaskModal() {
       } catch (err) {
         console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
       }
-      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage, kbRefs });
+      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage, kbRefs, workflowId });
       reset();
     } finally {
       setBusy(false);
@@ -174,14 +177,45 @@ function NewTaskModal() {
     <Modal open title={stepTitle} onClose={reset} width={460}>
       {step === 'form' ? (
         <>
-          <Field label="任务标题">
+          <Field label="工作流">
+            <div className="space-y-2">
+              {workflows.map((wf) => (
+                <label
+                  key={wf.id}
+                  className="flex cursor-pointer items-start gap-2 rounded-[4px] border px-3 py-2.5"
+                  style={{
+                    borderColor: workflowId === wf.id ? 'var(--color-signal)' : 'var(--color-line-strong)',
+                    background: workflowId === wf.id ? 'var(--color-signal-soft)' : 'var(--color-surface)',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="task-workflow"
+                    className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-signal)]"
+                    checked={workflowId === wf.id}
+                    onChange={() => setWorkflowId(wf.id)}
+                  />
+                  <span className="text-[13px] leading-snug">
+                    <span className="block font-medium">{wf.name}</span>
+                    <span className="qs-meta block" style={{ color: 'var(--color-ink-faint)' }}>
+                      {wf.nodes.map((n) => n.label).join(' → ')}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </Field>
+          <Field label="任务标题" required>
             <input className="qs-input" value={title} onChange={(e) => { setTouched(true); setTitle(e.target.value); }} placeholder="如：无线磁吸充电宝新品上架全套物料" autoFocus />
           </Field>
           <Field label="产品资料 / 任务描述">
             <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => { setTouched(true); setDesc(e.target.value); }} placeholder="品名/类目/卖点素材…" />
           </Field>
           <div className="mb-3">
-            <span className="qs-label">目标平台（必填，可多选）</span>
+            <span className="qs-label">
+              目标平台（可多选）
+              <span aria-hidden="true" style={{ color: 'var(--color-danger)', marginLeft: 3 }} title="必填">*</span>
+            </span>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               {PLATFORM_OPTIONS.map((p) => (
                 <label key={p} className="flex cursor-pointer items-center gap-1.5 text-[13px] select-none">
@@ -196,7 +230,7 @@ function NewTaskModal() {
               ))}
             </div>
           </div>
-          <Field label="参考图（必填，后续全部产出基于此图）">
+          <Field label="参考图（后续全部产出基于此图）" required>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
             <div className="flex items-center gap-3">
               <div
@@ -256,6 +290,10 @@ function NewTaskModal() {
         <>
           <div className="rounded border px-3 py-2.5 space-y-1.5" style={{ borderColor: 'var(--color-line)' }}>
             <div className="text-[13px]"><b>标题：</b>{title}</div>
+            <div className="text-[13px]">
+              <b>工作流：</b>
+              {workflows.find((w) => w.id === workflowId)?.name ?? workflowId}
+            </div>
             <div className="text-[13px]"><b>描述：</b>{desc || '新品上架全套物料'}</div>
             <div className="text-[13px]"><b>平台：</b>{platforms.join(' / ')}</div>
             <div className="flex items-center gap-2 text-[13px]">
@@ -289,7 +327,7 @@ function NewTaskModal() {
 }
 
 function Shell() {
-  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask } = useWorkbench();
+  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask, workflows, currentWorkflowId } = useWorkbench();
   const [showLeft, setShowLeft] = useState(true);
   // 右栏聊天面板默认收起：首屏把横向空间让给主视图（可随时展开）
   const [showRight, setShowRight] = useState(false);
@@ -328,6 +366,7 @@ function Shell() {
   };
 
   const workflowActive = view === 'board' || view === 'task';
+  const currentWorkflowName = workflows.find((w) => w.id === currentWorkflowId)?.name ?? '工作流';
   const isGroupChat = chatTarget.kind === 'group';
 
   /** 左栏折叠态图标：跳转/行为 + 同时展开左栏 */
@@ -396,7 +435,7 @@ function Shell() {
               <RailIcon glyph="trend" title="知识库 · 每日热点" active={view === 'hot'} onClick={openLeftHot} />
               <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
               {/* 工作流分区（占位项展示但不可点，与展开态一致） */}
-              <RailIcon glyph="flow" title="工作流 · 电商工作流看板" active={workflowActive} onClick={openLeftFlow} />
+              <RailIcon glyph="flow" title={`工作流 · ${currentWorkflowName}看板`} active={workflowActive} onClick={openLeftFlow} />
               <RailIcon glyph="box" title="工作流 · 直播带货上架（占位）" disabled />
               <RailIcon glyph="box" title="工作流 · 跨境选品（占位）" disabled />
               <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />

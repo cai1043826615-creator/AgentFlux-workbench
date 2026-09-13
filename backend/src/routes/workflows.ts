@@ -3,6 +3,6 @@ import { service } from '../engine/service.ts';
 
 export async function workflowRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/workflows', async () => {
-    return { workflows: [service.workflow()] };
+    return { workflows: service.workflows() };
   });
 }

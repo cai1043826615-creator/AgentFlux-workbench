@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P2 人工验收核对单 · 涵涵 + 文档预览弹窗</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #fff; --sunken: #f4f4f5;
+    --ink: #0a0a0a; --ink-soft: #52525b; --ink-faint: #a1a1aa;
+    --line: #ececee; --line-strong: #dcdce0;
+    --ok: #15803d; --ok-soft: #ecfdf3;
+    --no: #b91c1c; --no-soft: #fef2f2;
+    --signal: #7c3aed; --signal-soft: #f3effe;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: "Noto Sans SC", system-ui, sans-serif; font-size: 14px; line-height: 1.6; padding: 32px 16px; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .meta { color: var(--ink-faint); font-size: 12px; margin-bottom: 20px; }
+  .tips { background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; font-size: 13px; color: var(--ink-soft); margin-bottom: 24px; }
+  .tips b { color: var(--ink); }
+  h2 { font-size: 16px; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line-strong); }
+  .item { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; margin-bottom: 10px; }
+  .item.pass { border-color: var(--ok); background: var(--ok-soft); }
+  .item.fail { border-color: var(--no); background: var(--no-soft); }
+  .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .no { color: var(--ink-faint); font-size: 12px; font-family: monospace; }
+  .title { font-weight: 600; flex: 1; min-width: 200px; }
+  .choice { display: flex; gap: 14px; }
+  .choice label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; color: var(--ink-soft); user-select: none; }
+  .choice input { accent-color: var(--signal); width: 15px; height: 15px; cursor: pointer; }
+  .detail { font-size: 12.5px; color: var(--ink-soft); margin: 8px 0 0; white-space: pre-wrap; }
+  .detail b { color: var(--ink); }
+  .verified { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--ink-faint); }
+  .verified.me { color: var(--signal); border-color: var(--signal); background: var(--signal-soft); }
+  .verified.you { color: #b45309; border-color: #b45309; background: #fff8e6; }
+  input.note { width: 100%; margin-top: 8px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+  input.note:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 2px var(--signal-soft); }
+  .bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); margin-bottom: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bar .stat { font-size: 13px; color: var(--ink-soft); }
+  .bar .stat b.ok { color: var(--ok); } .bar .stat b.no { color: var(--no); }
+  .bar button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 4px; padding: 6px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .bar button:hover { border-color: var(--ink); }
+  .bar button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .summary { margin-top: 28px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; padding: 16px; }
+  .summary h3 { font-size: 15px; margin-bottom: 8px; }
+  .summary textarea { width: 100%; min-height: 90px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 10px; font-family: inherit; font-size: 13px; resize: vertical; }
+  .final { margin-top: 14px; display: flex; gap: 16px; }
+  .final label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
+  .final input { accent-color: var(--signal); width: 16px; height: 16px; }
+  .savehint { font-size: 12px; color: var(--ink-faint); margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>P2 人工验收核对单</h1>
+  <div class="meta">涵涵（知识库小助理） + 文档预览弹窗 · 前端 http://127.0.0.1:4310/ · 2026-09-12</div>
+
+  <div class="tips">
+    <b>用法：</b>逐项点「通过 / 问题」，问题项务必填备注；全部点完点「导出结果」把文本发给 AI 归档。<br>
+    <b>标记说明：</b><span class="verified me">已由AI实测</span> = AI 已用 Chrome DevTools 验证过，你复核即可；<span class="verified you">需你亲测</span> = 体验类，只有你能判断。
+  </div>
+
+  <div class="bar">
+    <span class="stat">通过 <b class="ok" id="okCount">0</b> · 问题 <b class="no" id="noCount">0</b> · 未决 <b id="pendCount">22</b></span>
+    <button class="primary" id="exportBtn">导出结果</button>
+    <button id="resetBtn">重置全部</button>
+  </div>
+
+  <h2>一、涵涵上线（4 处出现 + 1 处不出现）</h2>
+
+  <div class="item" data-id="1.1">
+    <div class="head"><span class="no">1.1</span><span class="title">工位栏——涵涵不在里面</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.1" value="pass">通过</label><label><input type="radio" name="v1.1" value="fail">问题</label></span></div>
+    <p class="detail">在哪：首页顶部「工位 WORKSTATIONS · 3 个」。
+看什么：恰好 3 张卡——美美（文案）/平平（设计师）/波波（主管）。
+<b>过的标准：没有第四张「涵涵」卡</b>（你定案：工作流不体现小助理）。</p>
+    <input class="note" placeholder="备注（问题必填：现象+截图编号）…" data-note="1.1">
+  </div>
+
+  <div class="item" data-id="1.2">
+    <div class="head"><span class="no">1.2</span><span class="title">工位栏收起 / 展开仍正常</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v1.2" value="pass">通过</label><label><input type="radio" name="v1.2" value="fail">问题</label></span></div>
+    <p class="detail">操作：点工位栏右上「收起 ▴」→ 变一行（每个 Agent 显示小头像+名字+岗位）→ 点「展开 ▾」恢复三张卡。</p>
+    <input class="note" placeholder="备注…" data-note="1.2">
+  </div>
+
+  <div class="item" data-id="1.3">
+    <div class="head"><span class="no">1.3</span><span class="title">Agent 状态页——涵涵出现且统计独立</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.3" value="pass">通过</label><label><input type="radio" name="v1.3" value="fail">问题</label></span></div>
+    <p class="detail">在哪：左栏「通用 → Agent 状态」。
+看什么：4 张状态卡，含「涵涵 · 助理」；涵涵的运行次数与三人<b>各自独立</b>（应为 3 次/100%，即本轮整理产出的 3 份草稿）。</p>
+    <input class="note" placeholder="备注…" data-note="1.3">
+  </div>
+
+  <div class="item" data-id="1.4">
+    <div class="head"><span class="no">1.4</span><span class="title">聊天面板——可与涵涵私聊</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v1.4" value="pass">通过</label><label><input type="radio" name="v1.4" value="fail">问题</label></span></div>
+    <p class="detail">操作：右栏聊天 → 私聊头像行点涵涵 → 发一条消息（如「你好」）。
+过的标准：出现涵涵私聊会话并收到回复（真实 LLM 或降级模板都算过）；群聊播报署名中<b>不含涵涵</b>。</p>
+    <input class="note" placeholder="备注…" data-note="1.4">
+  </div>
+
+  <div class="item" data-id="1.5">
+    <div class="head"><span class="no">1.5</span><span class="title">涵涵的设置弹窗可开可存</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.5" value="pass">通过</label><label><input type="radio" name="v1.5" value="fail">问题</label></span></div>
+    <p class="detail">操作：状态页涵涵卡「配置」（或总览带涵涵卡「配置」）。
+过的标准：弹出与其他 Agent 同款设置弹窗，人设/模型可编辑保存。</p>
+    <input class="note" placeholder="备注…" data-note="1.5">
+  </div>
+
+  <h2>二、知识库页总览带（位置 + 收起）</h2>
+
+  <div class="item" data-id="2.1">
+    <div class="head"><span class="no">2.1</span><span class="title">涵涵位在最右侧</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v2.1" value="pass">通过</label><label><input type="radio" name="v2.1" value="fail">问题</label></span></div>
+    <p class="detail">在哪：左栏「知识库」→ 顶部总览带。
+过的标准：从左到右 = [待在用的资料][灵感库][全部文档]…<b>[涵涵在最右端]</b>，不在中间（你定案③）。</p>
+    <input class="note" placeholder="备注…" data-note="2.1">
+  </div>
+
+  <div class="item" data-id="2.2">
+    <div class="head"><span class="no">2.2</span><span class="title">涵涵卡是真实 Agent 卡</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v2.2" value="pass">通过</label><label><input type="radio" name="v2.2" value="fail">问题</label></span></div>
+    <p class="detail">看什么：卡上 = 「涵涵」+「助理」徽章 + 状态点 + 「配置」按钮。
+<b>过的标准：不再是「整理知识库与灵感 · 开发中」灰色占位卡。</b></p>
+    <input class="note" placeholder="备注…" data-note="2.2">
+  </div>
+
+  <div class="item" data-id="2.3">
+    <div class="head"><span class="no">2.3</span><span class="title">收起 / 展开手感</span><span class="verified me">已由AI实测</span><span class="verified you">手感需你判断</span>
+      <span class="choice"><label><input type="radio" name="v2.3" value="pass">通过</label><label><input type="radio" name="v2.3" value="fail">问题</label></span></div>
+    <p class="detail">操作：点涵涵卡右上「收起 ▴」→ 紧凑一行（小头像+涵涵+展开 ▾）→ 再点恢复完整卡。
+过的标准：可逆；「与工位栏一致」的交互语义（你定案④）。</p>
+    <input class="note" placeholder="备注（尺寸/手感不满意写这里）…" data-note="2.3">
+  </div>
+
+  <h2>三、草稿区（涵涵三能力产出）</h2>
+
+  <div class="item" data-id="3.1">
+    <div class="head"><span class="no">3.1</span><span class="title">草稿数据已存在（3 条）</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v3.1" value="pass">通过</label><label><input type="radio" name="v3.1" value="fail">问题</label></span></div>
+    <p class="detail">操作：地址栏输入 <b>http://127.0.0.1:4311/api/kb-drafts</b> 回车。
+过的标准：JSON 的 drafts 数组含 3 条——知识库文档体检·整理建议清单 / 灵感库选题素材卡 / 磁吸充电宝产品资料。
+看单条内容：…/api/kb-drafts/1（1/2/3 逐个）。</p>
+    <input class="note" placeholder="备注…" data-note="3.1">
+  </div>
+
+  <div class="item" data-id="3.2">
+    <div class="head"><span class="no">3.2</span><span class="title">草稿内容质量抽检</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v3.2" value="pass">通过</label><label><input type="radio" name="v3.2" value="fail">问题</label></span></div>
+    <p class="detail">打开草稿 1（文档整理），肉眼判断：① 有「来源路径」标注；② 参数与原文一致（10000mAh/198g/GB 31241），<b>没有编造</b>。</p>
+    <input class="note" placeholder="备注…" data-note="3.2">
+  </div>
+
+  <div class="item" data-id="3.3">
+    <div class="head"><span class="no">3.3</span><span class="title">只读承诺（本轮最重的红线）</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v3.3" value="pass">通过</label><label><input type="radio" name="v3.3" value="fail">问题</label></span></div>
+    <p class="detail">事实：涵涵 3 次整理前后，Vault 内 6 个 .md 的 SHA256 <b>逐一相同</b>、目录零变化。
+你的复核：打开 docs/示例Vault/ 肉眼确认没有新增/丢失文件。
+过的标准：Vault 完全没被动过。</p>
+    <input class="note" placeholder="备注…" data-note="3.3">
+  </div>
+
+  <h2>四、文档预览弹窗（3 入口 + 导航 + 3 关闭）</h2>
+
+  <div class="item" data-id="4.1">
+    <div class="head"><span class="no">4.1</span><span class="title">入口①：星图节点「阅读原文」就地弹窗</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.1" value="pass">通过</label><label><input type="radio" name="v4.1" value="fail">问题</label></span></div>
+    <p class="detail">操作：左栏「知识星图」→ 点文档节点 → 节点详情点「路径 · 阅读原文」。
+过的标准：弹出预览弹窗；地址栏 hash <b>仍是 #/knowledge-graph</b>（核心价值：不跳页）；弹窗含全文+右栏（目录内位置/标签/引用此资料的任务）。</p>
+    <input class="note" placeholder="备注…" data-note="4.1">
+  </div>
+
+  <div class="item" data-id="4.2">
+    <div class="head"><span class="no">4.2</span><span class="title">入口②：任务详情关联资料就地弹窗</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.2" value="pass">通过</label><label><input type="radio" name="v4.2" value="fail">问题</label></span></div>
+    <p class="detail">操作：首页点「#12 溯源命中验证」卡 → 「任务详情」tab → 右侧「关联知识库资料」→「阅读原文」。
+过的标准：弹窗打开「磁吸充电宝产品资料」全文，<b>未离开任务详情页</b>（旧英文路径自动解析兼容生效）。</p>
+    <input class="note" placeholder="备注…" data-note="4.2">
+  </div>
+
+  <div class="item" data-id="4.3">
+    <div class="head"><span class="no">4.3</span><span class="title">弹窗内切换 + 返回上一份</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.3" value="pass">通过</label><label><input type="radio" name="v4.3" value="fail">问题</label></span></div>
+    <p class="detail">操作：在 4.1 的弹窗里点正文中带下划线的关联文档（如「文案语气指南」）。
+过的标准：<b>同一弹窗内</b>切换（弹窗不关不跳页），标题变新文档名；点「← 返回上一份」回上一个文档；栈空时按钮置灰。</p>
+    <input class="note" placeholder="备注…" data-note="4.3">
+  </div>
+
+  <div class="item" data-id="4.4">
+    <div class="head"><span class="no">4.4</span><span class="title">「引用此资料的任务」区块</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.4" value="pass">通过</label><label><input type="radio" name="v4.4" value="fail">问题</label></span></div>
+    <p class="detail">有引用的文档（磁吸充电宝）：右栏列出「任务 #12」等，可点击。
+无引用的文档（双11大促节奏）：右栏灰字「暂无任务引用此资料」，<b>不是空白</b>。</p>
+    <input class="note" placeholder="备注…" data-note="4.4">
+  </div>
+
+  <div class="item" data-id="4.5">
+    <div class="head"><span class="no">4.5</span><span class="title">三种关闭方式，关闭后回到原页面</span><span class="verified me">已由AI实测</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v4.5" value="pass">通过</label><label><input type="radio" name="v4.5" value="fail">问题</label></span></div>
+    <p class="detail">Esc ✓ / 点深色遮罩 ✓ / 点右上「✕」✓。
+过的标准：三种都关；关闭后星图还在星图、任务详情还在任务详情。</p>
+    <input class="note" placeholder="备注…" data-note="4.5">
+  </div>
+
+  <div class="item" data-id="4.6">
+    <div class="head"><span class="no">4.6</span><span class="title">「在知识库中打开 ↗」深度阅读出口</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.6" value="pass">通过</label><label><input type="radio" name="v4.6" value="fail">问题</label></span></div>
+    <p class="detail">操作：弹窗头部点「在知识库中打开 ↗」。
+过的标准：跳到知识库页并在阅读区打开该文档（唯一允许的跳转）。</p>
+    <input class="note" placeholder="备注…" data-note="4.6">
+  </div>
+
+  <div class="item" data-id="4.7">
+    <div class="head"><span class="no">4.7</span><span class="title">知识库页内不走弹窗（分工保持）</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.7" value="pass">通过</label><label><input type="radio" name="v4.7" value="fail">问题</label></span></div>
+    <p class="detail">操作：知识库页文档列表点一篇文档。
+过的标准：文档在<b>右侧阅读区原地打开</b>（不弹窗）——快速预览与深度阅读分工不变。</p>
+    <input class="note" placeholder="备注…" data-note="4.7">
+  </div>
+
+  <h2>五、工作流零感知（回归确认）</h2>
+
+  <div class="item" data-id="5.1">
+    <div class="head"><span class="no">5.1</span><span class="title">任务阶段条不含涵涵</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v5.1" value="pass">通过</label><label><input type="radio" name="v5.1" value="fail">问题</label></span></div>
+    <p class="detail">操作：打开任意任务详情看顶部 6 段阶段条。
+过的标准：负责头像仍是美美/平平/波波，<b>没有涵涵</b>；自动化工作流测试 4/4 已通过。</p>
+    <input class="note" placeholder="备注…" data-note="5.1">
+  </div>
+
+  <h2>六、命名抽查（顺带确认）</h2>
+
+  <div class="item" data-id="6.1">
+    <div class="head"><span class="no">6.1</span><span class="title">命名四连查</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v6.1" value="pass">通过</label><label><input type="radio" name="v6.1" value="fail">问题</label></span></div>
+    <p class="detail">□ 左栏与页面标题都叫「每日热点」（不是灵感库——灵感库=知识库总览带那个入口）<br>
+□ 热点页右上按钮叫「热点源配置」<br>
+□ 知识库页与星图页标题行都有「知识库设置」，两页同一弹窗<br>
+□ 星图左树叫「重点目录 ★」（不是「快捷」），条目在「知识库设置 → 重点目录」可增删改</p>
+    <input class="note" placeholder="备注…" data-note="6.1">
+  </div>
+
+  <div class="summary">
+    <h3>验收结论</h3>
+    <div class="final">
+      <label><input type="radio" name="final" value="approve">✅ 全部通过，归档 P2</label>
+      <label><input type="radio" name="final" value="reject">❌ 有问题，打回修复</label>
+    </div>
+    <textarea placeholder="总体意见（可选）：整体观感、想调整的细节、下一步期望…" id="overall"></textarea>
+    <div class="savehint">点「导出结果」→ 自动复制一份纯文本结果到剪贴板，把它粘贴回对话即可。本页面数据保存在浏览器 localStorage，刷新不丢。</div>
+    <button class="primary" id="exportBottom" style="margin-top:8px">导出结果</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'p2-acceptance-v1';
+  var state = JSON.parse(localStorage.getItem(KEY) || '{}');
+
+  function save() {
+    localStorage.setItem(KEY, JSON.stringify(state));
+    refresh();
+  }
+  function refresh() {
+    var ok = 0, no = 0;
+    document.querySelectorAll('.item').forEach(function (item) {
+      var id = item.dataset.id;
+      var v = state[id] && state[id].v;
+      item.classList.remove('pass', 'fail');
+      if (v === 'pass') { item.classList.add('pass'); ok++; }
+      if (v === 'fail') { item.classList.add('fail'); no++; }
+      var radio = item.querySelector('input[value="' + v + '"]');
+      if (radio) radio.checked = true;
+      var note = item.querySelector('.note');
+      if (note && state[id] && state[id].note) note.value = state[id].note;
+    });
+    var total = document.querySelectorAll('.item').length;
+    document.getElementById('okCount').textContent = ok;
+    document.getElementById('noCount').textContent = no;
+    document.getElementById('pendCount').textContent = total - ok - no;
+  }
+  document.querySelectorAll('.item').forEach(function (item) {
+    var id = item.dataset.id;
+    item.querySelectorAll('input[type=radio]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        state[id] = state[id] || {};
+        state[id].v = r.value;
+        save();
+      });
+    });
+    var note = item.querySelector('.note');
+    if (note) note.addEventListener('input', function () {
+      state[id] = state[id] || {};
+      state[id].note = note.value;
+      localStorage.setItem(KEY, JSON.stringify(state));
+    });
+  });
+  function exportResult() {
+    var lines = ['【P2 人工验收结果】', ''];
+    document.querySelectorAll('.item').forEach(function (item) {
+      var id = item.dataset.id;
+      var v = state[id] && state[id].v;
+      var mark = v === 'pass' ? '✅通过' : v === 'fail' ? '❌问题' : '⬜未决';
+      var title = item.querySelector('.title').textContent;
+      var note = state[id] && state[id].note ? ' ｜ 备注：' + state[id].note : '';
+      lines.push(mark + ' ' + id + ' ' + title + note);
+    });
+    var fin = document.querySelector('input[name=final]:checked');
+    lines.push('');
+    lines.push('结论：' + (fin ? (fin.value === 'approve' ? '✅ 全部通过，归档 P2' : '❌ 有问题，打回修复') : '未给出'));
+    var overall = document.getElementById('overall').value.trim();
+    if (overall) lines.push('总体意见：' + overall);
+    var text = lines.join('\n');
+    navigator.clipboard.writeText(text).then(function () {
+      alert('结果已复制到剪贴板，粘贴回对话即可。\n\n' + text);
+    }, function () {
+      prompt('复制以下结果：', text);
+    });
+  }
+  document.getElementById('exportBtn').addEventListener('click', exportResult);
+  document.getElementById('exportBottom').addEventListener('click', exportResult);
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    if (confirm('确定清空全部勾选与备注？')) { localStorage.removeItem(KEY); location.reload(); }
+  });
+  refresh();
+})();
+</script>
+</body>
+</html>

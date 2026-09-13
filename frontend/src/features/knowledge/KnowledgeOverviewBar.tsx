@@ -33,10 +33,14 @@ function useFirstAssistantAgent(): Agent | null {
 }
 
 /**
- * 总览带右侧的涵涵位（P2·F3，用户定案③④）：
- * - 展开态：与工位卡同形态的真实 Agent 卡（含「配置」入口）
- * - 收起态：紧凑一行（小头像 + 名字 + 展开钮），与工位栏折叠语义一致
- * - 收起状态会话内记忆（组件 state，不落 localStorage——与工位栏行为一致）
+ * 总览带右侧的依依位（P2·F3 定案③④；P2-1/2-2 验收打回后重做）。
+ *
+ * 打回要点：「和其他工位的 agent 卡片不一致（UI 设计、尺寸等内容）」。
+ * 现在展开态**直接复用同一张 AgentCard（非 compact）**：
+ * - 与工位卡同尺寸（头像 56、同内边距、同字号、同「配置」按钮位置）
+ * - 同信息密度（名字+角色 / 模型+活动 / 状态三行，不再砍掉模型行）
+ * 卡片宽度由容器自适应（不再硬编码 240px），避免与工位卡比例不同。
+ * 收起态与工位栏折叠语义一致（小头像 + 名字 + 展开钮）。
  */
 function AssistantSpot({ assistant, onConfigure }: { assistant: Agent | null; onConfigure: () => void }) {
   const [expanded, setExpanded] = useState(true);
@@ -49,9 +53,9 @@ function AssistantSpot({ assistant, onConfigure }: { assistant: Agent | null; on
         style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}
         title="知识库小助理未初始化"
       >
-        <Avatar name="涵涵" size={22} />
+        <Avatar name="依依" size={22} />
         <span className="qs-meta text-[12px]" style={{ color: 'var(--color-ink-faint)' }}>
-          涵涵 · 未初始化
+          依依 · 未初始化
         </span>
       </div>
     );
@@ -63,7 +67,7 @@ function AssistantSpot({ assistant, onConfigure }: { assistant: Agent | null; on
         className="qs-clickable flex shrink-0 items-center gap-2 self-stretch rounded-[4px] border px-3 py-2 transition-colors hover:border-[var(--color-line-strong)]"
         style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}
         onClick={() => setExpanded(true)}
-        title="展开涵涵"
+        title="展开依依"
         role="button"
         aria-expanded={false}
       >
@@ -82,21 +86,20 @@ function AssistantSpot({ assistant, onConfigure }: { assistant: Agent | null; on
   }
 
   return (
-    <div className="relative flex shrink-0 flex-col">
+    <div className="relative flex min-w-[260px] shrink-0 flex-col">
       <button
         type="button"
         className="qs-clickable qs-meta absolute right-2 top-1.5 z-10"
         style={{ color: 'var(--color-ink-faint)' }}
         onClick={() => setExpanded(false)}
-        title="收起涵涵"
-        aria-label="收起涵涵"
+        title="收起依依"
+        aria-label="收起依依"
         aria-expanded={true}
       >
         收起 ▴
       </button>
-      <div className="w-[240px]">
-        <AgentCard agent={assistant} compact onConfigure={onConfigure} />
-      </div>
+      {/* 与工位卡同款（非 compact，含模型/活动行）——宽度随容器自适应 */}
+      <AgentCard agent={assistant} onConfigure={onConfigure} />
     </div>
   );
 }
@@ -154,9 +157,9 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
   const usageText = usage && usage.ratio !== null ? `${Math.round(usage.ratio * 100)}%（${usage.linkedDocs}/${usage.totalDocs}）` : '—';
   /** 灵感库待整理条数（入口①的数量；取自热点面板上游总数） */
   const [panelCount, setPanelCount] = useState(0);
-  /** 小助理（涵涵）入口位：P1·5.4 预留，P2·F3 实体已存在即命中 */
+  /** 小助理（依依）入口位：P1·5.4 预留，P2·F3 实体已存在即命中 */
   const assistant = useFirstAssistantAgent();
-  /** 涵涵设置弹窗（P2·F3：与工位卡同一配置弹窗） */
+  /** 依依设置弹窗（P2·F3：与工位卡同一配置弹窗） */
   const [settingsAgent, setSettingsAgent] = useState<Agent | null>(null);
 
   useEffect(() => {
@@ -187,7 +190,7 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
         </div>
       </div>
 
-      {/* 两个入口（灵感库 / 全部文档）——涵涵位按用户定案移到总览带最右侧 */}
+      {/* 两个入口（灵感库 / 全部文档）——依依位按用户定案移到总览带最右侧 */}
       <div className="flex min-w-0 flex-1 flex-wrap items-stretch gap-2">
         {/* 命名边界（用户定案）：此入口**位于知识库内**，指知识库里的「灵感库」目录，故叫「灵感库」；
             它跳转到的模块页仍叫「每日热点」。两者是两个东西，不要互相改名。 */}
@@ -207,7 +210,7 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
         />
       </div>
 
-      {/* 小助理（涵涵）位：总览带最右侧（用户定案③）；支持收起/展开（用户定案④，与工位栏一致语义）。
+      {/* 小助理（依依）位：总览带最右侧（用户定案③）；支持收起/展开（用户定案④，与工位栏一致语义）。
           实体存在 → 真实 Agent 卡 + 配置入口；不存在（异常）→ 紧凑占位而非死链。 */}
       <AssistantSpot assistant={assistant} onConfigure={() => assistant && setSettingsAgent(assistant)} />
 

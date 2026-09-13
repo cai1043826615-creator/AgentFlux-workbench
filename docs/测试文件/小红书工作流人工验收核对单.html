@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小红书工作流 · 人工验收核对单</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #fff; --sunken: #f4f4f5;
+    --ink: #0a0a0a; --ink-soft: #52525b; --ink-faint: #a1a1aa;
+    --line: #ececee; --line-strong: #dcdce0;
+    --ok: #15803d; --ok-soft: #ecfdf3;
+    --no: #b91c1c; --no-soft: #fef2f2;
+    --signal: #7c3aed; --signal-soft: #f3effe;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: "Noto Sans SC", system-ui, sans-serif; font-size: 14px; line-height: 1.6; padding: 32px 16px; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .meta { color: var(--ink-faint); font-size: 12px; margin-bottom: 20px; }
+  .tips { background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; font-size: 13px; color: var(--ink-soft); margin-bottom: 24px; }
+  .tips b { color: var(--ink); }
+  .tips .bd { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-strong); }
+  h2 { font-size: 16px; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line-strong); }
+  .item { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; margin-bottom: 10px; }
+  .item.pass { border-color: var(--ok); background: var(--ok-soft); }
+  .item.fail { border-color: var(--no); background: var(--no-soft); }
+  .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .no { color: var(--ink-faint); font-size: 12px; font-family: monospace; }
+  .title { font-weight: 600; flex: 1; min-width: 200px; }
+  .choice { display: flex; gap: 14px; }
+  .choice label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; color: var(--ink-soft); user-select: none; }
+  .choice input { accent-color: var(--signal); width: 15px; height: 15px; cursor: pointer; }
+  .detail { font-size: 12.5px; color: var(--ink-soft); margin: 8px 0 0; white-space: pre-wrap; }
+  .detail b { color: var(--ink); }
+  .verified { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--ink-faint); }
+  .verified.me { color: var(--signal); border-color: var(--signal); background: var(--signal-soft); }
+  .verified.you { color: #b45309; border-color: #b45309; background: #fff8e6; }
+  input.note { width: 100%; margin-top: 8px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+  input.note:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 2px var(--signal-soft); }
+  .bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); margin-bottom: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bar .stat { font-size: 13px; color: var(--ink-soft); }
+  .bar .stat b.ok { color: var(--ok); } .bar .stat b.no { color: var(--no); }
+  .bar button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 4px; padding: 6px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .bar button:hover { border-color: var(--ink); }
+  .bar button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .summary { margin-top: 28px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; padding: 16px; }
+  .summary h3 { font-size: 15px; margin-bottom: 8px; }
+  .summary textarea { width: 100%; min-height: 90px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 10px; font-family: inherit; font-size: 13px; resize: vertical; }
+  .final { margin-top: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .final label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
+  .final input { accent-color: var(--signal); width: 16px; height: 16px; }
+  .savehint { font-size: 12px; color: var(--ink-faint); margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>小红书工作流 · 人工验收核对单</h1>
+  <div class="meta">第二条工作流「小红书种草笔记」（xhs-note）+ 多工作流改造 · 前端 http://127.0.0.1:4310/ · change 2026-09-12-xhs-note-workflow（已归档）</div>
+
+  <div class="tips">
+    <b>用法：</b>逐项点「通过 / 问题」，问题项务必填备注；全部点完点「导出结果」把文本粘贴回对话，我来处理所有 ❌ 项。<br>
+    <b>标记说明：</b><span class="verified me">已由AI实测</span> = AI 已用 Chrome DevTools / API 验证过，你复核即可；<span class="verified you">需你亲测</span> = 内容质量 / 手感 / 体验类，只有你能判断。<br>
+    <b>最省路径：</b>任务 <b>#14</b> 已停在「选题策划待确认」，第三部分直接从它续走；<b>#13</b> 已交付可看终态；<b>#12</b> 是电商回归参照。<br>
+    <div class="bd"><b>已知不算 bug（别在这几处打 ❌）：</b>① #13 的旧合规报告没引用原文（旧 prompt 的历史数据，新尺度只对之后的审核生效）；② 右上角残留旧「待你确认」通知条（点 ✕ 关闭即可）；③ vite 终端偶发 ws ECONNABORTED（旧连接断开，无碍）；④ 灰底「模拟占位」图 = 生图渠道未配置的降级图。</div>
+  </div>
+
+  <div class="bar">
+    <span class="stat">通过 <b class="ok" id="okCount">0</b> · 问题 <b class="no" id="noCount">0</b> · 未决 <b id="pendCount">31</b></span>
+    <button class="primary" id="exportBtn">导出结果</button>
+    <button id="resetBtn">重置全部</button>
+  </div>
+
+  <h2>一、工作流入口与看板（复核即可）</h2>
+
+  <div class="item" data-id="1.1">
+    <div class="head"><span class="no">1.1</span><span class="title">左栏出现两条工作流，计数互不包含</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.1" value="pass">通过</label><label><input type="radio" name="v1.1" value="fail">问题</label></span></div>
+    <p class="detail">在哪：左栏「工作流」组。
+看什么：**电商新品上架**（约 11）与**小红书种草笔记**（约 2）两条，各自计数只算自己工作流的任务。
+AI 走查记录：电商 11 / XHS 2，互不串。</p>
+    <input class="note" placeholder="备注…" data-note="1.1">
+  </div>
+
+  <div class="item" data-id="1.2">
+    <div class="head"><span class="no">1.2</span><span class="title">点「小红书种草笔记」→ 看板只剩 XHS 任务</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.2" value="pass">通过</label><label><input type="radio" name="v1.2" value="fail">问题</label></span></div>
+    <p class="detail">操作：左栏点「小红书种草笔记」。
+过的标准：看板标题旁出现工作流名「小红书种草笔记」；任务列表为空或只有 XHS 任务；再点已选中项回到看板页。</p>
+    <input class="note" placeholder="备注…" data-note="1.2">
+  </div>
+
+  <div class="item" data-id="1.3">
+    <div class="head"><span class="no">1.3</span><span class="title">看板四列等宽 + 横向滚动 + 空列不塌</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.3" value="pass">通过</label><label><input type="radio" name="v1.3" value="fail">问题</label></span></div>
+    <p class="detail">看什么：规划中/进行中/待确认/已完成四列等宽（最小 240px），窗口拉窄出现横向滚动，空列显示「（空）」不塌缩。本轮未改列宽逻辑，属回归确认。</p>
+    <input class="note" placeholder="备注…" data-note="1.3">
+  </div>
+
+  <div class="item" data-id="1.4">
+    <div class="head"><span class="no">1.4</span><span class="title">待确认卡副标题 =「等待你处理 · 已等待 X」</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.4" value="pass">通过</label><label><input type="radio" name="v1.4" value="fail">问题</label></span></div>
+    <p class="detail">在哪：待确认列任意卡。
+看什么：副标题形如「等待你处理 · 已等待 23 小时」，与 badge「待你确认 · XX」**说的是两件事**。
+AI 走查记录：存量 8 张已批量修复，实测显示「已等待 23 小时 / 1 天 / 2 天」。</p>
+    <input class="note" placeholder="备注…" data-note="1.4">
+  </div>
+
+  <div class="item" data-id="1.5">
+    <div class="head"><span class="no">1.5</span><span class="title">已完成卡不再重复状态行</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1.5" value="pass">通过</label><label><input type="radio" name="v1.5" value="fail">问题</label></span></div>
+    <p class="detail">看什么：已完成列的卡只有「✓ 已完成」badge + 「查看交付物 →」，**没有**第二行「已交付 · 已完成」。
+AI 走查记录：存量 5 张已置空。</p>
+    <input class="note" placeholder="备注…" data-note="1.5">
+  </div>
+
+  <h2>二、新建任务弹窗</h2>
+
+  <div class="item" data-id="2.1">
+    <div class="head"><span class="no">2.1</span><span class="title">工作流单选 + 阶段链预览</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v2.1" value="pass">通过</label><label><input type="radio" name="v2.1" value="fail">问题</label></span></div>
+    <p class="detail">操作：看板右上「＋ 新建任务」。
+看什么：第 1 步顶部两个单选卡，各带阶段链——电商「需求对接 → … → 交付归档」/ XHS「选题策划 → … → 交付完成」。
+AI 走查记录：两项均正常渲染，XHS 六阶段名正确。</p>
+    <input class="note" placeholder="备注…" data-note="2.1">
+  </div>
+
+  <div class="item" data-id="2.2">
+    <div class="head"><span class="no">2.2</span><span class="title">默认选中 = 左栏当前工作流</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v2.2" value="pass">通过</label><label><input type="radio" name="v2.2" value="fail">问题</label></span></div>
+    <p class="detail">操作：在 XHS 看板打开弹窗。
+过的标准：默认选中「小红书种草笔记」；切到电商看板再开，默认选电商。
+AI 走查记录：在 XHS 看板打开时默认选中 XHS ✅。电商侧换位复核一下。</p>
+    <input class="note" placeholder="备注…" data-note="2.2">
+  </div>
+
+  <div class="item" data-id="2.3">
+    <div class="head"><span class="no">2.3</span><span class="title">选 XHS 创建 → 任务落「选题策划」；确认摘要含工作流名</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v2.3" value="pass">通过</label><label><input type="radio" name="v2.3" value="fail">问题</label></span></div>
+    <p class="detail">操作：选「小红书种草笔记」→ 填标题 / 选平台（勾小红书）/ 传参考图 → 下一步 → 第 3 步摘要。
+过的标准：摘要含「**工作流：小红书种草笔记**」；创建后任务出现在规划中列，点「确认开工」后停在**选题策划**待确认。
+（AI 已用 API 验证后端落点正确，这里复核界面路径。）</p>
+    <input class="note" placeholder="备注…" data-note="2.3">
+  </div>
+
+  <h2>三、XHS 全链路（核心 · 用 #14 续走）</h2>
+
+  <div class="item" data-id="3.1">
+    <div class="head"><span class="no">3.1</span><span class="title">选题策划：3 个方向互斥 + 话题锚点</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v3.1" value="pass">通过</label><label><input type="radio" name="v3.1" value="fail">问题</label></span></div>
+    <p class="detail">在哪：打开 #14 的内容交付。
+看什么：A/B/C 三个方向（#14 实测为 场景痛点 / 成分实测 / 平替对比），每个含描述与 #话题锚点，单选高亮，底部「重出选题 / 确认选题 →」。</p>
+    <input class="note" placeholder="备注…" data-note="3.1">
+  </div>
+
+  <div class="item" data-id="3.2">
+    <div class="head"><span class="no">3.2</span><span class="title">「重出选题」返工闭环</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v3.2" value="pass">通过</label><label><input type="radio" name="v3.2" value="fail">问题</label></span></div>
+    <p class="detail">操作：点「重出选题」→ 填一句要求（如「往学生党场景靠」）→ 确认。
+过的标准：等待重生成后出现 3 个**新的**方向（旧的被替换），任务仍在选题策划待确认。</p>
+    <input class="note" placeholder="备注…" data-note="3.2">
+  </div>
+
+  <div class="item" data-id="3.3">
+    <div class="head"><span class="no">3.3</span><span class="title">笔记撰写：标题 ≤20 字含 emoji + 正文 + 标签</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v3.3" value="pass">通过</label><label><input type="radio" name="v3.3" value="fail">问题</label></span></div>
+    <p class="detail">操作：确认选题 → 等笔记生成（约几十秒）。
+过的标准：标题带 emoji 且肉眼不超 20 字；正文是口语化小红书体；有 2-3 个话题标签。内容质量只有你能判断。</p>
+    <input class="note" placeholder="备注（不满意可直接打 ❌，我在 prompt 里调）…" data-note="3.3">
+  </div>
+
+  <div class="item" data-id="3.4">
+    <div class="head"><span class="no">3.4</span><span class="title">「打回重写」意见生效</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v3.4" value="pass">通过</label><label><input type="radio" name="v3.4" value="fail">问题</label></span></div>
+    <p class="detail">操作：点「打回重写」→ 填意见（如「不要用感叹号开头」）→ 确认。
+过的标准：返工后新笔记体现你的意见（返工意见会注入 prompt）。#13 实测打回链路通，这里验证意见质量。</p>
+    <input class="note" placeholder="备注…" data-note="3.4">
+  </div>
+
+  <div class="item" data-id="3.5">
+    <div class="head"><span class="no">3.5</span><span class="title">封面配图：3 张并行 + 首图/内页图 subtab</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v3.5" value="pass">通过</label><label><input type="radio" name="v3.5" value="fail">问题</label></span></div>
+    <p class="detail">操作：采纳笔记 → 等配图生成（最慢的一步，渠道未配置时秒出占位图）。
+过的标准：配图面板出现「首图（1）/ 内页图（2）」subtab 且切换内容不同；共 3 张。若渠道未配则显示「模拟占位」灰图（见已知边界，不算 bug）。</p>
+    <input class="note" placeholder="备注…" data-note="3.5">
+  </div>
+
+  <div class="item" data-id="3.6">
+    <div class="head"><span class="no">3.6</span><span class="title">三张全采纳 → 合规审核自动执行，不进待确认</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v3.6" value="pass">通过</label><label><input type="radio" name="v3.6" value="fail">问题</label></span></div>
+    <p class="detail">操作：逐张采纳三张图。
+过的标准：最后一张采纳后任务**不进**合规审核的待确认，而是自动跑完审核——有问题自动回退到笔记撰写/封面配图，无问题直接进发布包装。
+AI 实测记录（#13）：三张采纳后自动检出问题并回退到 xhs-copy ✅；#13 后续在全自动模式下走完六阶段 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="3.6">
+  </div>
+
+  <div class="item" data-id="3.7">
+    <div class="head"><span class="no">3.7</span><span class="title">合规面板：自动说明文案 + 无决策按钮</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v3.7" value="pass">通过</label><label><input type="radio" name="v3.7" value="fail">问题</label></span></div>
+    <p class="detail">看什么：合规卡顶部「**主管 Agent 自动检查，无需人工确认**」；检查项 ✓/✕ 清单 + 结论；**面板内没有任何采纳/打回按钮**（自动节点，你定案）。
+AI 走查记录：文案与按钮状态均正确 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="3.7">
+  </div>
+
+  <div class="item" data-id="3.8">
+    <div class="head"><span class="no">3.8</span><span class="title">发布包装：发布包 + 图片顺序 + 可复制</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v3.8" value="pass">通过</label><label><input type="radio" name="v3.8" value="fail">问题</label></span></div>
+    <p class="detail">操作：合规放行后等发布包生成。
+过的标准：发布包卡含标题/正文/标签/**发布图片顺序清单**（1. 首图 · 2. 内页图1 · 3. 内页图2）；「复制发布包」粘贴出的文本含标题+正文+标签。</p>
+    <input class="note" placeholder="备注…" data-note="3.8">
+  </div>
+
+  <div class="item" data-id="3.9">
+    <div class="head"><span class="no">3.9</span><span class="title">确认交付 → 终态引导 + 下载门控</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v3.9" value="pass">通过</label><label><input type="radio" name="v3.9" value="fail">问题</label></span></div>
+    <p class="detail">操作：发布包装待确认时看「下载交付包」→ 点「确认交付 ✓」。
+过的标准：交付前右上「下载交付包」**置灰**；交付后出现「任务已交付」引导（查看发布包 → / 新建下一个任务）且可下载。也可直接用 #13 验证终态。</p>
+    <input class="note" placeholder="备注…" data-note="3.9">
+  </div>
+
+  <h2>四、阶段条与 XHS 布局（复核即可）</h2>
+
+  <div class="item" data-id="4.1">
+    <div class="head"><span class="no">4.1</span><span class="title">阶段条：六节点顺序 + 颜色语义</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.1" value="pass">通过</label><label><input type="radio" name="v4.1" value="fail">问题</label></span></div>
+    <p class="detail">看什么：选题策划 → 笔记撰写 → 封面配图 → 合规审核 → 发布包装 → 交付完成；完成=绿 / 当前=黑（紫描边）/ 未到=灰。
+AI 走查记录（#14）：六节点名与顺序正确 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="4.1">
+  </div>
+
+  <div class="item" data-id="4.2">
+    <div class="head"><span class="no">4.2</span><span class="title">头像显示规则</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.2" value="pass">通过</label><label><input type="radio" name="v4.2" value="fail">问题</label></span></div>
+    <p class="detail">看什么：已完成与当前节点内显示负责 Agent 头像（美美/平平/波波），未到节点显示数字序号。
+AI 走查记录（#14 当前在选题策划）：第 1 节点显示美美头像 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="4.2">
+  </div>
+
+  <div class="item" data-id="4.3">
+    <div class="head"><span class="no">4.3</span><span class="title">角标：仅 4 个人工确认点，合规审核无角标</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.3" value="pass">通过</label><label><input type="radio" name="v4.3" value="fail">问题</label></span></div>
+    <p class="detail">看什么：选题策划 / 笔记撰写 / 封面配图 / 发布包装有紫色「确认」角标；**合规审核没有任何角标**（你定案：不加「自动」标）。
+AI 走查记录（#14）：4 处角标位置正确，合规节点无角标 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="4.3">
+  </div>
+
+  <div class="item" data-id="4.4">
+    <div class="head"><span class="no">4.4</span><span class="title">XHS 内容交付 = 纵向阶段序列（非两栏）</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.4" value="pass">通过</label><label><input type="radio" name="v4.4" value="fail">问题</label></span></div>
+    <p class="detail">看什么：XHS 任务的内容交付是一阶段一张卡自上而下（当前阶段横幅 → 选题 → 笔记 → 配图 → 合规 → 包装），**不是**电商的左右两栏。
+AI 走查记录（#14）：纵向序列正确 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="4.4">
+  </div>
+
+  <div class="item" data-id="4.5">
+    <div class="head"><span class="no">4.5</span><span class="title">未开始阶段灰态，不出现「生成中」</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4.5" value="pass">通过</label><label><input type="radio" name="v4.5" value="fail">问题</label></span></div>
+    <p class="detail">看什么（#14 停在选题时最直观）：笔记/配图/包装为灰态虚线「待上一阶段确认后自动开始」；合规灰态文案为「**主管 Agent 自动检查，无需人工**」；任何未开始阶段都不显示「生成中」。
+AI 走查记录：三种灰态文案全部正确 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="4.5">
+  </div>
+
+  <h2>五、电商回归（必须零差异）</h2>
+
+  <div class="item" data-id="5.1">
+    <div class="head"><span class="no">5.1</span><span class="title">#12 内容交付：两栏并排等宽</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v5.1" value="pass">通过</label><label><input type="radio" name="v5.1" value="fail">问题</label></span></div>
+    <p class="detail">操作：切回电商工作流 → 打开 #12 → 内容交付。
+看什么：「卖点文案 | 图片交付」左右两栏等宽并排（spec 硬约束，本轮一行未改电商布局）。
+AI 走查记录：两栏 + 版本历史 v2 + 主图/详情图 tab 全部正常 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="5.1">
+  </div>
+
+  <div class="item" data-id="5.2">
+    <div class="head"><span class="no">5.2</span><span class="title">电商阶段条：3 确认点 + 属性右栏保留</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v5.2" value="pass">通过</label><label><input type="radio" name="v5.2" value="fail">问题</label></span></div>
+    <p class="detail">看什么：电商六节点（需求对接…交付完成），「确认」角标只在卖点文案/主图/详情图；「任务详情」tab 右侧 **280px 属性面板仍在**（你定案：不删右栏）。
+AI 走查记录（#12）：角标与右栏均正常 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="5.2">
+  </div>
+
+  <div class="item" data-id="5.3">
+    <div class="head"><span class="no">5.3</span><span class="title">电商逐张决策与版本历史手感</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v5.3" value="pass">通过</label><label><input type="radio" name="v5.3" value="fail">问题</label></span></div>
+    <p class="detail">操作：#12 里点一张主图的「采纳」或「打回」；展开「历史版本 (2)」。
+过的标准：决策按钮正常生效、按钮消失后只剩状态 badge；历史版本默认折叠、展开在当前正文之后。</p>
+    <input class="note" placeholder="备注…" data-note="5.3">
+  </div>
+
+  <h2>六、工位与助理约束（复核即可）</h2>
+
+  <div class="item" data-id="6.1">
+    <div class="head"><span class="no">6.1</span><span class="title">工位栏默认展开恰好 3 张卡，无涵涵</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v6.1" value="pass">通过</label><label><input type="radio" name="v6.1" value="fail">问题</label></span></div>
+    <p class="detail">看什么：首页工位「WORKSTATIONS · 3 个」= 美美/平平/波波；XHS 任务任何阶段的负责人都是这三人。
+AI 走查记录：3 张卡 ✅，#14 阶段条头像均为三人 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="6.1">
+  </div>
+
+  <div class="item" data-id="6.2">
+    <div class="head"><span class="no">6.2</span><span class="title">涵涵只在聊天栏与知识库侧</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v6.2" value="pass">通过</label><label><input type="radio" name="v6.2" value="fail">问题</label></span></div>
+    <p class="detail">看什么：右栏聊天有「涵（助理）」私聊入口；但工位栏 / XHS 阶段条 / 新建任务的工作流描述里**均无涵涵**。
+AI 走查记录：聊天栏存在、工作流侧未出现 ✅。</p>
+    <input class="note" placeholder="备注…" data-note="6.2">
+  </div>
+
+  <h2>七、本轮 4 项修复的验证</h2>
+
+  <div class="item" data-id="7.1">
+    <div class="head"><span class="no">7.1</span><span class="title">「每日热点」页正常（时间炸弹修复不影响运行时）</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v7.1" value="pass">通过</label><label><input type="radio" name="v7.1" value="fail">问题</label></span></div>
+    <p class="detail">操作：左栏「每日热点」。
+过的标准：页面正常打开、有条目或正常显示降级态。修复只动了测试 fixture，运行时代码未动。</p>
+    <input class="note" placeholder="备注…" data-note="7.1">
+  </div>
+
+  <div class="item" data-id="7.2">
+    <div class="head"><span class="no">7.2</span><span class="title">《小红书合规违禁词清单》在技能列表中存在，但不要挂载</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v7.2" value="pass">通过</label><label><input type="radio" name="v7.2" value="fail">问题</label></span></div>
+    <p class="detail">操作：工位任意 Agent「配置」→ 技能下拉。
+过的标准：列表里能看到《小红书合规违禁词清单》。
+**红线：不要手动勾选挂载**——它会按工作流自动注入 XHS prompt；手动挂到 Agent 会同时污染电商文案。</p>
+    <input class="note" placeholder="备注…" data-note="7.2">
+  </div>
+
+  <div class="item" data-id="7.3">
+    <div class="head"><span class="no">7.3</span><span class="title">新合规尺度：未通过项引用原文，疑似项标「建议复核」</span><span class="verified you">需你亲测</span>
+      <span class="choice"><label><input type="radio" name="v7.3" value="pass">通过</label><label><input type="radio" name="v7.3" value="fail">问题</label></span></div>
+    <p class="detail">操作：走一轮新审核（3.6 的采纳会自然触发；或对任务打回文案重新生成）。
+过的标准：审核报告里每个「未通过」项都**引用了原文词句**并给改写建议；拿不准的项显示「通过 + 建议复核」而非直接打回。（#13 的旧报告不算数，那是历史数据。）</p>
+    <input class="note" placeholder="备注…" data-note="7.3">
+  </div>
+
+  <div class="item" data-id="7.4">
+    <div class="head"><span class="no">7.4</span><span class="title">看板存量副标题已统一（与 1.4/1.5 合并复核）</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v7.4" value="pass">通过</label><label><input type="radio" name="v7.4" value="fail">问题</label></span></div>
+    <p class="detail">AI 走查记录：8 张待确认卡全部为「等待你处理 · 已等待 X」，5 张已完成卡 stage_note 已置空 ✅。与 1.4/1.5 同源，复核时顺手确认即可。</p>
+    <input class="note" placeholder="备注…" data-note="7.4">
+  </div>
+
+  <div class="summary">
+    <h3>验收结论</h3>
+    <div class="final">
+      <label><input type="radio" name="final" value="approve">✅ 全部通过</label>
+      <label><input type="radio" name="final" value="approve_with_notes">🟡 通过，有遗留项</label>
+      <label><input type="radio" name="final" value="reject">❌ 有问题，打回修复</label>
+    </div>
+    <textarea placeholder="总体意见（可选）：整体观感、想调整的细节、下一步期望…" id="overall"></textarea>
+    <div class="savehint">点「导出结果」→ 自动复制纯文本到剪贴板，粘贴回对话即可。勾选与备注实时存于浏览器 localStorage，刷新不丢。</div>
+    <button class="primary" id="exportBottom" style="margin-top:8px">导出结果</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'xhs-acceptance-v1';
+  var state = JSON.parse(localStorage.getItem(KEY) || '{}');
+
+  function save() {
+    localStorage.setItem(KEY, JSON.stringify(state));
+    refresh();
+  }
+  function refresh() {
+    var ok = 0, no = 0;
+    document.querySelectorAll('.item').forEach(function (item) {
+      var id = item.dataset.id;
+      var v = state[id] && state[id].v;
+      item.classList.remove('pass', 'fail');
+      if (v === 'pass') { item.classList.add('pass'); ok++; }
+      if (v === 'fail') { item.classList.add('fail'); no++; }
+      var radio = item.querySelector('input[value="' + v + '"]');
+      if (radio) radio.checked = true;
+      var note = item.querySelector('.note');
+      if (note && state[id] && state[id].note) note.value = state[id].note;
+    });
+    var total = document.querySelectorAll('.item').length;
+    document.getElementById('okCount').textContent = ok;
+    document.getElementById('noCount').textContent = no;
+    document.getElementById('pendCount').textContent = total - ok - no;
+  }
+  document.querySelectorAll('.item').forEach(function (item) {
+    var id = item.dataset.id;
+    item.querySelectorAll('input[type=radio]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        state[id] = state[id] || {};
+        state[id].v = r.value;
+        save();
+      });
+    });
+    var note = item.querySelector('.note');
+    if (note) note.addEventListener('input', function () {
+      state[id] = state[id] || {};
+      state[id].note = note.value;
+      localStorage.setItem(KEY, JSON.stringify(state));
+    });
+  });
+  function exportResult() {
+    var lines = ['【小红书工作流 · 人工验收结果】', ''];
+    document.querySelectorAll('.item').forEach(function (item) {
+      var id = item.dataset.id;
+      var v = state[id] && state[id].v;
+      var mark = v === 'pass' ? '✅通过' : v === 'fail' ? '❌问题' : '⬜未决';
+      var title = item.querySelector('.title').textContent;
+      var note = state[id] && state[id].note ? ' ｜ 备注：' + state[id].note : '';
+      lines.push(mark + ' ' + id + ' ' + title + note);
+    });
+    var fin = document.querySelector('input[name=final]:checked');
+    lines.push('');
+    lines.push('结论：' + (fin ? ({ approve: '✅ 全部通过', approve_with_notes: '🟡 通过，有遗留项', reject: '❌ 有问题，打回修复' }[fin.value]) : '未给出'));
+    var overall = document.getElementById('overall').value.trim();
+    if (overall) lines.push('总体意见：' + overall);
+    var text = lines.join('\n');
+    navigator.clipboard.writeText(text).then(function () {
+      alert('结果已复制到剪贴板，粘贴回对话即可。\n\n' + text);
+    }, function () {
+      prompt('复制以下结果：', text);
+    });
+  }
+  document.getElementById('exportBtn').addEventListener('click', exportResult);
+  document.getElementById('exportBottom').addEventListener('click', exportResult);
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    if (confirm('确定清空全部勾选与备注？')) { localStorage.removeItem(KEY); location.reload(); }
+  });
+  refresh();
+})();
+</script>
+</body>
+</html>
