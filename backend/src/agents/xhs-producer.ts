@@ -80,6 +80,42 @@ function latestNote(task: Task): XhsNote | undefined {
   }
 }
 
+  /**
+ * XHS 配图 prompt（种草笔记风，不是电商商品海报）。
+ * 依据 01-内容创作/cover-design 与 seeding-copywriting：真人生活场景 + 自然光 + 手机随拍质感；
+ * 明确排除电商视觉（白底图 / 精修棚拍 / 大字报 / 促销角标 / 详情图排版）。
+ * 生图与重试共用此函数，避免两处 prompt 改漏（评审 2.3 同类问题）。
+ */
+function noteImagePrompt(task: Task, itemId: string, note?: XhsNote | null): string {
+  const topic = task.title;
+  const hook = note?.title ? note.title.replace(/[（(].*?[)）]/g, '').slice(0, 20) : '';
+  const style =
+    '小红书种草笔记配图，真人生活化场景，手机随拍质感，自然光，柔和低饱和色调，' +
+    '画面有真实使用痕迹与生活道具，构图随意自然，竖版 3:4；' +
+    '禁止：白底商品图、电商主图、精修棚拍、促销大字报、价格标签、详情图排版、' +
+    '过度磨皮、塑料感、生硬摆拍、乱码文字';
+  if (itemId.includes('首图')) {
+    return (
+      `${style}。这是封面首图，需要一眼抓人：主体是「${topic}」在真实使用场景中的样子，` +
+      '画面留白处可有一句简短手写体中文标题' +
+      (hook ? `（参考情绪：${hook}）` : '') +
+      '，文字要小、像手写笔记，不要做成广告横幅'
+    );
+  }
+  const idx = /(\d)/.exec(itemId)?.[1] ?? '';
+  const focus = idx === '1' ? '展示使用过程与步骤，体现真实体验' : '展示细节质感或前后对比，突出个人感受';
+  return `${style}。这是内页配图${idx ? ` 第 ${idx} 张` : ''}：${focus}；主体「${topic}」，像朋友随手拍的分享照，不要商业广告感`;
+}
+
+/** 生图尺寸 */
+const IMG_SIZE = '1024x1024';
+/**
+ * 单张生图超时（毫秒）。
+ * 三张图串行，若渠道不可达，默认 180s × 3 张 = 9 分钟，用户会以为"卡死"。
+ * 收紧到 30s：最坏 90s 内失败并冒泡到卡片（显示原因 + 可重试），而不是无限等待。
+ */
+const IMG_TIMEOUT_MS = 30_000;
+
 class XhsProducer {
   private async withLlm<T>(
     agentId: string,
@@ -151,21 +187,19 @@ class XhsProducer {
     );
   }
 
-  /** 封面配图：首图 ×1 + 内页图 ×2（并行组，逐张上报） */
+
+/** 封面配图：首图 ×1 + 内页图 ×2（并行组，逐张上报） */
   async produceNoteImages(
     task: Task,
     groups: WorkflowParallelGroup[],
     onEach: (itemId: string, ok: boolean, dataUrl?: string) => void,
   ): Promise<{ ok: boolean; itemId: string; dataUrl?: string; error?: string; attempts?: number }[]> {
-    const isCover = (itemId: string) => itemId.includes('首图');
+    const note = latestNote(task);
     const results = await runParallelGroups<{ dataUrl: string; attempts: number }>(
       groups.map((g) => ({ channel: g.channel, items: g.items })),
       async (itemId) => {
-        const prompt = isCover(itemId)
-          ? `小红书封面首图，主题：${task.title}，竖版 3:4，大字标题醒目、配色清爽、生活化场景，高质感`
-          : `小红书内页配图，主题：${task.title}，步骤/细节清晰呈现，竖版 3:4，图文排版干净`;
         try {
-          const dataUrl = await generateImage(prompt, '1024x1024');
+          const dataUrl = await generateImage(noteImagePrompt(task, itemId, note), IMG_SIZE, undefined, IMG_TIMEOUT_MS);
           return { dataUrl, attempts: 1 };
         } catch (err) {
           // 无渠道配置 → 占位图作为可决策结果（与电商一致，前端标注「模拟占位」）
@@ -188,14 +222,10 @@ class XhsProducer {
     }));
   }
 
-  /** 单张配图重试 */
+  /** 单张配图重试（prompt 与 produceNoteImages 同源，避免两处改漏） */
   async retryImage(task: Task, imageId: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
-    const isCover = imageId.includes('首图');
-    const prompt = isCover
-      ? `小红书封面首图，主题：${task.title}，竖版 3:4，大字标题醒目、配色清爽、生活化场景，高质感`
-      : `小红书内页配图，主题：${task.title}，步骤/细节清晰呈现，竖版 3:4，图文排版干净`;
     try {
-      const dataUrl = await generateImage(prompt, '1024x1024');
+      const dataUrl = await generateImage(noteImagePrompt(task, imageId, latestNote(task)), IMG_SIZE, undefined, IMG_TIMEOUT_MS);
       return { ok: true, dataUrl };
     } catch (err) {
       if (err instanceof ImageChannelUnavailableError) {

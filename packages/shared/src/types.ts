@@ -59,6 +59,8 @@ export interface Task {
   platforms?: string[];
   /** 上传的参考图地址（/uploads/xxx.png 或 dataURL），后续全部产出基于此图 */
   referenceImage?: string;
+  /** 工作流专属表单扩展字段（小红书：内容类型/目标人群/产品；电商：null） */
+  brief?: TaskBrief | null;
   /** 0-100 */
   progress: number;
   /** 卡片状态文案，如「卖点文案 · 美美 在写 20m」 */
@@ -69,14 +71,26 @@ export interface Task {
   createdAt: string;
 }
 
+/** 小红书新建任务的表单扩展字段（存 tasks.brief，JSON） */
+export interface TaskBrief {
+  /** 内容类型：种草安利 / 测评对比 / 干货教程 / 好物合集 / 平替推荐 */
+  contentType?: string;
+  /** 目标人群，如「18-30 上班族」 */
+  audience?: string;
+  /** 产品/品牌名 */
+  product?: string;
+}
+
 export interface TaskCreateInput {
   title: string;
   description: string;
   /** 目标平台（多选必填） */
   platforms: string[];
-  /** 参考图（必填）：dataURL 或 /uploads/xxx.png */
+  /** 参考图：dataURL 或 /uploads/xxx.png（电商必填，小红书选填） */
   referenceImage?: string;
   workflowId?: string;
+  /** 工作流专属表单扩展字段（小红书用） */
+  brief?: TaskBrief | null;
   /** 关联知识库资料（板块 A/B 唯一耦合点：文档或章节片段，最多 6 份） */
   kbRefs?: TaskKbRefInput[];
 }

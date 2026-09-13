@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardColumn } from '@workbench/shared';
-import { WORKFLOW_STAGE_LABELS, approvalPointsOf, stageIndexOf, stageKeysOf } from '@workbench/shared';import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
+import { WORKFLOW_STAGE_LABELS, approvalPointsOf, isXhsWorkflow, stageIndexOf, stageKeysOf } from '@workbench/shared';import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { applyTaskFilters } from '../../lib/taskFilters.ts';
 import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { ArchivedTasksModal } from './ArchivedTasksModal.tsx';
@@ -46,14 +46,15 @@ function TaskCard({
 }: {
   task: TaskWithMeta;
   onOpen: (task: TaskWithMeta) => void;
-  onConfirm: (id: number) => void;
+  onConfirm: (id: number) => Promise<void> | void;
   onArchive: (id: number) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { download, busy: packing, error: packError } = useDownloadPackage(task.id);
   /** 头像 tooltip 需要「名字（岗位）」：岗位由 agents 按 ownerName 反查（TaskWithMeta 不带 ownerRole） */
-  const { agents } = useWorkbench();
+  const { agents, requestFocusPackage, pushToast } = useWorkbench();
   const ownerRole = agents.find((a) => a.name === task.ownerName)?.role;
 
   // 点击卡片外部关闭溢出菜单（菜单本身在卡片内，需排除自身）
@@ -135,8 +136,26 @@ function TaskCard({
       {/* 主操作独占一行 */}
       {task.column === 'planned' ? (
         <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
-          <Btn size="sm" variant="primary" className="w-full" onClick={() => onConfirm(task.id)}>
-            确认开工
+          <Btn
+            size="sm"
+            variant="primary"
+            className="w-full"
+            disabled={confirming}
+            onClick={() => {
+              // 失败要可见：不再用 void 吞掉 rejection（生图失败时用户只会看到"一直转"）
+              setConfirming(true);
+              void (async () => {
+                try {
+                  await onConfirm(task.id);
+                } catch (err) {
+                  pushToast({ message: err instanceof Error ? err.message : '开工失败，请重试', tone: 'no', duration: 8000 });
+                } finally {
+                  setConfirming(false);
+                }
+              })();
+            }}
+          >
+            {confirming ? '开工中…' : '确认开工'}
           </Btn>
         </div>
       ) : null}
@@ -150,7 +169,16 @@ function TaskCard({
           </span>
         ) : null}
         {task.column === 'done' ? (
-          <button type="button" className="qs-clickable qs-meta inline-flex items-center gap-1" style={{ color: 'var(--color-signal)' }} onClick={() => onOpen(task)}>
+          // XHS 交付后纵向序列里定位发布包（不再切 Tab 跳空）；电商保持原样切「内容交付」
+          <button
+            type="button"
+            className="qs-clickable qs-meta inline-flex items-center gap-1"
+            style={{ color: 'var(--color-signal)' }}
+            onClick={() => {
+              onOpen(task);
+              if (isXhsWorkflow(task.workflowId)) requestFocusPackage();
+            }}
+          >
             查看交付物 →
           </button>
         ) : null}
@@ -304,7 +332,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
                 </header>
                 <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5">
                   {list.map((t) => (
-                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => void confirmTask(id)} onArchive={handleArchive} />
+                    <TaskCard key={t.id} task={t} onOpen={handleOpen} onConfirm={(id) => confirmTask(id)} onArchive={handleArchive} />
                   ))}
                   {list.length === 0 ? (
                     <div className="qs-meta py-6 text-center" style={{ color: 'var(--color-ink-faint)' }}>

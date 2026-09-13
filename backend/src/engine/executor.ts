@@ -2,6 +2,7 @@ import {
   WORKFLOW_STAGE_LABELS,
   type BoardColumn,
   type Task,
+  type TaskBrief,
   type TaskEvent,
   type TaskEventType,
   type WorkflowDefinition,
@@ -28,6 +29,14 @@ function toTask(row: TaskRow): Task {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+  let brief: Task['brief'] = null;
+  if (row.brief) {
+    try {
+      brief = JSON.parse(row.brief) as Task['brief'];
+    } catch {
+      brief = null;
+    }
+  }
   return {
     id: row.id,
     title: row.title,
@@ -39,6 +48,7 @@ function toTask(row: TaskRow): Task {
     platform: platforms[0] ?? '',
     platforms: platforms.length > 0 ? platforms : undefined,
     referenceImage: row.reference_image ?? undefined,
+    brief,
     progress: row.progress,
     stageNote: row.stage_note,
     archived: row.archived === 1,
@@ -125,10 +135,10 @@ export class TaskExecutor {
   // ===== 任务生命周期 =====
 
   /** 创建任务（未确认，列=规划中）；platforms 多选逗号拼接存储，referenceImage 参考图地址 */
-  createTask(input: { title: string; description: string; platforms: string[]; referenceImage?: string; workflowId?: string }): Task {
+  createTask(input: { title: string; description: string; platforms: string[]; referenceImage?: string; workflowId?: string; brief?: TaskBrief | null }): Task {
     const id = tx(() => {
       const res = run(
-        'INSERT INTO tasks (title, workflow_id, stage, column, owner_agent_id, description, platform, reference_image, progress, stage_note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO tasks (title, workflow_id, stage, column, owner_agent_id, description, platform, reference_image, brief, progress, stage_note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [
           input.title,
           input.workflowId ?? this.wf.id,
@@ -138,6 +148,7 @@ export class TaskExecutor {
           input.description,
           (input.platforms ?? []).join(','),
           input.referenceImage ?? null,
+          input.brief ? JSON.stringify(input.brief) : null,
           0,
           stageNoteOf(this.wf.nodes[0], 'planned'),
           '你',

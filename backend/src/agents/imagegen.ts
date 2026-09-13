@@ -35,7 +35,7 @@ function parseDataUrl(dataUrl: string): { mime: string; bytes: Buffer; ext: stri
  * 渠道：settings.imageChannel（设置面板可配）→ .env.local 默认（dsh-imagegen 默认渠道）。
  * 返回 dataURL（b64_json）或原始 url。
  */
-export async function generateImage(prompt: string, size = '1024x1024', refImage?: string): Promise<string> {
+export async function generateImage(prompt: string, size = '1024x1024', refImage?: string, timeoutMs = 180_000): Promise<string> {
   const channel = getSetting<ImageChannelConfig | null>('imageChannel') ?? null;
   const baseUrl = channel?.baseUrl || CHANNEL.image.baseUrl;
   const apiKey = channel?.apiKey || CHANNEL.image.apiKey;
@@ -46,7 +46,7 @@ export async function generateImage(prompt: string, size = '1024x1024', refImage
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 180_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const base = baseUrl.replace(/\/$/, '');
     const ref = refImage ? parseDataUrl(refImage) : null;

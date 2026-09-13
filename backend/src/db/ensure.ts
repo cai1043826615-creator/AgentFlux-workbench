@@ -47,6 +47,12 @@ export function ensureSchema(): void {
   } catch {
     /* column already exists */
   }
+  // 旧库迁移：工作流专属表单扩展字段（JSON；小红书存内容类型/人群/产品，电商为空）
+  try {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN brief TEXT');
+  } catch {
+    /* column already exists */
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS task_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

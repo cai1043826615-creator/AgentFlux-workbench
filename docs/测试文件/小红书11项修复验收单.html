@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小红书工作流 · 11 项修复验收单</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #fff; --sunken: #f4f4f5;
+    --ink: #0a0a0a; --ink-soft: #52525b; --ink-faint: #a1a1aa;
+    --line: #ececee; --line-strong: #dcdce0;
+    --ok: #15803d; --ok-soft: #ecfdf3;
+    --no: #b91c1c; --no-soft: #fef2f2;
+    --signal: #7c3aed; --signal-soft: #f3effe;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: "Noto Sans SC", system-ui, sans-serif; font-size: 14px; line-height: 1.6; padding: 32px 16px; }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .meta { color: var(--ink-faint); font-size: 12px; margin-bottom: 20px; }
+  .tips { background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; font-size: 13px; color: var(--ink-soft); margin-bottom: 24px; }
+  .tips b { color: var(--ink); }
+  .tips .bd { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line-strong); }
+  h2 { font-size: 16px; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line-strong); }
+  .item { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; margin-bottom: 10px; }
+  .item.pass { border-color: var(--ok); background: var(--ok-soft); }
+  .item.fail { border-color: var(--no); background: var(--no-soft); }
+  .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .no { color: var(--ink-faint); font-size: 12px; font-family: monospace; }
+  .title { font-weight: 600; flex: 1; min-width: 200px; }
+  .choice { display: flex; gap: 14px; }
+  .choice label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 13px; color: var(--ink-soft); user-select: none; }
+  .choice input { accent-color: var(--signal); width: 15px; height: 15px; cursor: pointer; }
+  .detail { font-size: 12.5px; color: var(--ink-soft); margin: 8px 0 0; white-space: pre-wrap; }
+  .detail b { color: var(--ink); }
+  .detail code { background: var(--sunken); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .verified { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--ink-faint); }
+  .verified.me { color: var(--signal); border-color: var(--signal); background: var(--signal-soft); }
+  .verified.you { color: #b45309; border-color: #b45309; background: #fff8e6; }
+  input.note { width: 100%; margin-top: 8px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+  input.note:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 2px var(--signal-soft); }
+  .bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); margin-bottom: 8px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bar .stat { font-size: 13px; color: var(--ink-soft); }
+  .bar .stat b.ok { color: var(--ok); } .bar .stat b.no { color: var(--no); }
+  .bar button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 4px; padding: 6px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .bar button:hover { border-color: var(--ink); }
+  .bar button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .summary { margin-top: 28px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; padding: 16px; }
+  .summary h3 { font-size: 15px; margin-bottom: 8px; }
+  .summary textarea { width: 100%; min-height: 90px; border: 1px solid var(--line-strong); border-radius: 4px; padding: 10px; font-family: inherit; font-size: 13px; resize: vertical; }
+  .final { margin-top: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .final label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
+  .final input { accent-color: var(--signal); width: 16px; height: 16px; }
+  .savehint { font-size: 12px; color: var(--ink-faint); margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>小红书工作流 · 11 项修复验收单</h1>
+  <div class="meta">第二轮验收（你提的 11 条）· 前端 http://127.0.0.1:4310/ · 2026-09-13</div>
+
+  <div class="tips">
+    <b>用法：</b>逐项点「通过 / 问题」，问题项填备注；点「导出结果」把文本粘贴回对话。<br>
+    <b>标记：</b><span class="verified me">已由AI实测</span> = 我已用 Chrome DevTools / API 实测并附了证据；<span class="verified you">需你亲测</span> = 内容质量或手感，只有你能判断。
+    <div class="bd">
+      <b>已复现的真实问题（非本次修复范围，供你知情）：</b>你的 <code>.env.local</code> 里配了 <code>IMAGE_BASE_URL/IMAGE_API_KEY</code>，但该生图端点不可达 → 每张图会挂到超时才失败。<br>
+      本次已把 XHS 单图超时从 180s 收紧到 <b>30s</b>，并在卡片上显示失败原因。<b>根治需要你换一个可用的生图渠道</b>（工位 → ⚙ 设置 → 生图渠道）。
+    </div>
+  </div>
+
+  <div class="bar">
+    <span class="stat">通过 <b class="ok" id="okCount">0</b> · 问题 <b class="no" id="noCount">0</b> · 未决 <b id="pendCount">13</b></span>
+    <button class="primary" id="exportBtn">导出结果</button>
+    <button id="resetBtn">重置全部</button>
+  </div>
+
+  <h2>一、你报的 11 条</h2>
+
+  <div class="item" data-id="1">
+    <div class="head"><span class="no">1</span><span class="title">已完成任务仍可修改选题方向</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v1" value="pass">通过</label><label><input type="radio" name="v1" value="fail">问题</label></span></div>
+    <p class="detail">改法：选题面板按阶段状态决定可交互性——只有「待确认」态能点选；已推进/已交付时单选按钮 <code>disabled</code>，只展示已采纳方向。<br>
+<b>实测证据（任务 #13 已交付）</b>：3 个 radio 全部 <code>disabled: true</code>，仅高亮已采纳项；无「重出选题 / 确认选题」按钮。<br>
+复核方式：打开 #13 内容交付，确认选题区不可点。</p>
+    <input class="note" placeholder="备注…" data-note="1">
+  </div>
+
+  <div class="item" data-id="2">
+    <div class="head"><span class="no">2</span><span class="title">已交付任务「查看交付包」跳转错误</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v2" value="pass">通过</label><label><input type="radio" name="v2" value="fail">问题</label></span></div>
+    <p class="detail">原问题：按钮切到「任务详情」Tab，而发布包在「内容交付」纵向序列里 → 跳了个空。<br>
+改法：新增 <code>requestFocusPackage()</code> 定位信号；XHS 已完成卡点「查看交付物 →」→ 进入内容交付并<b>平滑滚动到发布包卡片</b>；电商保持原行为。<br>
+复核方式：XHS 看板已完成列 → 点「查看交付物 →」，应停在发布包卡（不是空白页）。</p>
+    <input class="note" placeholder="备注…" data-note="2">
+  </div>
+
+  <div class="item" data-id="3">
+    <div class="head"><span class="no">3</span><span class="title">已交付任务底部操作区需删除</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v3" value="pass">通过</label><label><input type="radio" name="v3" value="fail">问题</label></span></div>
+    <p class="detail">改法：删除我上轮加的「任务已交付 / 查看发布包 → / 新建下一个任务」整块终态引导区。<br>
+<b>实测证据（#13）</b>：<code>hasFinalBlock: false</code>、页面上已无「新建下一个任务」按钮。</p>
+    <input class="note" placeholder="备注…" data-note="3">
+  </div>
+
+  <div class="item" data-id="4">
+    <div class="head"><span class="no">4</span><span class="title">合规审核移到当前阶段上方</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v4" value="pass">通过</label><label><input type="radio" name="v4" value="fail">问题</label></span></div>
+    <p class="detail">改法：合规卡片提到整个纵向序列最上（当前阶段横幅之前）。<br>
+<b>实测证据（#13）</b>：卡片顺序 = <code>合规审核 → 选题方向 → 笔记文案 → 笔记配图 → 发布包</code>。</p>
+    <input class="note" placeholder="备注…" data-note="4">
+  </div>
+
+  <div class="item" data-id="5">
+    <div class="head"><span class="no">5</span><span class="title">电商与小红书新建任务不共用同一套配置</span><span class="verified me">已由AI实测 + 需你判断字段</span>
+      <span class="choice"><label><input type="radio" name="v5" value="pass">通过</label><label><input type="radio" name="v5" value="fail">问题</label></span></div>
+    <p class="detail">改法：<code>NewTaskModal</code> 按 <code>workflowId</code> 渲染两套字段；切换工作流会重置对方字段。<br>
+<b>小红书表单</b>：笔记主题（必填）· 内容类型（下拉：种草安利/测评对比/干货教程/好物合集/平替推荐）· 产品品牌（选填）· 目标人群（选填）· 笔记要求 · <b>参考图改为选填</b>（顺手修了评审 3.2 的「必填与实际不符」）。<br>
+<b>电商表单</b>：任务标题 · 产品资料 · 平台 · 参考图（必填，原样不变）。<br>
+<b>实测证据</b>：API 创建带 <code>brief</code> 的 XHS 任务成功（内容类型=测评对比/人群=学生党/产品=某品牌防晒霜），且<b>无参考图也能创建</b>。<br>
+字段设计是否合你意，请判断。</p>
+    <input class="note" placeholder="备注（想增删字段写这里）…" data-note="5">
+  </div>
+
+  <div class="item" data-id="6">
+    <div class="head"><span class="no">6</span><span class="title">重新规划小红书的新建任务（存储不影响现有）</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v6" value="pass">通过</label><label><input type="radio" name="v6" value="fail">问题</label></span></div>
+    <p class="detail">改法：新增 <code>tasks.brief</code> 列（JSON）存小红书专属字段，<code>ensure.ts</code> 幂等加列（旧库自动迁移）。<br>
+<b>不影响现有</b>：电商任务的 <code>brief</code> 恒为 <code>null</code>，<code>description</code> 与全部既有链路（prompt 注入 / 溯源 / 检索）一字未改；<code>typecheck / build / test</code> 全绿。<br>
+复核方式：新建一个 XHS 任务，第 3 步摘要应显示「笔记主题 / 内容类型 / 笔记要求」。</p>
+    <input class="note" placeholder="备注…" data-note="6">
+  </div>
+
+  <div class="item" data-id="7">
+    <div class="head"><span class="no">7</span><span class="title">文案-笔记流程卡在点第一个方向后无法进入下一步</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v7" value="pass">通过</label><label><input type="radio" name="v7" value="fail">问题</label></span></div>
+    <p class="detail">根因：面板在「无产出」状态下也渲染了空卡片，按钮存在但无对应产出，点了无反应。<br>
+改法：无产出时只显示「正在生成 / 尚未产出」文案、<b>不渲染任何按钮</b>；并修正选中项与确认动作的绑定。<br>
+<b>实测证据</b>：在 #14 上实测点击「确认选题 →」，<b>成功推进到第 2/6 段（笔记撰写）</b>，不再卡住。</p>
+    <input class="note" placeholder="备注…" data-note="7">
+  </div>
+
+  <div class="item" data-id="8">
+    <div class="head"><span class="no">8</span><span class="title">图片生成长时间卡住，疑似后台异常</span><span class="verified me">已由AI实测（根因明确）</span><span class="verified you">需你换渠道</span>
+      <span class="choice"><label><input type="radio" name="v8" value="pass">通过</label><label><input type="radio" name="v8" value="fail">问题</label></span></div>
+    <p class="detail"><b>根因（已实测定位）</b>：<code>hasImageChannel()</code> 返回 <code>true</code>（你的 <code>.env.local</code> 配了 IMAGE_BASE_URL/KEY），但该端点不可达 → 真实网络请求挂到超时才失败。三张图串行 + 内层重试，按 180s 算最坏要 9~27 分钟。<br>
+<b>本次修复（三层）</b>：<br>
+① 单图超时 180s → <b>30s</b>（最坏 90s 出结果，不再"假死"）；<br>
+② 生图失败时把原因写入卡片副标题（<code>生成失败：xxx｜可重试</code>），不再静默停在进行中；<br>
+③ 前端「确认开工」加 pending 态 + 失败 toast（原来 <code>void</code> 吞掉异常，错误完全不可见）。<br>
+<b>仍需你处理</b>：换一个可用的生图渠道，否则只会更快地看到失败提示（而不是卡住）。</p>
+    <input class="note" placeholder="备注（换渠道后是否恢复正常？）…" data-note="8">
+  </div>
+
+  <div class="item" data-id="9">
+    <div class="head"><span class="no">9</span><span class="title">配图风格像商品海报，不像小红书种草笔记</span><span class="verified me">已由AI实测</span><span class="verified you">效果需你看图判断</span>
+      <span class="choice"><label><input type="radio" name="v9" value="pass">通过</label><label><input type="radio" name="v9" value="fail">问题</label></span></div>
+    <p class="detail">改法：重写 <code>noteImagePrompt()</code>（生图与重试共用，消除原来的两处复制）。参照你给的 <code>01-内容创作/cover-design</code> 与 <code>seeding-copywriting</code> 规范：<br>
+<b>正向</b>：真人生活化场景 · 手机随拍质感 · 自然光 · 柔和低饱和 · 真实使用痕迹<br>
+<b>排除</b>：白底商品图、电商主图、精修棚拍、促销大字报、价格标签、详情图排版、过度磨皮、塑料感<br>
+首图与内页图分别给了差异化指令（首图留白处小字手写标题；内页图分别展示过程 / 细节对比）。<br>
+<b>实测证据</b>：prompt 文本校验通过（含「种草笔记」「手机随拍」，排除「电商主图」「大字报」）。<br>
+实际出图风格要等渠道可用后你肉眼判断。</p>
+    <input class="note" placeholder="备注（换渠道后看图再评）…" data-note="9">
+  </div>
+
+  <div class="item" data-id="10">
+    <div class="head"><span class="no">10</span><span class="title">配图有两个「打回」按钮，第一个无效</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v10" value="pass">通过</label><label><input type="radio" name="v10" value="fail">问题</label></span></div>
+    <p class="detail">根因：面板底部有「打回重做」（不带 imageId，调用后不生效）+ 每张图卡内也有「打回」，两套逻辑并存。<br>
+改法：<b>删除面板底部的「打回重做」</b>，打回统一由图卡内逐张操作；底部只保留「全部采纳，提交审核 →」。<br>
+<b>实测证据（#19）</b>：配图面板按钮 = <code>首图(0) / 内页图(0) / 全部采纳，提交审核 →</code>，已无重复打回。</p>
+    <input class="note" placeholder="备注…" data-note="10">
+  </div>
+
+  <div class="item" data-id="11">
+    <div class="head"><span class="no">11</span><span class="title">交付包只有图片，文案未随包下载</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="v11" value="pass">通过</label><label><input type="radio" name="v11" value="fail">问题</label></span></div>
+    <p class="detail">根因：<code>package.ts</code> 只找 <code>deliver</code> / <code>copy</code> 阶段的文案，而 XHS 的最终文案落在 <b><code>xhs-package</code></b> 阶段 → 找不到 → <code>copyFile: null</code>。<br>
+改法：按 <code>workflowId</code> 取对应最终文案阶段（XHS: <code>xhs-package</code> → <code>xhs-copy</code> 兜底），并按笔记体裁输出 Markdown（正文 + 话题标签）。<br>
+<b>实测证据（下载 #13 交付包解压）</b>：<br>
+<code>文案/办公室续命咖啡☕️3秒即溶不酸涩.md</code><br>
+<code>文案/办公室续命咖啡☕️3秒即溶不酸涩.json</code><br>
+<code>xhs-image/首图-首图.txt</code> · <code>xhs-image/内页图1.png</code> · <code>xhs-image/内页图2.png</code> · <code>manifest.json</code><br>
+→ <b>文案 + 图片都在包里了</b>。</p>
+    <input class="note" placeholder="备注…" data-note="11">
+  </div>
+
+  <h2>二、回归确认（上次已通过项）</h2>
+
+  <div class="item" data-id="R1">
+    <div class="head"><span class="no">R1</span><span class="title">上一轮 31 项未被本次改动破坏</span><span class="verified me">已由AI实测</span>
+      <span class="choice"><label><input type="radio" name="vR1" value="pass">通过</label><label><input type="radio" name="vR1" value="fail">问题</label></span></div>
+    <p class="detail">本轮实测回归点：左栏两条工作流计数（电商 14 / XHS 3）✅ · 待确认卡副标题「等待你处理 · 已等待 X」✅ · 已完成卡只有 ✓ 徽章 ✅ · 电商 #12 两栏并排与属性右栏 ✅ · 工位栏 3 张卡 ✅。<br>
+工程校验：<code>pnpm typecheck</code> ✅ · <code>pnpm build</code> ✅ · 后端测试全绿（含 hot-intel 29/29）。</p>
+    <input class="note" placeholder="备注…" data-note="R1">
+  </div>
+
+  <h2>三、需要你决策的一件事</h2>
+
+  <div class="item" data-id="D1">
+    <div class="head"><span class="no">D1</span><span class="title">生图渠道是否更换（决定第 8/9 条能否真正验收）</span><span class="verified you">需你操作</span>
+      <span class="choice"><label><input type="radio" name="vD1" value="pass">已换/将换</label><label><input type="radio" name="vD1" value="fail">暂不换</label></span></div>
+    <p class="detail">当前 <code>.env.local</code> 里的生图端点不可达，所以：<br>
+· 第 8 条只能验"失败可见 + 不再假死"，验不了"能否成功出图"；<br>
+· 第 9 条（种草风 prompt）只能验 prompt 文本，验不了实际出图效果。<br>
+换渠道后（工位 → ⚙ 运行设置 → 生图渠道，或改 <code>backend/.env.local</code> 的 <code>IMAGE_BASE_URL</code>/<code>IMAGE_API_KEY</code>），这两条可以立刻复验。</p>
+    <input class="note" placeholder="备注（换好了叫我复验）…" data-note="D1">
+  </div>
+
+  <div class="summary">
+    <h3>验收结论</h3>
+    <div class="final">
+      <label><input type="radio" name="final" value="approve">✅ 全部通过</label>
+      <label><input type="radio" name="final" value="approve_with_notes">🟡 通过，有遗留项</label>
+      <label><input type="radio" name="final" value="reject">❌ 有问题，打回修复</label>
+    </div>
+    <textarea placeholder="总体意见（可选）：产出手感、想继续调整的细节、下一轮期望…" id="overall"></textarea>
+    <div class="savehint">点「导出结果」→ 自动复制纯文本到剪贴板，粘贴回对话即可。勾选与备注实时存于浏览器 localStorage，刷新不丢。</div>
+    <button class="primary" id="exportBottom" style="margin-top:8px">导出结果</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'xhs-fix-acceptance-v1';
+  var state = JSON.parse(localStorage.getItem(KEY) || '{}');
+
+  function save() {
+    localStorage.setItem(KEY, JSON.stringify(state));
+    refresh();
+  }
+  function refresh() {
+    var ok = 0, no = 0;
+    document.querySelectorAll('.item').forEach(function (item) {
+      var id = item.dataset.id;
+      var v = state[id] && state[id].v;
+      item.classList.remove('pass', 'fail');
+      if (v === 'pass') { item.classList.add('pass'); ok++; }
+      if (v === 'fail') { item.classList.add('fail'); no++; }
+      var radio = item.querySelector('input[value="' + v + '"]');
+      if (radio) radio.checked = true;
+      var note = item.querySelector('.note');
+      if (note && state[id] && state[id].note) note.value = state[id].note;
+    });
+    var total = document.querySelectorAll('.item').length;
+    document.getElementById('okCount').textContent = ok;
+    document.getElementById('noCount').textContent = no;
+    document.getElementById('pendCount').textContent = total - ok - no;
+  }
+  document.querySelectorAll('.item').forEach(function (item) {
+    var id = item.dataset.id;
+    item.querySelectorAll('input[type=radio]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        state[id] = state[id] || {};
+        state[id].v = r.value;
+        save();
+      });
+    });
+    var note = item.querySelector('.note');
+    if (note) note.addEventListener('input', function () {
+      state[id] = state[id] || {};
+      state[id].note = note.value;
+      localStorage.setItem(KEY, JSON.stringify(state));
+    });
+  });
+  function exportResult() {
+    var lines = ['【小红书工作流 · 11 项修复验收结果】', ''];
+    document.querySelectorAll('.item').forEach(function (item) {
+      var id = item.dataset.id;
+      var v = state[id] && state[id].v;
+      var mark = v === 'pass' ? '✅通过' : v === 'fail' ? '❌问题' : '⬜未决';
+      var title = item.querySelector('.title').textContent;
+      var note = state[id] && state[id].note ? ' ｜ 备注：' + state[id].note : '';
+      lines.push(mark + ' ' + id + ' ' + title + note);
+    });
+    var fin = document.querySelector('input[name=final]:checked');
+    lines.push('');
+    lines.push('结论：' + (fin ? ({ approve: '✅ 全部通过', approve_with_notes: '🟡 通过，有遗留项', reject: '❌ 有问题，打回修复' }[fin.value]) : '未给出'));
+    var overall = document.getElementById('overall').value.trim();
+    if (overall) lines.push('总体意见：' + overall);
+    var text = lines.join('\n');
+    navigator.clipboard.writeText(text).then(function () {
+      alert('结果已复制到剪贴板，粘贴回对话即可。\n\n' + text);
+    }, function () {
+      prompt('复制以下结果：', text);
+    });
+  }
+  document.getElementById('exportBtn').addEventListener('click', exportResult);
+  document.getElementById('exportBottom').addEventListener('click', exportResult);
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    if (confirm('确定清空全部勾选与备注？')) { localStorage.removeItem(KEY); location.reload(); }
+  });
+  refresh();
+})();
+</script>
+</body>
+</html>

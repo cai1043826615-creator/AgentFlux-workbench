@@ -64,6 +64,9 @@ interface WorkbenchState {
   closeDocPreview: () => void;
   /** 星图选中节点 id */
   kbNodeId: string | null;
+  /** 查看交付物的定位信号（>0 时内容交付页滚动到发布包；避免各处硬切 Tab 导致跳空页面） */
+  focusPackageSignal: number;
+  requestFocusPackage: () => void;
   /** 新建任务弹窗（含热点预填） */
   newTask: NewTaskState;
   /** 看板/列表 视图与筛选（B5；跨视图保留，5.3） */
@@ -129,6 +132,10 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [currentWorkflowId, setCurrentWorkflowId] = useState<string>(WORKFLOW_ID);
   const [kbDocPath, setKbDocPath] = useState<string | null>(null);
   const [kbNodeId, setKbNodeId] = useState<string | null>(null);
+  const [focusPackageSignal, setFocusPackageSignal] = useState(0);
+  const requestFocusPackage = useCallback(() => {
+    setFocusPackageSignal((n) => n + 1);
+  }, []);
   const [newTask, setNewTask] = useState<NewTaskState>({ open: false });
   const [boardMode, setBoardModeState] = useState<BoardMode>('board');
   const [filters, setFiltersState] = useState<TaskFilters>(DEFAULT_FILTERS);
@@ -473,6 +480,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       openDocPreview,
       closeDocPreview,
       kbNodeId,
+      focusPackageSignal,
+      requestFocusPackage,
       newTask,
       boardMode,
       filters,
@@ -501,7 +510,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       pushToast,
       dismissToast,
     }),
-    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, workflows, currentWorkflowId, kbDocPath, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
+    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, workflows, currentWorkflowId, kbDocPath, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, focusPackageSignal, requestFocusPackage, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

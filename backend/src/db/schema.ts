@@ -26,6 +26,8 @@ export interface TaskRow {
   description: string;
   platform: string; // 多选平台逗号拼接
   reference_image: string | null; // 参考图地址（/uploads/xxx.png 或 dataURL）
+  /** 工作流专属表单扩展字段（JSON）：小红书存 { contentType, audience, product }；电商为空 */
+  brief: string | null;
   progress: number;
   stage_note: string;
   archived: number; // 0 未归档 / 1 已归档（归档≠删除，可恢复）

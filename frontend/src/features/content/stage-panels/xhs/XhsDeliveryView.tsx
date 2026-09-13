@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Deliverable, NotePackage, Task, TopicOption, XhsNote } from '@workbench/shared';
 import { XHS_STAGE_COPY, XHS_STAGE_DELIVER, XHS_STAGE_IMAGE, XHS_STAGE_PACKAGE, XHS_STAGE_REVIEW, XHS_STAGE_TOPIC, stageIndexOf } from '@workbench/shared';
 import { Btn, Empty, Spinner } from '../../../../components/ui.tsx';
@@ -31,10 +31,18 @@ function stateOf(task: Task, stage: string): PanelState {
 }
 
 export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverables: Deliverable[] }) {
-  const { decide, retryImage, pushToast, openNewTask, setTaskTab } = useWorkbench();
+  const { decide, retryImage, pushToast, focusPackageSignal } = useWorkbench();
   const [busy, setBusy] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
+  /** 发布包与合规面板锚点：供「查看发布包」滚动定位（不切 Tab，避免跳到空页面） */
+  const packageRef = useRef<HTMLDivElement>(null);
+  const complianceRef = useRef<HTMLDivElement>(null);
+
+  /** 滚动到发布包卡片（任务已交付时用它取代原来的 Tab 跳转） */
+  const scrollToPackage = () => {
+    packageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   const wfId = task.workflowId;
   const stageIdx = stageIndexOf(wfId, task.stage);
@@ -80,6 +88,12 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
     setRetrying(null);
   }, [task.id]);
 
+  // 外部「查看发布包」→ 滚动定位到本页发布包卡（不切 Tab，避免跳空）
+  useEffect(() => {
+    if (focusPackageSignal > 0) scrollToPackage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPackageSignal]);
+
   const doDecide = async (kind: 'copy' | 'image', decision: 'approve' | 'reject' | 'skip', imageId?: string, noteText?: string) => {
     setBusy(true);
     try {
@@ -112,6 +126,15 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
 
   return (
     <div className="space-y-3.5">
+      {/* 合规审核置顶（用户要求：放在当前阶段上方，自动审核结果一眼可见） */}
+      <div ref={complianceRef}>
+        {stReview === 'none' ? (
+          <PendingCard label="合规审核" wait="主管 Agent 自动检查，无需人工" />
+        ) : (
+          <CompliancePanel data={compliance} state={stReview} />
+        )}
+      </div>
+
       {/* 当前阶段横幅 */}
       <div
         className="rounded-[4px] border px-3.5 py-2.5"
@@ -140,28 +163,13 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
           onZoom={(img: ParsedImg) => setPreview({ url: img.url, name: img.name })}
         />
       )}
-      {stReview === 'none' ? (
-        <PendingCard label="合规审核" wait="主管 Agent 自动检查，无需人工" />
+      {stPackage === 'none' ? (
+        <PendingCard label="发布包装" />
       ) : (
-        <CompliancePanel data={compliance} state={stReview} />
-      )}
-      {stPackage === 'none' ? <PendingCard label="发布包装" /> : <PackagePanel pack={pack} state={stPackage} busy={busy} onDecide={doDecide} />}
-
-      {/* 交付终态引导（peak-end） */}
-      {task.column === 'done' ? (
-        <div className="qs-card py-8 text-center">
-          <div className="font-display text-[17px] font-semibold">任务已交付</div>
-          <div className="qs-meta mt-1">发布包已归档，可随时取回</div>
-          <div className="mt-3.5 flex flex-wrap justify-center gap-2">
-            <Btn size="sm" variant="primary" onClick={() => setTaskTab('detail')}>
-              查看发布包 →
-            </Btn>
-            <Btn size="sm" onClick={() => openNewTask()}>
-              新建下一个任务
-            </Btn>
-          </div>
+        <div ref={packageRef}>
+          <PackagePanel pack={pack} state={stPackage} busy={busy} onDecide={doDecide} />
         </div>
-      ) : null}
+      )}
 
       {/* 加载态：当前阶段生成中且无产出时的统一提示 */}
       {task.column === 'progress' ? (

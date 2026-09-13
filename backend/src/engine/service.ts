@@ -1,4 +1,4 @@
-import { WORKFLOW_ID, WORKFLOW_STAGE_LABELS, approvalPointsOf, isXhsWorkflow, nodeOfStage, type BoardColumn, type ComplianceReport, type CopyPackage, type Deliverable, type DeliverableDecisionInput, type ImageItem, type NotePackage, type ProvenanceResult, type ReworkInfo, type Task, type TaskEvent, type TopicOption, type XhsNote } from '@workbench/shared';
+import { WORKFLOW_ID, WORKFLOW_STAGE_LABELS, approvalPointsOf, isXhsWorkflow, nodeOfStage, type BoardColumn, type ComplianceReport, type CopyPackage, type Deliverable, type DeliverableDecisionInput, type ImageItem, type NotePackage, type ProvenanceResult, type ReworkInfo, type Task, type TaskBrief, type TaskEvent, type TopicOption, type XhsNote } from '@workbench/shared';
 import { MockProducer, getProducer, type ReviewReport } from '../agents/producer.ts';
 import { MAX_IMAGE_ATTEMPTS } from '../agents/smart-producer.ts';
 import { xhsProducer } from '../agents/xhs-producer.ts';
@@ -8,7 +8,7 @@ import { markBusy, markIdle, effectiveModel } from '../agents/runtime.ts';
 import * as delivery from '../delivery/store.ts';
 import { buildProvenanceResult, getProvenanceResult } from '../delivery/provenance.ts';
 import { getReworkInfo } from './rework.ts';
-import { get } from '../db/client.ts';
+import { get, run } from '../db/client.ts';
 import { ensureSchema } from '../db/ensure.ts';
 import { bus } from './bus.ts';
 import { TaskExecutor } from './executor.ts';
@@ -108,7 +108,7 @@ export class WorkflowService {
 
   // ===== 任务生命周期 =====
 
-  createTask(input: { title: string; description: string; platforms: string[]; referenceImage?: string; workflowId?: string }): Task {
+  createTask(input: { title: string; description: string; platforms: string[]; referenceImage?: string; workflowId?: string; brief?: TaskBrief | null }): Task {
     return this.executorFor(input.workflowId).createTask(input);
   }
 
@@ -375,6 +375,14 @@ export class WorkflowService {
         outputTokens: isImageStage ? 0 : hasReal ? collected.reduce((s, u) => s + u.completionTokens, 0) : undefined,
         tokensEstimated: isImageStage ? false : !hasReal,
       });
+      // 失败可见化：把原因写进卡片副标题，避免任务静默停在「进行中」看起来像还在跑
+      // （评审 1.3：没有失败态时用户看到的是"AI 正在干活"的假象）
+      try {
+        const reason = (err instanceof Error ? err.message : String(err)).slice(0, 80);
+        run('UPDATE tasks SET stage_note = ? WHERE id = ?', [`生成失败：${reason}｜可回到看板点「确认开工」重试`, task.id]);
+      } catch {
+        /* 写提示失败不掩盖原始错误 */
+      }
       throw err;
     } finally {
       setLlmUsageSink(null);

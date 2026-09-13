@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 import type { CopyPackage, Deliverable, ImageItem, Task } from '@workbench/shared';
+import { isXhsWorkflow } from '@workbench/shared';
 
 /** 上传图片目录（与 routes/tasks.ts UPLOAD_DIR 同源） */
 const UPLOAD_DIR = join(import.meta.dirname, '..', '..', 'data', 'uploads');
@@ -202,12 +203,16 @@ export async function buildTaskPackage(task: Task, deliverables: Deliverable[]):
   const images: PackageImageInfo[] = [];
   let missingCount = 0;
 
-  // 文案：deliver 阶段优先，回退 copy 阶段已采纳
-  const deliverCopy = deliverables.find((d) => d.stage === 'deliver' && d.kind === 'copy');
+  // 文案：优先「本工作流的最终文案阶段」→ deliver 阶段 → copy 阶段已采纳。
+  // XHS 的最终文案落在 xhs-package 阶段（service.advanceXhs 写入），
+  // 若只找 deliver/copy 会漏掉 → copyFile 为 null，交付包就没文案（用户反馈「只有图片」）。
+  const copyStages = isXhsWorkflow(task.workflowId) ? ['xhs-package', 'xhs-copy'] : ['deliver'];
+  const primaryCopy = copyStages.map((s) => deliverables.find((d) => d.stage === s && d.kind === 'copy')).find(Boolean);
   const fallbackCopy = deliverables.find((d) => d.stage === 'copy' && d.kind === 'copy' && d.status === 'approved');
   let copyFile: string | null = null;
-  const copySource = deliverCopy ?? fallbackCopy;
+  const copySource = primaryCopy ?? fallbackCopy;
   if (copySource) {
+    // XHS 发布包是 NotePackage（title/body/tags），电商是 CopyPackage（title/points/outline/keywords）
     let cp: CopyPackage | null = null;
     try {
       cp = JSON.parse(copySource.content) as CopyPackage;
@@ -215,13 +220,15 @@ export async function buildTaskPackage(task: Task, deliverables: Deliverable[]):
       cp = null;
     }
     if (cp) {
+      const asNote = isXhsWorkflow(task.workflowId) || copyStages.includes(copySource.stage);
       const title = sanitizeName(cp.title || '文案') || '文案';
-      const md =
-        `# ${cp.title}\n\n## 核心卖点\n\n` +
-        (cp.points ?? []).map((p) => `- ${p}`).join('\n') +
-        `\n\n## 详情大纲\n\n${cp.outline ?? ''}\n\n## 关键词\n\n` +
-        (cp.keywords ?? []).join('、') +
-        '\n';
+      const md = asNote
+        ? `# ${cp.title}\n\n## 正文\n\n${cp.outline ?? ''}\n\n## 话题标签\n\n${(cp.keywords ?? []).join(' ')}\n`
+        : `# ${cp.title}\n\n## 核心卖点\n\n` +
+          (cp.points ?? []).map((p) => `- ${p}`).join('\n') +
+          `\n\n## 详情大纲\n\n${cp.outline ?? ''}\n\n## 关键词\n\n` +
+          (cp.keywords ?? []).join('、') +
+          '\n';
       const mdName = `文案/${title}.md`;
       const jsonName = `文案/${title}.json`;
       entries.push({ name: mdName, data: Buffer.from(md, 'utf8') });

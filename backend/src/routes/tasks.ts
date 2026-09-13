@@ -13,6 +13,7 @@ import type {
   DeliverableVersion,
   ImageItem,
   Task,
+  TaskBrief,
   TaskKbRefInput,
   TaskListItem,
   TaskListQuery,
@@ -190,9 +191,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   // 创建任务（未确认，进入规划中；platforms 多选必填，referenceImage 参考图；
   // kbRefs 为知识库关联资料——板块 A/B 唯一耦合点，先校验再建任务，避免半成品）
   app.post<{
-    Body: { title: string; description: string; platforms?: string[]; referenceImage?: string; workflowId?: string; kbRefs?: TaskKbRefInput[] };
+    Body: { title: string; description: string; platforms?: string[]; referenceImage?: string; workflowId?: string; brief?: TaskBrief | null; kbRefs?: TaskKbRefInput[] };
   }>('/api/tasks', async (req, reply) => {
-    const { title, description, platforms, referenceImage, workflowId, kbRefs } = req.body ?? {};
+    const { title, description, platforms, referenceImage, workflowId, brief, kbRefs } = req.body ?? {};
     if (!title) return reply.code(400).send({ error: 'title required' });
     if (!Array.isArray(platforms) || platforms.length === 0) return reply.code(400).send({ error: 'platforms required (at least one)' });
     const refs = Array.isArray(kbRefs) ? kbRefs : [];
@@ -204,7 +205,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
         throw err;
       }
     }
-    const task = service.createTask({ title, description: description ?? '', platforms, referenceImage, workflowId });
+    const task = service.createTask({ title, description: description ?? '', platforms, referenceImage, workflowId, brief: brief ?? null });
     if (refs.length > 0) setTaskKbRefs(task.id, refs);
     return { task };
   });

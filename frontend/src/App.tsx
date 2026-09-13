@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import type { AgentOnlineStatus, TaskKbRefInput } from '@workbench/shared';
+import { isXhsWorkflow, type AgentOnlineStatus, type TaskKbRefInput } from '@workbench/shared';
 import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter, type GlyphName } from './components/ui.tsx';
 import { api } from './lib/api.ts';
@@ -107,9 +107,22 @@ function NewTaskModal() {
   const [busy, setBusy] = useState(false);
   /** 所选工作流（打开时预置为左栏当前工作流） */
   const [workflowId, setWorkflowId] = useState<string>(currentWorkflowId);
+  /** 小红书专属字段（电商不使用 → brief 传 null，不影响既有链路） */
+  const [contentType, setContentType] = useState<string>('种草安利');
+  const [audience, setAudience] = useState('');
+  const [product, setProduct] = useState('');
   // §6.3：校验提示仅在用户交互后出现，避免"打开即满屏红字"
   const [touched, setTouched] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const isXhs = isXhsWorkflow(workflowId);
+  /** 切换工作流时重置专属字段，避免电商/小红书字段互相污染 */
+  const switchWorkflow = (id: string) => {
+    setWorkflowId(id);
+    setContentType('种草安利');
+    setAudience('');
+    setProduct('');
+  };
 
   // 打开时重置表单（无任何预填——热点不得预填新建任务表单）
   useEffect(() => {
@@ -125,7 +138,8 @@ function NewTaskModal() {
     if (fileRef.current) fileRef.current.value = '';
   }, [open]);
 
-  const canNext = title.trim() !== '' && platforms.length > 0 && refDataUrl !== null;
+  // 小红书允许纯文字起号（无参考图也能生成配图），电商保持参考图必填
+  const canNext = title.trim() !== '' && platforms.length > 0 && (isXhs || refDataUrl !== null);
 
   const reset = () => {
     setStep('form');
@@ -164,7 +178,9 @@ function NewTaskModal() {
       } catch (err) {
         console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
       }
-      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage, kbRefs, workflowId });
+      // 仅在小红书工作流带 brief；电商固定为 null，后端链路不变
+      const brief = isXhs ? { contentType, audience: audience.trim() || undefined, product: product.trim() || undefined } : null;
+      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage, kbRefs, workflowId, brief });
       reset();
     } finally {
       setBusy(false);
@@ -193,7 +209,7 @@ function NewTaskModal() {
                     name="task-workflow"
                     className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-signal)]"
                     checked={workflowId === wf.id}
-                    onChange={() => setWorkflowId(wf.id)}
+                    onChange={() => switchWorkflow(wf.id)}
                   />
                   <span className="text-[13px] leading-snug">
                     <span className="block font-medium">{wf.name}</span>
@@ -205,12 +221,38 @@ function NewTaskModal() {
               ))}
             </div>
           </Field>
-          <Field label="任务标题" required>
-            <input className="qs-input" value={title} onChange={(e) => { setTouched(true); setTitle(e.target.value); }} placeholder="如：无线磁吸充电宝新品上架全套物料" autoFocus />
-          </Field>
-          <Field label="产品资料 / 任务描述">
-            <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => { setTouched(true); setDesc(e.target.value); }} placeholder="品名/类目/卖点素材…" />
-          </Field>
+          {isXhs ? (
+            <>
+              <Field label="笔记主题" required>
+                <input className="qs-input" value={title} onChange={(e) => { setTouched(true); setTitle(e.target.value); }} placeholder="如：办公室即溶咖啡真实体验分享" autoFocus />
+              </Field>
+              <Field label="内容类型">
+                <select className="qs-input" value={contentType} onChange={(e) => setContentType(e.target.value)}>
+                  {['种草安利', '测评对比', '干货教程', '好物合集', '平替推荐'].map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="产品 / 品牌（选填）">
+                <input className="qs-input" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="如：某品牌即溶咖啡" />
+              </Field>
+              <Field label="目标人群（选填）">
+                <input className="qs-input" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="如：18-30 上班族、学生党" />
+              </Field>
+              <Field label="笔记要求 / 卖点素材">
+                <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => { setTouched(true); setDesc(e.target.value); }} placeholder="想突出的卖点、真实体验、避免提到的点…" />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="任务标题" required>
+                <input className="qs-input" value={title} onChange={(e) => { setTouched(true); setTitle(e.target.value); }} placeholder="如：无线磁吸充电宝新品上架全套物料" autoFocus />
+              </Field>
+              <Field label="产品资料 / 任务描述">
+                <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => { setTouched(true); setDesc(e.target.value); }} placeholder="品名/类目/卖点素材…" />
+              </Field>
+            </>
+          )}
           <div className="mb-3">
             <span className="qs-label">
               目标平台（可多选）
@@ -230,7 +272,7 @@ function NewTaskModal() {
               ))}
             </div>
           </div>
-          <Field label="参考图（后续全部产出基于此图）" required>
+          <Field label={isXhs ? '参考图（选填，有图更像真实分享）' : '参考图（后续全部产出基于此图）'} required={!isXhs}>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
             <div className="flex items-center gap-3">
               <div
@@ -261,7 +303,7 @@ function NewTaskModal() {
           </Field>
           <p className="qs-meta mt-2" style={{ color: touched && !canNext ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
             {touched && !canNext ? (
-              `● ${!title.trim() ? '请先填写任务标题' : platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步`
+              `● ${!title.trim() ? (isXhs ? '请先填写笔记主题' : '请先填写任务标题') : platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步`
             ) : (
               <>提交后将展示任务内容摘要，<b>确认后 AI 才开工</b></>
             )}
@@ -289,12 +331,24 @@ function NewTaskModal() {
       ) : (
         <>
           <div className="rounded border px-3 py-2.5 space-y-1.5" style={{ borderColor: 'var(--color-line)' }}>
-            <div className="text-[13px]"><b>标题：</b>{title}</div>
+            {isXhs ? (
+              <>
+                <div className="text-[13px]"><b>笔记主题：</b>{title}</div>
+                <div className="text-[13px]">
+                  <b>内容类型：</b>{contentType}
+                  {product.trim() ? ` · 产品：${product.trim()}` : ''}
+                  {audience.trim() ? ` · 人群：${audience.trim()}` : ''}
+                </div>
+                <div className="text-[13px]"><b>笔记要求：</b>{desc || '（未填写，按主题自由发挥）'}</div>
+              </>
+            ) : (
+              <div className="text-[13px]"><b>标题：</b>{title}</div>
+            )}
             <div className="text-[13px]">
               <b>工作流：</b>
               {workflows.find((w) => w.id === workflowId)?.name ?? workflowId}
             </div>
-            <div className="text-[13px]"><b>描述：</b>{desc || '新品上架全套物料'}</div>
+            {isXhs ? null : <div className="text-[13px]"><b>描述：</b>{desc || '新品上架全套物料'}</div>}
             <div className="text-[13px]"><b>平台：</b>{platforms.join(' / ')}</div>
             <div className="flex items-center gap-2 text-[13px]">
               <b>参考图：</b>

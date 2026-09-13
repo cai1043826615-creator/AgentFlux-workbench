@@ -28,15 +28,14 @@ export function ImagePanel({
       title="笔记配图"
       badge={state === 'working' ? <StateBadge state="working" /> : <StateBadge state={state} />}
       footer={
+        // 打回只在图卡内逐张操作；面板级不再放「打回重做」
+        // （两套按钮并存时面板块那个不带 imageId 的 reject 不会生效，造成「点了没反应还要再点第二个」）
         state === 'pending' ? (
           <div className="space-y-2">
-            <div className="qs-meta">全部生成完成后可确认 · 支持单图重试</div>
+            <div className="qs-meta">逐张「采纳 / 打回」；失败图可「重试」。全部决策后自动提交合规审核</div>
             <div className="flex gap-1.5">
-              <Btn size="sm" variant="ghost" disabled={busy} onClick={() => onDecide('image', 'reject', undefined, '配图整体打回，请重新生成')}>
-                打回重做
-              </Btn>
               <Btn size="sm" variant="primary" disabled={busy} onClick={() => onDecide('image', 'approve')}>
-                逐张采纳，提交审核 →
+                全部采纳，提交审核 →
               </Btn>
             </div>
           </div>
