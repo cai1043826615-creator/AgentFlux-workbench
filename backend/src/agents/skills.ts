@@ -18,6 +18,7 @@ import { open, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentSkillInfo } from '@workbench/shared';
+import { listVaultMarkdown, resolveVaultConfig, vaultAbsPath } from '../knowledge/vault.ts';
 
 /** 后端根目录 backend（src/agents 或 dist/agents 上溯两级；再上溯一级即 repo 根，与 Vault 目录 docs/ 同层） */
 const BACKEND_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -29,11 +30,12 @@ export function resolveSkillsDir(): string {
   return resolve(BACKEND_ROOT, '..', 'docs', '示例Vault', '技能库');
 }
 
-/** 挂载文件目录：环境变量 WORKBENCH_FILES_ROOT 优先，默认 Vault 内 挂载文件/ */
-export function resolveFilesDir(): string {
-  const env = (process.env.WORKBENCH_FILES_ROOT ?? '').trim();
-  if (env) return resolve(env);
-  return resolve(BACKEND_ROOT, '..', 'docs', '示例Vault', '挂载文件');
+/** 应用内上传挂载文件的落点（Vault 相对目录；用户确认：上传保留并指向知识库） */
+export const UPLOAD_DIR_REL = '知识库/收件箱';
+
+/** 生效的 Vault 根（未连接返回 null；挂载文件全部以 Vault 为真相来源） */
+function vaultRootOrNull(): string | null {
+  return resolveVaultConfig().root;
 }
 
 /** 分类展示顺序（目录 key）；未列出的目录排在已知分类之后 */
