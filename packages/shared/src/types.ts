@@ -25,7 +25,10 @@ export interface Agent {
   role: AgentRole;
   persona: string;
   model: string;
+  /** 全局技能（读视图 = 各工作流份并集；注入数据源已改为 workflowSkills 分份） */
   skills: string[];
+  /** 按工作流分份的挂载（skill-workflow-isolation）：key=workflowId，value=展示名数组 */
+  workflowSkills?: Record<string, string[]>;
   files: string[];
   onlineStatus: AgentOnlineStatus;
   /** 当前活动描述，如「正在写卖点文案 #13」 */
@@ -39,6 +42,8 @@ export interface AgentUpdateInput {
   role?: AgentRole;
   persona?: string;
   model?: string;
+  /** 按工作流分份的挂载（可选传入；缺省不触碰分份数据） */
+  workflowSkills?: Record<string, string[]>;
   skills?: string[];
   files?: string[];
 }

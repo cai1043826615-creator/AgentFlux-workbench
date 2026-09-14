@@ -13,10 +13,11 @@ function now(): string {
   return new Date().toISOString();
 }
 
-/** 行转换：snake_case → camelCase（skills/files JSON.parse，坏 JSON 容错为空数组） */
+/** 行转换：snake_case → camelCase（skills/files/workflow_skills JSON.parse，坏 JSON 容错为空） */
 export function toAgent(row: AgentRow): Agent {
   let skills: string[] = [];
   let files: string[] = [];
+  let workflowSkills: Record<string, string[]> | undefined;
   try {
     skills = JSON.parse(row.skills) as string[];
   } catch {
@@ -27,6 +28,12 @@ export function toAgent(row: AgentRow): Agent {
   } catch {
     /* ignore */
   }
+  try {
+    const parsed = row.workflow_skills ? (JSON.parse(row.workflow_skills) as Record<string, string[]>) : undefined;
+    if (parsed && Object.keys(parsed).length > 0) workflowSkills = parsed;
+  } catch {
+    /* ignore */
+  }
   return {
     id: row.id,
     name: row.name,
@@ -34,6 +41,7 @@ export function toAgent(row: AgentRow): Agent {
     persona: row.persona,
     model: row.model,
     skills,
+    workflowSkills,
     files,
     onlineStatus: row.online_status as AgentOnlineStatus,
     activity: row.activity ?? undefined,

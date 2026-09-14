@@ -140,6 +140,12 @@ export function ensureSchema(): void {
   } catch {
     /* column already exists */
   }
+  // 旧库迁移：技能按工作流分份挂载（skill-workflow-isolation，幂等补列；JSON：{"<workflowId>":["技能",...]}）
+  try {
+    sqlite.exec("ALTER TABLE agents ADD COLUMN workflow_skills TEXT NOT NULL DEFAULT '{}'");
+  } catch {
+    /* column already exists */
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,

@@ -3,7 +3,7 @@ import type { Agent, AgentSkillInfo, ChannelTestError, ChannelTestResult, LlmCha
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { api } from '../../lib/api.ts';
 import { Avatar, Badge, Btn, Field, Modal, ModalFooter } from '../../components/ui.tsx';
-import { SkillMountPicker } from './SkillMountPicker.tsx';
+import { SkillMountPicker, type MountTarget } from './SkillMountPicker.tsx';
 
 /**
  * GET /api/agents/skills —— 后端同事新增接口；
@@ -34,16 +34,31 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
   const [model, setModel] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [skills, setSkills] = useState<string[]>([]);
+  // 分份挂载（skill-workflow-isolation）：电商份 / 小红书份 / 文件（全局）
+  const [ecomSkills, setEcomSkills] = useState<string[]>([]);
+  const [xhsSkills, setXhsSkills] = useState<string[]>([]);
   const [files, setFiles] = useState<string[]>([]);
   const [catalog, setCatalog] = useState<AgentSkillInfo[]>([]);
   const [fileCatalog, setFileCatalog] = useState<{ id: string; name: string }[]>([]);
   const [fileError, setFileError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<MountTarget>({ kind: 'ecom', workflowId: 'ecom-new-listing', label: '电商工作流' });
   const [showApi, setShowApi] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  /** 打开二级弹窗：目标份由进入的行决定 */
+  const openPicker = (kind: 'ecom' | 'xhs' | 'files') => {
+    setPickerTarget(
+      kind === 'ecom'
+        ? { kind: 'ecom', workflowId: 'ecom-new-listing', label: '电商工作流' }
+        : kind === 'xhs'
+          ? { kind: 'xhs', workflowId: 'xhs-note', label: '小红书工作流' }
+          : { kind: 'files', label: '文件' },
+    );
+    setPickerOpen(true);
+  };
 
   // 已为当前 agent 初始化过的标记：避免 WS agent:status 推送（agent 引用变化）触发 effect 反复重置表单/挂载面板
   const initRef = useRef<{ key: string } | null>(null);
@@ -95,7 +110,10 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
     setModel(agent.model ?? '');
     setBaseUrl(ch?.baseUrl ?? '');
     setApiKey(ch?.apiKey ?? '');
-    setSkills([...(agent.skills ?? [])]);
+    // 分份初始化：无分份数据（旧库）回退全局 skills（等价每份初始值 = 旧全局挂载）
+    const ws = agent.workflowSkills ?? {};
+    setEcomSkills([...(ws['ecom-new-listing'] ?? agent.skills ?? [])]);
+    setXhsSkills([...(ws['xhs-note'] ?? agent.skills ?? [])]);
     setFiles([...(agent.files ?? [])]);
     setPickerOpen(false);
     setShowApi(false);
@@ -165,20 +183,11 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
   const hasOwnKey = Boolean(apiKey.trim());
 
   const skillDisplayName = (key: string) => catalog.find((s) => s.id === key || s.name === key)?.name ?? key;
-  const fileMounted = (name: string) => files.includes(name);
 
   /** 已挂载项的分类（列表徽标用）；查不到 = 目录中已不存在 → 「已失效」 */
   const skillCategory = (key: string) => catalog.find((s) => s.id === key || s.name === key)?.category ?? null;
   /** 已挂载文件是否仍存在于目录（失效标记用） */
   const fileResolves = (name: string) => fileCatalog.some((f) => f.id === name);
-
-  const toggleFile = (name: string) => {
-    setFiles((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]));
-  };
-
-  const removeSkill = (key: string) => {
-    setSkills((prev) => prev.filter((x) => x !== key));
-  };
 
   const removeFile = (f: string) => {
     setFiles((prev) => prev.filter((x) => x !== f));
@@ -191,8 +200,11 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
     try {
       const prevChannels = (settings.llmChannels ?? {}) as Record<string, LlmChannelConfig>;
       const prev = prevChannels[agent.id];
+      // 分份挂载：workflowSkills 为注入数据源；skills 传并集（后端在收到 workflowSkills 时会重算并集，此处一致）
+      const workflowSkills = { 'ecom-new-listing': ecomSkills, 'xhs-note': xhsSkills };
+      const union = [...new Set([...ecomSkills, ...xhsSkills])];
       await Promise.all([
-        api.updateAgent(agent.id, { persona: persona.trim(), model: model.trim(), skills, files }),
+        api.updateAgent(agent.id, { persona: persona.trim(), model: model.trim(), skills: union, workflowSkills, files }),
         api.putSettings({
           llmChannels: {
             ...prevChannels,
@@ -322,97 +334,130 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
         ) : null}
       </div>
 
-      {/* 挂载的 SKILL 与文件 */}
+      {/* 挂载的 SKILL 与文件（skill-workflow-isolation 二轮定案：按工作流分份展示，各行独立「＋ 挂载」） */}
       <div className="qs-card p-3">
-        <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-soft)' }}>技能与文件</div>
-        <div className="space-y-1.5">
-          {skills.map((s) => {
-            const cat = skillCategory(s);
-            return (
-              <div key={`s-${s}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
-                <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal-strong)' }}>SKILL</span>
-                <span className="min-w-0 flex-1 truncate text-[13px]">{skillDisplayName(s)}</span>
-                {cat ? (
-                  <span className="qs-meta shrink-0 rounded-[3px] border px-1 text-[10px]" style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-soft)' }}>
-                    {cat}
-                  </span>
-                ) : (
-                  // 目录里找不到 → 幽灵挂载，标红提示而不是假装生效
+        <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-soft)' }}>技能与文件（按工作流分份挂载，任务只使用所属工作流份）</div>
+
+        {/* 电商工作流份 */}
+        <div className="mb-2">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[13px] font-medium">电商工作流</span>
+            <span className="qs-meta text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>已挂 {ecomSkills.length}</span>
+          </div>
+          <div className="space-y-1">
+            {ecomSkills.map((s) => {
+              const cat = skillCategory(s);
+              return (
+                <div key={`e-${s}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
+                  <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal-strong)' }}>SKILL</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{skillDisplayName(s)}</span>
+                  {cat ? (
+                    <span className="qs-meta shrink-0 rounded-[3px] border px-1 text-[10px]" style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-soft)' }}>
+                      {cat}
+                    </span>
+                  ) : (
+                    <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-danger)' }}>已失效</span>
+                  )}
+                  <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="从电商份移除" onClick={() => setEcomSkills((prev) => prev.filter((x) => x !== s))}>
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            {ecomSkills.length === 0 ? <div className="qs-meta px-1 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>未挂载</div> : null}
+          </div>
+          <Btn size="sm" className="mt-1.5" onClick={() => openPicker('ecom')}>＋ 挂载</Btn>
+        </div>
+
+        {/* 小红书工作流份 */}
+        <div className="mb-2 border-t pt-2" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[13px] font-medium">小红书工作流</span>
+            <span className="qs-meta text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>已挂 {xhsSkills.length}</span>
+          </div>
+          <div className="space-y-1">
+            {xhsSkills.map((s) => {
+              const cat = skillCategory(s);
+              return (
+                <div key={`x-${s}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
+                  <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal-strong)' }}>SKILL</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{skillDisplayName(s)}</span>
+                  {cat ? (
+                    <span className="qs-meta shrink-0 rounded-[3px] border px-1 text-[10px]" style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-soft)' }}>
+                      {cat}
+                    </span>
+                  ) : (
+                    <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-danger)' }}>已失效</span>
+                  )}
+                  <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="从小红书份移除" onClick={() => setXhsSkills((prev) => prev.filter((x) => x !== s))}>
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            {xhsSkills.length === 0 ? <div className="qs-meta px-1 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>未挂载</div> : null}
+          </div>
+          <Btn size="sm" className="mt-1.5" onClick={() => openPicker('xhs')}>＋ 挂载</Btn>
+        </div>
+
+        {/* 文件（全局一份，不按工作流分） */}
+        <div className="border-t pt-2" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[13px] font-medium">文件</span>
+            <span className="qs-meta text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>已挂 {files.length}</span>
+          </div>
+          <div className="space-y-1">
+            {files.map((f) => (
+              <div key={`f-${f}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
+                <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)' }}>FILE</span>
+                <span className="min-w-0 flex-1 truncate text-[13px]">{f}</span>
+                {fileResolves(f) ? null : (
                   <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-danger)' }}>已失效</span>
                 )}
-                <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="移除" onClick={() => removeSkill(s)}>
+                <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="移除" onClick={() => removeFile(f)}>
                   ×
                 </button>
               </div>
-            );
-          })}
-          {files.map((f) => (
-            <div key={`f-${f}`} className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
-              <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)' }}>FILE</span>
-              <span className="min-w-0 flex-1 truncate text-[13px]">{f}</span>
-              {fileResolves(f) ? null : (
-                <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-danger)' }}>已失效</span>
-              )}
-              <button type="button" className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100" style={{ color: 'var(--color-danger)' }} title="移除" onClick={() => removeFile(f)}>
-                ×
-              </button>
-            </div>
-          ))}
-          {skills.length === 0 && files.length === 0 ? (
-            <div className="qs-meta py-2 text-center" style={{ color: 'var(--color-ink-faint)' }}>暂无挂载</div>
-          ) : null}
-        </div>
-
-        {/* ＋ 挂载 skill：打开二级弹窗（skill-workflow-isolation · 验收 #6：技能多时内嵌面板溢出且不可滚动） */}
-        <div className="mt-2.5">
-          <Btn size="sm" onClick={() => setPickerOpen(true)}>
-            ＋ 挂载 skill
-          </Btn>
-          <SkillMountPicker
-            open={pickerOpen}
-            catalog={catalog}
-            initial={skills}
-            onCancel={() => setPickerOpen(false)}
-            onComplete={(next) => {
-              setSkills(next);
-              setPickerOpen(false);
-            }}
-          />
-        </div>
-
-        {/* 文件区（目录勾选 + 上传 md/txt/json；文件挂载保持内联——验收原话只针对 skill 选择） */}
-        <div className="mt-3 border-t pt-2.5" style={{ borderColor: 'var(--color-line)' }}>
-          <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-soft)' }}>文件 FILES</div>
-          {fileError ? (
-            <div className="qs-meta mb-1" style={{ color: 'var(--color-warn)' }}>{fileError}</div>
-          ) : null}
-          <div className="max-h-[120px] space-y-1 overflow-y-auto">
-            {fileCatalog.length === 0 && !fileError ? (
-              <div className="qs-meta px-2 py-2 text-center" style={{ color: 'var(--color-ink-faint)' }}>暂无文件，可上传 .md / .txt / .json</div>
-            ) : (
-              fileCatalog.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  className={`flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-left transition-colors ${fileMounted(f.id) ? 'cursor-pointer hover:bg-[var(--color-signal-soft)]' : 'cursor-pointer hover:bg-[var(--color-signal-soft)]'}`}
-                  style={{ background: fileMounted(f.id) ? 'var(--color-signal-soft)' : 'transparent' }}
-                  onClick={() => toggleFile(f.id)}
-                >
-                  {checkBox(fileMounted(f.id))}
-                  <span className="min-w-0 flex-1 truncate text-[13px]">{f.name}</span>
-                  <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>FILE</span>
-                </button>
-              ))
-            )}
+            ))}
+            {files.length === 0 ? <div className="qs-meta px-1 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>未挂载</div> : null}
           </div>
-          <label
-            className={`qs-btn sm mt-1.5 inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
-            style={{ fontSize: 12, padding: '3px 12px' }}
-          >
-            {uploading ? '上传中…' : '上传文件'}
-            <input type="file" accept=".md,.txt,.json" className="hidden" onChange={onPickUpload} disabled={uploading} />
-          </label>
+          <div className="mt-1.5 flex items-center gap-2">
+            <Btn size="sm" onClick={() => openPicker('files')}>＋ 挂载</Btn>
+            <label
+              className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
+              style={{ fontSize: 12, padding: '3px 12px' }}
+            >
+              {uploading ? '上传中…' : '上传文件'}
+              <input type="file" accept=".md,.txt,.json" className="hidden" onChange={onPickUpload} disabled={uploading} />
+            </label>
+          </div>
+          {fileError ? <div className="qs-meta mt-1" style={{ color: 'var(--color-warn)' }}>{fileError}</div> : null}
         </div>
+
+        {/* 二级挂载弹窗：目标份由进入的行决定 */}
+        <SkillMountPicker
+          open={pickerOpen}
+          target={pickerTarget}
+          catalog={catalog}
+          initial={pickerTarget.kind === 'files' ? files : pickerTarget.workflowId === 'ecom-new-listing' ? ecomSkills : xhsSkills}
+          summarySkills={
+            pickerTarget.kind === 'ecom'
+              ? { 'xhs-note': xhsSkills }
+              : pickerTarget.kind === 'xhs'
+                ? { 'ecom-new-listing': ecomSkills }
+                : { 'ecom-new-listing': ecomSkills, 'xhs-note': xhsSkills }
+          }
+          summaryFiles={files}
+          fileCatalog={fileCatalog}
+          onCancel={() => setPickerOpen(false)}
+          onComplete={(next) => {
+            if (pickerTarget.kind === 'ecom') setEcomSkills(next);
+            else if (pickerTarget.kind === 'xhs') setXhsSkills(next);
+            else setFiles(next);
+            setPickerOpen(false);
+          }}
+          uploading={uploading}
+        />
       </div>
 
       {error ? (

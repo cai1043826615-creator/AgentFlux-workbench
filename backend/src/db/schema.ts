@@ -9,6 +9,7 @@ export interface AgentRow {
   persona: string;
   model: string;
   skills: string; // JSON array
+  workflow_skills: string; // JSON object: {"<workflowId>":["技能",...]}（skill-workflow-isolation）
   files: string; // JSON array
   online_status: string; // online | busy | idle
   activity: string | null;

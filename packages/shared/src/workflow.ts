@@ -2,7 +2,7 @@
  * 电商新品上架工作流 —— 6 阶段图定义（OpenSpec workflow-engine）
  * 阶段节点 + 顺序边 + 3 确认点条件分支 + 校对回退分支 + 并行子任务分组
  */
-import type { WorkflowDefinition, WorkflowNode } from './types.ts';
+import type { Agent, WorkflowDefinition, WorkflowNode } from './types.ts';
 
 /** 阶段节点 id（稳定 key，任务表 stage 字段使用） */
 export const STAGE_REQUIREMENT = 'requirement';
@@ -273,24 +273,21 @@ export function isXhsWorkflow(workflowId?: string): boolean {
   return workflowId === XHS_WORKFLOW_ID;
 }
 
-/* ===== 技能工作流分类隔离（skill-workflow-isolation）===== */
+/* ===== 技能按工作流分份挂载（skill-workflow-isolation）===== */
 
 /**
- * 工作流 → 可使用的技能分类（与技能库目录分类同名：电商/小红书/通用）。
- * - 挂载技能按此边界过滤：注入（后端 prompt）与展示（前端任务侧）同口径；
- * - 「通用」对所有工作流可用（兜底区语义）；
- * - 未列出的 workflowId 由 allowedCategoriesFor 返回 null = 全分类可见（兜底，防新增工作流技能被静默丢弃）。
+ * 某任务应注入的挂载技能列表（挂什么用什么）。
+ * - 优先读该 Agent 的 workflowSkills[workflowId] 分份；
+ * - 分份缺失（旧数据/未分份）→ 回退全局 skills（等价「每份初始值 = 旧全局挂载」，零迁移风险）；
+ * - workflowId 未传 → 回退全局（非 producer 调用点兼容）。
  */
-export const WORKFLOW_CATEGORIES: Record<string, string[]> = {
-  [WORKFLOW_ID]: ['电商', '通用'],
-  [XHS_WORKFLOW_ID]: ['小红书', '通用'],
-};
-
-/**
- * 某工作流可使用的技能分类集合。
- * 返回 null 表示该工作流不在映射表中（未知工作流兜底：全分类可见，不做过滤）。
- */
-export function allowedCategoriesFor(workflowId?: string): string[] | null {
-  if (!workflowId) return null;
-  return WORKFLOW_CATEGORIES[workflowId] ?? null;
+export function workflowSkillsOf(
+  workflowId: string | undefined,
+  agent: Pick<Agent, 'skills' | 'workflowSkills'>,
+): string[] {
+  if (workflowId) {
+    const part = agent.workflowSkills?.[workflowId];
+    if (part) return part;
+  }
+  return agent.skills ?? [];
 }

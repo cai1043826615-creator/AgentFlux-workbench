@@ -109,6 +109,12 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     if (body.persona !== undefined) run('UPDATE agents SET persona = ? WHERE id = ?', [body.persona, id]);
     if (body.model !== undefined) run('UPDATE agents SET model = ? WHERE id = ?', [body.model, id]);
     if (body.skills !== undefined) run('UPDATE agents SET skills = ? WHERE id = ?', [JSON.stringify(body.skills), id]);
+    if (body.workflowSkills !== undefined) {
+      // skill-workflow-isolation：写入分份挂载，并把全局 skills 维护为各份并集（只读派生视图，兼容既有展示）
+      run('UPDATE agents SET workflow_skills = ? WHERE id = ?', [JSON.stringify(body.workflowSkills), id]);
+      const union = [...new Set(Object.values(body.workflowSkills).flat())];
+      run('UPDATE agents SET skills = ? WHERE id = ?', [JSON.stringify(union), id]);
+    }
     if (body.files !== undefined) run('UPDATE agents SET files = ? WHERE id = ?', [JSON.stringify(body.files), id]);
     if (body.onlineStatus !== undefined) run('UPDATE agents SET online_status = ? WHERE id = ?', [body.onlineStatus, id]);
     if (body.activity !== undefined) run('UPDATE agents SET activity = ? WHERE id = ?', [body.activity, id]);

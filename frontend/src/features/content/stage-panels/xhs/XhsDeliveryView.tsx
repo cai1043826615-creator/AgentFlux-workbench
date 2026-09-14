@@ -125,6 +125,21 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
       {/* 合规审核与发布包装均为自动节点，不在内容交付里出卡片：
           合规审核 → 任务详情页顶部；发布包装 → 自动跑完直接交付，交付包从右上角下载 */}
 
+      {/* 交付完成提示条（置底，对齐电商审批条的紫色样式）：只提示右上角可下载，无确认动作 */}
+      {isDelivered ? (
+        <div
+          className="rounded-[4px] border px-3 py-2.5"
+          style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}
+        >
+          <div className="mb-1.5 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
+            已交付 · 任务 #{task.id}
+          </div>
+          <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
+            发布包与图片已归档，点右上角「下载交付包」即可取回（ZIP 内含文案 .md/.json 与全部已采纳配图）。
+          </div>
+        </div>
+      ) : null}
+
       {/* 加载态：当前阶段生成中且无产出时的统一提示 */}
       {task.column === 'progress' ? (
         <div className="flex items-center gap-2">

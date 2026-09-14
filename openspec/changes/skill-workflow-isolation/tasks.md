@@ -1,27 +1,27 @@
-## 1. 映射表（shared 层）
+## 1. 数据层：按工作流分份
 
-- [x] 1.1 `packages/shared/src/workflow.ts` 新增 `WORKFLOW_CATEGORIES`（`ecom-new-listing`→`['电商','通用']`、`xhs-note`→`['小红书','通用']`）与 `allowedCategoriesFor(workflowId): string[] | null`（未列出→null=全可见）；验证：typecheck 通过
-- [x] 1.2 类型导出与既有 workflow 常量并列；验证：shared typecheck 通过
+- [x] 1.1 ~~`WORKFLOW_CATEGORIES` 映射表~~ → 改为 `workflowSkillsOf(workflowId, agent)` 读取函数（shared：读 workflow_skills[key]，空则回退旧全局 skills）；验证：typecheck 通过
+- [x] 1.2 shared 类型：`Agent` 增加 `workflowSkills?: Record<string, string[]>`；验证：typecheck 通过
 
-## 2. 注入过滤（后端）
+## 2. 数据与注入（后端）
 
-- [x] 2.1 `backend/src/agents/skills.ts` 新增 `skillCategoryOf(skillId): Promise<string | null>`：复用 ensureIndex + categoryOfPath + parseSkillMeta（与 listSkills 同一解析链），未命中返回 null；验证：typecheck 通过
-- [x] 2.2 `smart-producer.ts` 的 `buildSystemPrompt` 签名加 `workflowId?: string`：解析挂载列表后，`allowedCategoriesFor(workflowId)` 非 null 时逐技能查 category，不在集合内且 category 已知（非 null）→ 跳过 `readSkillContent`；验证：typecheck 通过
-- [x] 2.3 `buildProducerSystemPrompt` 与各调用点把 `task.workflowId` 透传进 `buildSystemPrompt`（非 producer 调用点不传 = 全可见兜底）；验证：typecheck 通过
-- [x] 2.4 确认 `WORKFLOW_SKILLS`（合规清单）路径未受影响（workflowSkillBlock 逻辑零改动）；验证：代码走查
-- [x] 2.5 新增注入过滤测试（skills.test.ts 或新文件）：①电商任务不含小红书技能全文；②小红书任务不含电商技能全文；③通用技能两端都注入；④未知 workflowId 全注入；⑤无分类技能注入不被过滤；⑥合规清单在 xhs-note 持续注入；验证：node --experimental-strip-types 全绿
+- [x] 2.1 `ensureSchema` 给 agents 表幂等补列 `workflow_skills TEXT`；验证：typecheck + migrations 测试通过
+- [x] 2.2 ~~skillCategoryOf 分类过滤~~ → **移除分类过滤逻辑**（挂什么用什么）；`buildSystemPrompt` 增加可选参数 `mountedSkills?: string[]`（producer 路径传该任务工作流的份；不传回退旧全局）；验证：typecheck
+- [x] 2.3 producer 调用点：`smart-producer` 从 task.workflowId 取份传入（读时兜底：workflow_skills 空 → 回退 agents.skills，等价每份初始值=旧全局）；验证：typecheck
+- [x] 2.4 `PUT /api/agents/:id` 扩展负载 `workflowSkills`：写入列并重算 `agents.skills` 并集；GET /api/agents 返回 workflowSkills；验证：typecheck
+- [x] 2.5 测试重写（skill-workflow-isolation.test.ts）：①电商份注入=电商份内容；②小红书份注入=小红书份内容；③双份互不影响（改电商份小红书份不变）；④兜底（无 workflow_skills 回退全局）；⑤合规清单强制追加不回归；⑥并集视图同步；验证：全绿
+- [x] 2.6 shared/workflow.ts 移除 WORKFLOW_CATEGORIES/allowedCategoriesFor（上一轮方案的遗留，语义已被分份取代）；验证：typecheck
 
-## 3. 二级弹窗挂载选择器（前端）
+## 3. 配置弹窗分份展示 + 二级弹窗（前端）
 
-- [x] 3.1 新建 `frontend/src/features/workstation/SkillMountPicker.tsx`：左右两栏（左=已挂载含分类徽标/失效标红/×移除，右=分区目录+搜索框）、max-height 70vh 可滚动、分区标题 sticky、暂存 Set + 「完成」一次性保存、未保存变更关闭需 confirm；验证：typecheck 通过
-- [x] 3.2 `AgentSettingsModal.tsx`：「＋ 挂载 skill 和文件」改为打开二级 Modal（复用 ui.tsx Modal），内嵌挂载面板移除；二级打开期间外层内容区 overflow hidden（防滚动穿透），关闭还原；验证：typecheck 通过
-- [x] 3.3 挂载面板分区说明补一行灰字「技能按工作流分类生效：电商任务仅使用电商+通用类技能」（防「挂了却不生效」困惑）；验证：文案存在
-- [x] 3.4 文件挂载保持现状内联添加（不进二级弹窗）；验证：代码走查
+- [x] 3.1 `AgentSettingsModal`「技能与文件」卡片改分份形态：电商行/小红书行/文件行（工作流名+已挂条目+×移除+各自「＋ 挂载」按钮）；× 即时改对应份；验证：typecheck
+- [x] 3.2 `SkillMountPicker` 重构：进入时指定目标份（targetWorkflowId 或 files）；主区=目标份完整编辑（三分区+搜索+吸顶）；只读摘要呈现另一份与文件；暂存-「完成」只落目标份；验证：typecheck
+- [x] 3.3 保存链路：配置弹窗「保存」把 workflowSkills 一起 PUT；二级弹窗「完成」回写配置弹窗 state（统一由保存持久化）；验证：typecheck
+- [x] 3.4 保留：失效标红、防滚动穿透、未保存 confirm、Esc/遮罩关闭；验证：代码走查
 
-## 4. 回归与整体验证
+## 4. 回归与验证
 
-- [x] 4.1 三端 typecheck exit 0；官方测试链无新增失败（skills.test.ts 全绿）
-- [ ] 4.2 Chrome DevTools 全链路：Agent 配置挂载 小红书+电商+通用 技能各一 → 电商任务产出（日志确认 prompt 含电商/通用、不含小红书）→ 小红书任务产出（反向确认）；合规清单仍在 xhs-note prompt
-- [ ] 4.3 二级弹窗交互：挂 20+ 技能可滚动/吸顶/搜索命中「SEO」/完成保存/取消无脏数据/Esc 关闭/外层不滚动穿透
-- [ ] 4.4 回归底线：失效技能标红仍全量可见；未知分类技能原样展示；既有验收单 #3/#4/#5 复验不回归
-- [ ] 4.5 提交并勾选 tasks
+- [x] 4.1 三端 typecheck + 官方测试链无新增失败
+- [x] 4.2 Chrome DevTools：配置弹窗分份展示/行内挂载定向/×移除定向/二级弹窗聚焦与摘要/搜索/一次性保存/无脏数据
+- [x] 4.3 真实任务归因：电商任务 prompt=电商份；小红书任务 prompt=小红书份；合规清单仍在
+- [x] 4.4 勾选收尾

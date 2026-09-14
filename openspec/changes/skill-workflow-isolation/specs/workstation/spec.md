@@ -1,19 +1,19 @@
 ## ADDED Requirements
 
-### Requirement: 工作流技能可见性与使用边界透明
-任务详情 SHALL 让用户能看出「哪些技能实际作用于该任务」：展示的所用技能 = Agent 挂载技能 ∩ 该任务工作流的分类映射范围（与 skill-context 的注入过滤同一口径）。被工作流边界滤除的技能 SHALL NOT 出现在任务侧的技能展示中，避免「显示却未生效」的误导。Agent 配置弹窗（`AgentSettingsModal`）SHALL 保持完整三分区视图——它是唯一展示全部分类的入口。
+### Requirement: 配置弹窗内按工作流分份展示挂载
+Agent 配置弹窗的「技能与文件」卡片 SHALL 按**工作流分份**展示挂载：每个工作流一行（工作流名 + 已挂条目列表 + 独立的「＋ 挂载」按钮），文件一行。每行的「＋ 挂载」SHALL 只作用于该行对应的目标份（电商行的按钮打开电商份的挂载弹窗，文件行的按钮打开文件挂载）；行内条目的 × SHALL 直接从对应份移除并即时生效（随配置弹窗「保存」持久化）。SHALL NOT 在配置弹窗内把不同工作流份混排展示。
 
-#### Scenario: 任务侧技能展示按工作流过滤
-- **WHEN** 用户查看一个电商工作流任务所用到的技能
-- **THEN** 展示列表只含分类为「电商」「通用」的挂载技能，不含「小红书」分类技能（即使该 Agent 挂载了它）
+#### Scenario: 分份展示互不混排
+- **WHEN** 用户打开一个在电商份挂了「电商文案模板」、在小红书份挂了「小红书合规违禁词清单」的 Agent 配置
+- **THEN** 电商行只显示「电商文案模板」，小红书行只显示「小红书合规违禁词清单」，无并集混排
 
-#### Scenario: Agent 配置保留完整分区
-- **WHEN** 用户打开任意 Agent 的配置弹窗挂载面板
-- **THEN** 技能目录按 电商/小红书/通用 完整三分区展示，不因当前无任务上下文而被过滤
+#### Scenario: 行内挂载按钮定向生效
+- **WHEN** 用户点击小红书行的「＋ 挂载」并勾选一个通用类技能后完成
+- **THEN** 该技能加入小红书份，电商份不变
 
-#### Scenario: 任务侧不展示未生效技能
-- **WHEN** Agent 挂载了小红书分类技能但当前任务属于电商工作流
-- **THEN** 任务详情的技能展示中不出现该技能（不存在「显示了但没用上」的状态）
+#### Scenario: 行内 × 即时移除
+- **WHEN** 用户点击电商份某条目上的 × 并保存
+- **THEN** 该技能从电商份移除，小红书份不变
 
 ## MODIFIED Requirements
 
@@ -21,7 +21,7 @@
 
 The system SHALL allow mounting skills and files onto individual agents, scoped only to that agent. The mountable skill catalog SHALL be organized into **business-domain sections** — 电商 (e-commerce), 小红书 (XHS), 通用 (general) — and the mount picker SHALL render the skill area **grouped by these sections** rather than as one flat list. A section SHALL be omitted when it contains no mountable skill. A skill's section SHALL be derived from its location in the skills directory, and an optional declaration in the skill's own header SHALL override that derived value. When a skill declares a section the system does not recognize, the declared value SHALL be preserved and displayed rather than silently replaced with a default. Any skill file placed directly in the skills root SHALL be treated as 通用 so that existing flat layouts keep working. Every mountable skill SHALL carry a non-empty section, so that a skill can never surface without a section to group it under.
 
-挂载选择 SHALL 通过**二级弹窗**完成（验收 #6）：点击「＋ 挂载 skill 和文件」打开独立于配置主弹窗的二级 Modal，采用左右两栏布局——左栏为已挂载列表（含分类徽标、失效标红、×移除），右栏为可挂目录（按业务域分区 + 顶部搜索框按名称/描述过滤）。二级弹窗内容区 SHALL 可滚动（`max-height` 约束 + `overflow-y: auto`），分区标题 SHALL 吸顶；选择 SHALL 先暂存于组件内状态，用户点击「完成」后一次性保存，取消/关闭 SHALL NOT 产生任何变更；打开期间 SHALL 阻止外层配置弹窗滚动（防滚动穿透），并支持 Esc 与遮罩关闭及焦点圈闭。
+挂载选择 SHALL 通过**二级弹窗**完成（验收 #6）：从配置弹窗各工作流行的「＋ 挂载」打开独立于配置主弹窗的二级 Modal。弹窗 SHALL 聚焦**进入时指定的目标份**（该工作流份或文件份）的完整编辑——技能目录按业务域分组（电商→小红书→通用）、顶部搜索框按名称/描述过滤；同时 SHALL 以只读摘要呈现其余份的当前状态（一屏看到全部工作流）。二级弹窗内容区 SHALL 可滚动（max-height 约束），分区标题 SHALL 吸顶；选择 SHALL 先暂存于组件内状态，用户点击「完成」后一次性保存目标份，取消/关闭 SHALL NOT 产生任何变更；打开期间 SHALL 阻止外层配置弹窗滚动（防滚动穿透），并支持 Esc 与遮罩关闭及焦点圈闭。
 
 #### Scenario: Mount a skill to an agent
 
@@ -58,13 +58,21 @@ The system SHALL allow mounting skills and files onto individual agents, scoped 
 - **WHEN** the mount picker lists the skills already mounted on the agent
 - **THEN** each mounted skill displays its section as a badge next to its name
 
+#### Scenario: 从电商行进入聚焦电商份
+- **WHEN** 用户在配置弹窗电商工作流行的「＋ 挂载」打开二级弹窗
+- **THEN** 弹窗主区为电商份的技能目录勾选，且同屏可见小红书份与文件分区的只读摘要
+
+#### Scenario: 变更只落目标份
+- **WHEN** 用户在电商份弹窗勾选「电商文案模板」并点「完成」
+- **THEN** 仅电商份更新，小红书份不变
+
 #### Scenario: 挂载多技能时二级弹窗可完整滚动
 - **WHEN** Agent 挂载 20+ 技能并打开挂载二级弹窗
-- **THEN** 两栏内容在弹窗内完整可见并可滚动，分区标题吸顶，列表不再溢出屏幕且外层弹窗不跟随滚动
+- **THEN** 弹窗内容完整可见并可滚动，分区标题吸顶，列表不再溢出屏幕且外层弹窗不跟随滚动
 
 #### Scenario: 搜索过滤技能
 - **WHEN** 用户在二级弹窗搜索框输入关键词（如「SEO」）
-- **THEN** 右栏仅显示名称或描述命中关键词的技能，清空关键词恢复分区全量
+- **THEN** 目录仅显示名称或描述命中关键词的技能，清空关键词恢复全量
 
 #### Scenario: 完成前关闭不产生脏数据
 - **WHEN** 用户在二级弹窗中勾选/取消若干技能后未点「完成」而直接 Esc 或点击遮罩关闭
@@ -72,4 +80,4 @@ The system SHALL allow mounting skills and files onto individual agents, scoped 
 
 #### Scenario: 完成后一次性保存
 - **WHEN** 用户在二级弹窗完成勾选并点击「完成」
-- **THEN** 系统一次性保存全部变更（一次持久化调用），挂载列表与分区计数即时更新
+- **THEN** 系统一次性保存目标份变更（一次持久化调用），挂载列表与分区计数即时更新

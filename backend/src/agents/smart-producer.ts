@@ -8,8 +8,7 @@ import type { AgentRow } from '../db/schema.ts';
 import { generateImage, ImageChannelUnavailableError } from './imagegen.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
 import { MockProducer, type ReviewIssue, type ReviewReport, type StageProducer, setProducer } from './producer.ts';
-import { readFileContent, readSkillContent, skillCategoryOf } from './skills.ts';
-import { allowedCategoriesFor } from '@workbench/shared';
+import { readFileContent, readSkillContent } from './skills.ts';
 import { buildHotContext, buildKnowledgeContext } from '../knowledge/refs.ts';
 import { assembleReworkText, getPendingRework } from '../engine/rework.ts';
 import * as delivery from '../delivery/store.ts';
@@ -120,26 +119,32 @@ function collectStageImages(taskId: number): { stage: 'main-image' | 'detail-ima
  * 查 agents 表取该 agent 的 skills/files 数组，逐项读取本地技能/文件内容注入；
  * 内容为空则跳过对应段，全部为空时原样返回 base。
  *
- * skill-workflow-isolation：传入 workflowId 时按 `allowedCategoriesFor` 的分类边界
- * 过滤挂载技能（分类不在范围内的技能**在读取全文之前**跳过，省 IO 与 token）；
- * 未传 workflowId（非 producer 调用点）或工作流不在映射表（未知兜底）→ 全量注入；
- * 分类解析不出（null）的技能不过滤（spec：无分类技能不消失）。
- * 工作流专属技能（WORKFLOW_SKILLS）为独立机制，不经过本过滤。
+ * skill-workflow-isolation（二轮定案）：传入 workflowId 时注入**该工作流的挂载份**
+ * （agents.workflow_skills[workflowId]，挂什么用什么）；分份缺失（旧数据/未分份）回退
+ * 全局 skills（等价「每份初始值 = 旧全局挂载」）；未传 workflowId（非 producer 调用点）
+ * 回退全局。分类过滤逻辑已废弃——隔离由分份存储本身实现。
+ * 工作流专属技能（WORKFLOW_SKILLS）为独立机制，不经过本通道。
  */
 export async function buildSystemPrompt(agentId: string, base: string, workflowId?: string): Promise<string> {
-  const row = get<Pick<AgentRow, 'skills' | 'files'>>('SELECT skills, files FROM agents WHERE id = ?', [agentId]);
+  const row = get<Pick<AgentRow, 'skills' | 'files' | 'workflow_skills'>>('SELECT skills, files, workflow_skills FROM agents WHERE id = ?', [agentId]);
   if (!row) return base;
 
-  const allowed = allowedCategoriesFor(workflowId); // null = 不过滤（未知工作流/未传）
+  // 该任务工作流的挂载份：workflow_skills 有值用之，否则回退全局 skills（读时兜底，零迁移）
+  let mountedSkills = parseList(row.skills);
+  if (workflowId) {
+    try {
+      const parts_map = row.workflow_skills ? (JSON.parse(row.workflow_skills) as Record<string, string[]>) : null;
+      const part = parts_map?.[workflowId];
+      if (part) mountedSkills = part;
+    } catch {
+      /* JSON 坏行 → 回退全局（与既有容错语义一致） */
+    }
+  }
+
   const parts: string[] = [];
 
   const skillBlocks: string[] = [];
-  for (const skillId of parseList(row.skills)) {
-    if (allowed) {
-      const category = await skillCategoryOf(skillId);
-      // 已知分类且不在允许集合 → 跳过（不读全文）；未知分类（null）→ 兜底注入
-      if (category && !allowed.includes(category)) continue;
-    }
+  for (const skillId of mountedSkills) {
     const content = await readSkillContent(skillId);
     if (content) skillBlocks.push(`## 技能：${skillId}\n${content}`);
   }

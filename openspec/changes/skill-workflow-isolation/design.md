@@ -1,60 +1,61 @@
 ## Context
 
-技能体系现状（经源码核实）：技能库目录已实体化为 `docs/示例Vault/技能库/{电商,小红书,通用}/`，`listSkills()` 返回带 `category` 的技能元数据（目录即分类，文件头 `> 分类：` 可覆盖，未知分类原样保留——`skills.ts` L40-78）；挂载注入走 `buildSystemPrompt`（smart-producer.ts L122，读取 `agents.skills` 展示名数组逐个 `readSkillContent`）→ `buildProducerSystemPrompt`（L177，追加工作流专属技能/知识库/热点/返工段）；展示层 `AgentSettingsModal` 内嵌挂载面板按三分区渲染。
+技能体系现状（经源码核实）：技能库目录已实体化为 `docs/示例Vault/技能库/{电商,小红书,通用}/`，`listSkills()` 返回带 `category` 的技能元数据；挂载注入走 `buildSystemPrompt`（smart-producer.ts，读取 `agents.skills` 全局数组）→ `buildProducerSystemPrompt`；展示层 `AgentSettingsModal` 内嵌挂载面板。
 
-断层：注入层对挂载技能**无工作流维度**——小红书技能挂上后电商任务照样注入全文；展示层在技能多时溢出不可滚动。验收单建议文档（`docs/相关设计文件/技能挂载与工作流隔离优化建议-2026-09-14.md`）已给出方案骨架，本 design 补齐关键决策。
+用户验收打回后定位升级：**隔离的真正语义是「挂载按工作流分份」**——不是「全局挂载 + 注入按分类过滤」。用户原话证据：「我在电商挂载的 skill，在小红书也能看到，在小红书删除的 skill，电商也删掉了」——这证明用户期望挂载关系本身按工作流分份；同时要求二级弹窗**一屏呈现全部工作流份**（不切换），文件与 skill 同层进弹窗。
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- 电商任务只用电商+通用挂载技能；小红书任务只用小红书+通用（注入层真实过滤）
-- 未知 workflowId 兜底全可见；无分类技能不消失；失效标红不回归
-- 挂载选择二级弹窗：左右两栏、可滚动、吸顶、搜索、暂存-一次性保存
-- 合规清单（WORKFLOW_SKILLS）强制追加行为不变
+- 挂载关系按「工作流 × Agent」分份存储（`agents.workflow_skills` JSON 列）
+- 任务注入直接取该任务工作流的份（挂什么用什么；分类过滤逻辑废弃）
+- 二级弹窗一屏呈现：电商份 / 小红书份 / 文件 三个分区上下排布，独立勾选
+- 文件与 skill 同层进二级弹窗（用户定案：两者同层级概念）
+- 既有全局挂载迁移为每份初始值（不丢数据）；`agents.skills` 保留为并集只读视图
 
 **Non-Goals:**
 
-- 不改挂载数据模型（不加跨域标记字段、`agents.skills` 仍为展示名数组）
-- 不做技能自动推荐、不做按任务动态挂载
-- 不改技能目录结构与分类解析规则
+- 不做「先选工作流再切换查看」的交互（用户明确否定）
+- 不改技能目录结构与分类解析规则（分区徽标仍用）
 - 不动知识库/热点/返工注入通道
+- 不做按任务动态挂载/自动推荐
 
 ## Decisions
 
-### 1. 映射表放 shared 层（`packages/shared/src/workflow.ts`）
+### 1. 数据模型：`agents.workflow_skills` JSON 列（而非新表）
 
-`WORKFLOW_CATEGORIES: Record<string, string[]>` 与 `WORKFLOW_ID`/`XHS_WORKFLOW_ID` 同文件，前后端共用同一份真源（前端任务侧展示过滤、后端注入过滤同口径）。辅助函数 `allowedCategoriesFor(workflowId): string[] | null`（null = 未知工作流全可见）。
+`ALTER TABLE agents ADD COLUMN workflow_skills TEXT`（`ensureSchema` 幂等补列）。值为 `{"ecom-new-listing":["技能A",...],"xhs-note":[...]}`——key 为 workflowId，值为展示名数组（与既有 `agents.skills` 同形态）。
 
-**替代方案**：放 smart-producer 顶部常量。否决——前端展示过滤需要同口径，shared 才能单源。
+**替代方案**：新表 `agent_workflow_skills(agent_id, workflow_id, skill_name)`。否决——一行 JSON 与既有 `skills`/`files` 列形态一致，读取无需 join，规模（每 Agent 2-3 个工作流 × 10 技能）远未到需要关系表的程度。
 
-### 2. 过滤点在 `buildSystemPrompt`（读取全文之前），签名加 workflowId
+### 2. 迁移：懒式 + 读时兜底（一次性 UPDATE 不必要）
 
-`buildSystemPrompt(agentId, base, workflowId?)`：解析挂载列表后先查每个技能的 category，不在 allowed 集合的**直接跳过 `readSkillContent`**（省 IO 与 token），再对剩余技能读全文注入。category 快查走 `skills.ts` 新增 `skillCategoryOf(skillId): Promise<string | null>`（复用 ensureIndex 索引，不整表扫描）。未知分类（null/非三类）→ 视为兜底可见，**不过滤**（对应 spec「无分类技能不消失」）。
+读取挂载份时：`workflow_skills` 为空/缺 key → **回退到旧全局 `agents.skills` 并返回之**（等价于「每份初始值=旧全局挂载」，且不写库、零迁移风险）；用户在某份保存时才真正写 `workflow_skills[key]`。`agents.skills` 更新为各份并集（保存时同步维护），供任务卡片等既有只读展示兼容。
 
-**替代方案**：在 `buildProducerSystemPrompt` 过滤。否决——那里已拿到各段字符串，过滤发生在读全文之后，浪费 IO 与 token；且 `buildSystemPrompt` 还有别的调用点（非 producer 场景不传 workflowId = 全可见，天然兜底）。
+**替代方案**：启动时批量迁移全部 Agent。否决——多一次全表写，且「读时回退」语义等价、实现更薄。
 
-### 3. WORKFLOW_SKILLS 保持原样（独立机制，不合入映射表）
+### 3. 注入：`buildSystemPrompt` 改为接受「挂载技能列表」而非 agentId 内查
 
-合规清单的语义是「无论挂没挂都强制注入」，与「挂载后按分类过滤」正交。合并成一个机制会让「未挂载却注入」的特例藏在过滤逻辑里，可读性差、spec 也要多绕一层。两个机制、两个段落、两条 spec 需求，各自简单。
+`buildSystemPrompt` 增加重载参数：producer 路径传**该任务工作流的份**（`smart-producer` 调用点从 task.workflowId 查份）；上一轮的 `allowedCategoriesFor` 分类过滤**整体移除**（挂什么用什么，不再按分类过滤）。非 producer 调用点不传列表 → 回退旧行为（读 `agents.skills` 并集），兼容不回归。
 
-### 4. 二级弹窗用现有 Modal 基础组件（`components/ui.tsx` 的 Modal）
+### 4. API：挂载读写走 `PUT /api/agents/:id` 扩展负载
 
-不引原生 `<dialog>`：项目 Modal 已有遮罩/Esc/焦点圈闭实现（DocPreviewModal 验证过），复用保证视觉与交互一致。滚动穿透阻断：二级弹窗 open 时给外层配置弹窗内容区加 `overflow: hidden`（组件内 useEffect 同步，关闭时还原）。
+既有 `updateAgent` 负载 `{persona, model, skills, files}` 扩展 `workflowSkills` 字段（可选）；后端写入 `workflow_skills` 列并重算 `skills` 并集。GET `/api/agents` 返回体增加 `workflowSkills`（前端弹窗初始化用）。旧客户端不传该字段 → 不触碰分份数据（兼容）。
 
-### 5. 暂存-一次性保存的状态管理
+### 5. 二级弹窗布局：从各工作流行的「＋ 挂载」进入，弹窗聚焦该份 + 文件
 
-`SkillMountPicker` 内部持有 `Set<string>` 暂存勾选（以打开时的挂载列表初始化），「完成」时 diff 出全量列表一次 `PUT /api/agents/:id`（与既有保存同 endpoint 同负载形状，只是频率变低）。取消/Esc/遮罩 = 丢弃暂存。文件挂载不进二级弹窗（保持现状的内联添加）——用户验收原话只针对 skill 选择。
+用户定案：配置弹窗「技能与文件」卡片改为**分份展示**（A 形态）——每个工作流一行：`已挂列表（×可删） + 独立的「＋ 挂载」按钮`，文件同样一行。**每行的挂载按钮只作用于该行对应的份**（电商行的按钮只改电商份；文件行的按钮只改文件）。二级弹窗从该行进入后：主区为该份的完整编辑（目录三分区勾选+搜索+吸顶），同时以只读摘要形式呈现另一工作流份与文件的当前状态（满足「一屏看到 2 个工作流」），其变更仍只能在自己分区的勾选中进行。文件不分工作流（资料性质无工作流语义），作为独立分区与技能份同级。
 
-**替代方案**：勾选即存（每次 PUT）。否决——用户明确要「弹窗选择 + 完成」，且半保存状态会让「完成前关闭不产生脏数据」无法成立。
+**替代方案**：配置弹窗只显示并集、二级弹窗呈现全部分份的编辑（上一轮方案）。否决——用户明确要求配置弹窗内直接可见工作流维度挂载并可分别挂载。
 
-### 6. 任务侧技能展示：现有 UI 没有该区块，本轮不新增
+### 6. 文件挂载同层进弹窗（全局一份）
 
-核实：任务详情/看板卡片当前**不展示**所用技能（无此 UI 元素）。spec 的「任务侧按工作流过滤展示」需求以「若展示则必须同口径过滤」的约束语义落地——本轮实现注入过滤即可让「显示却未生效」无从产生；UI 区块本身列为后续可选项，不在 tasks 里（避免造没人要的界面）。若用户要这个展示，验收时提，另开小 change。
+文件不分工作流（挂载文件是资料性质，无工作流语义），配置弹窗独立一行 + 二级弹窗独立分区：目录勾选 + 上传，随「完成」一起保存（`files` 字段不变）。
 
 ## Risks / Trade-offs
 
-- **用户「挂了却不生效」的困惑**：过滤只发生在后端注入，Agent 配置里技能仍显示已挂 → 在挂载面板分区说明文案中加一句「技能按工作流分类生效：电商任务仅使用电商+通用类技能」（一行灰字，不造新 UI）
-- **categoryOfPath 与文件头覆盖的双源**：skillCategoryOf 必须与 listSkills 同一套解析（复用 parseSkillMeta + categoryOfPath），否则展示徽标与注入过滤可能不一致 → 单一函数导出复用，测试断言一致性
-- **暂存丢失（误触 Esc）**：与 DocPreviewModal 同款确认语义——有未保存变更时关闭需 confirm（沿用项目既有 confirm 风格）
-- **性能**：skillCategoryOf 走内存索引（ensureIndex 已缓存），过滤开销可忽略
+- **并集视图的语义模糊**：`agents.skills` 变成派生并集后，「任务卡片上的技能徽章」显示的是全量而非该任务所用 → 本轮不改卡片展示（既有 UI 无技能徽章，实测确认），后续若加任务侧展示直接读份
+- **分类过滤逻辑移除后的「挂错」风险**：用户在电商份挂了小红书技能会真的注入 → 这正是用户要的「挂什么用什么」显式语义；分区内的目录仍按业务域分组，误挂可见
+- **旧库兼容**：`workflow_skills` 缺列/空值全程回退旧字段，升级零停机
+- **一次保存负载变大**：两份技能+文件一次 PUT——字段均为小数组，负载可忽略
