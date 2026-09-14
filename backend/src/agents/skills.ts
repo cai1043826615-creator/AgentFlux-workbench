@@ -1,23 +1,40 @@
 /**
- * 技能挂载模块：扫描本地技能目录 backend/skills/**\/*.md，提供可挂载技能列表与内容读取；
- * 同时提供 backend/files/ 下挂载文件（Agent.files 引用）的目录列表、全文读取与新增保存（上传）。
+ * 技能挂载模块：扫描知识库 Vault 内的技能目录 <技能库>/**\/*.md，提供可挂载技能列表与内容读取；
+ * 同时提供 <挂载文件> 目录（Agent.files 引用）的目录列表、全文读取与新增保存（上传）。
  *
- * 分类约定（目录即分类）：backend/skills/<分类目录>/*.md，目录 key 与展示名见 CATEGORY_LABEL；
- * 根目录平铺的 *.md 归入「通用」（兼容历史扁平结构）；技能文件头「> 分类：xxx」可覆盖目录值，
- * 未识别的分类值原样保留展示（不强行归并，让写错分类可见）。
+ * 存放位置（用户验收 #1/#8 决策）：技能与挂载文件统一放在知识库 Vault 的专门文件夹里，
+ * 知识库页可直接浏览，挂载/注入链路从同一位置读取——单一真相来源。
+ * 默认 <repo>/docs/示例Vault/技能库 与 <repo>/docs/示例Vault/挂载文件；
+ * 环境变量 WORKBENCH_SKILLS_ROOT / WORKBENCH_FILES_ROOT 可显式覆盖（测试/自定义部署用）。
+ *
+ * 分类约定（目录即分类）：<技能库>/<分类目录>/*.md，目录名与展示名见 CATEGORY_LABEL
+ * （中文目录名 电商/小红书/通用 原样即展示名）；根目录平铺的 *.md 归入「通用」；
+ * 技能文件头「> 分类：xxx」可覆盖目录值，未识别的分类值原样保留展示（不强行归并）。
  * 技能 id = 文件名（不含 .md），与历史行为一致——agents.skills 存的是展示名/id，因此
  * 移动文件目录位置不影响已存挂载。首部元数据：# 标题 + > 描述：xxx（+ 可选 > 分类：xxx）。
  * 文件 id = 完整文件名（含扩展名），name = 展示名（不含扩展名）；仅支持 .md/.txt/.json。
  */
 import { open, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentSkillInfo } from '@workbench/shared';
 
-/** 技能目录：backend/skills（相对本文件定位，src 与 dist 均正确） */
-const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'skills');
-/** 挂载文件目录：backend/files */
-const FILES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'files');
+/** 后端根目录 backend（src/agents 或 dist/agents 上溯两级；再上溯一级即 repo 根，与 Vault 目录 docs/ 同层） */
+const BACKEND_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/** 技能目录：环境变量 WORKBENCH_SKILLS_ROOT 优先，默认 Vault 内 技能库/（每次调用解析，测试可在 import 后改 env 再 reset 索引） */
+export function resolveSkillsDir(): string {
+  const env = (process.env.WORKBENCH_SKILLS_ROOT ?? '').trim();
+  if (env) return resolve(env);
+  return resolve(BACKEND_ROOT, '..', 'docs', '示例Vault', '技能库');
+}
+
+/** 挂载文件目录：环境变量 WORKBENCH_FILES_ROOT 优先，默认 Vault 内 挂载文件/ */
+export function resolveFilesDir(): string {
+  const env = (process.env.WORKBENCH_FILES_ROOT ?? '').trim();
+  if (env) return resolve(env);
+  return resolve(BACKEND_ROOT, '..', 'docs', '示例Vault', '挂载文件');
+}
 
 /** 分类展示顺序（目录 key）；未列出的目录排在已知分类之后 */
 const CATEGORY_ORDER = ['ecommerce', 'xhs', 'common'];
@@ -35,9 +52,9 @@ export function categoryRank(category: string): number {
   return i < 0 ? CATEGORY_ORDER.length : i;
 }
 
-/** 由文件绝对路径推导默认分类展示名：根目录平铺 → 通用；一级子目录按映射，未知目录名原样保留 */
+/** 由文件绝对路径推导默认分类展示名：根目录平铺 → 通用；一级子目录按映射（中文目录名原样即展示名），未知目录名原样保留 */
 function categoryOfPath(filePath: string): string {
-  const rel = relative(SKILLS_DIR, filePath);
+  const rel = relative(resolveSkillsDir(), filePath);
   const i = rel.indexOf(sep);
   if (i < 0) return CATEGORY_LABEL.common;
   const top = rel.slice(0, i);
@@ -88,6 +105,7 @@ function ensureIndex(): Promise<Map<string, string>> {
 /** 扫描根目录 + 各一级分类子目录；跨目录同名技能保留先扫到的并告警（design D4） */
 async function scanIndex(): Promise<Map<string, string>> {
   const index = new Map<string, string>();
+  const skillsDir = resolveSkillsDir();
   const addDir = async (dir: string): Promise<void> => {
     let entries: string[];
     try {
@@ -105,14 +123,14 @@ async function scanIndex(): Promise<Map<string, string>> {
       index.set(id, fp);
     }
   };
-  await addDir(SKILLS_DIR); // 根目录平铺（兼容历史结构）
+  await addDir(skillsDir); // 根目录平铺（兼容历史结构）
   let subs: string[] = [];
   try {
-    subs = (await readdir(SKILLS_DIR, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+    subs = (await readdir(skillsDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
   } catch {
     return index; // 根目录本身缺失 → 空索引
   }
-  for (const sub of subs.sort()) await addDir(join(SKILLS_DIR, sub));
+  for (const sub of subs.sort()) await addDir(join(skillsDir, sub));
   return index;
 }
 
@@ -145,15 +163,15 @@ export async function readSkillContent(skillId: string): Promise<string> {
   if (fp) return readFile(fp, 'utf8').catch(() => '');
   // 回退：极新文件尚未入索引时按根目录扁平查找；含路径分隔符的 id 只信索引，防目录穿越。
   if (skillId.includes('/') || skillId.includes('\\')) return '';
-  return readFile(join(SKILLS_DIR, `${skillId}.md`), 'utf8').catch(() => '');
+  return readFile(join(resolveSkillsDir(), `${skillId}.md`), 'utf8').catch(() => '');
 }
 
-/** 读取挂载文件全文（backend/files 下；文件名归一化防路径逃逸，文件不存在返回空字符串） */
+/** 读取挂载文件全文（挂载文件目录下；文件名归一化防路径逃逸，文件不存在返回空字符串） */
 export async function readFileContent(fileRef: string): Promise<string> {
   if (!fileRef || fileRef.includes('\0')) return '';
   const name = basename(fileRef);
   if (!name || name === '.' || name === '..') return '';
-  return readFile(join(FILES_DIR, name), 'utf8').catch(() => '');
+  return readFile(join(resolveFilesDir(), name), 'utf8').catch(() => '');
 }
 
 /** 挂载文件目录信息：id = 完整文件名（Agent.files 引用，兼容 readFileContent）；name = 展示名（不含扩展名） */
@@ -166,12 +184,12 @@ export interface MountedFileInfo {
 const FILE_EXT_RE = /\.(md|txt|json)$/i;
 
 /**
- * 扫描挂载文件目录 backend/files/*.{md,txt,json}，返回可挂载文件列表（目录缺失时返回空数组）。
+ * 扫描挂载文件目录 *.{md,txt,json}，返回可挂载文件列表（目录缺失时返回空数组）。
  */
 export async function listFiles(): Promise<MountedFileInfo[]> {
   let entries: string[];
   try {
-    entries = await readdir(FILES_DIR);
+    entries = await readdir(resolveFilesDir());
   } catch {
     return [];
   }
@@ -185,7 +203,7 @@ export async function listFiles(): Promise<MountedFileInfo[]> {
 }
 
 /**
- * 把挂载文件写入 backend/files/，返回写入后的完整文件名（id）。
+ * 把挂载文件写入挂载文件目录（Vault 内），返回写入后的完整文件名（id）。
  * 校验：仅允许 .md/.txt/.json；只允许文件名（不含路径分隔符），basename 归一化后必须等于原值防路径逃逸。
  * 非法输入抛 Error，由调用方（路由层）转 4xx/5xx。
  */
@@ -196,7 +214,7 @@ export async function saveFileContent(name: string, content: string): Promise<st
     throw new Error(`非法文件名（仅允许文件名，不允许路径）：${name}`);
   }
   if (!FILE_EXT_RE.test(safe)) throw new Error(`仅支持 .md/.txt/.json 文件：${name}`);
-  await mkdir(FILES_DIR, { recursive: true });
-  await writeFile(join(FILES_DIR, safe), content, 'utf8');
+  await mkdir(resolveFilesDir(), { recursive: true });
+  await writeFile(join(resolveFilesDir(), safe), content, 'utf8');
   return safe;
 }
