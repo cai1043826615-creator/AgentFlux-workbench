@@ -1,10 +1,15 @@
 import type { ComplianceReport, NotePackage, Task, TopicOption, WorkflowParallelGroup, XhsNote } from '@workbench/shared';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { runParallelGroups } from '../engine/parallel.ts';
 import { createPlaceholderImage } from '../utils/placeholder.ts';
 import * as delivery from '../delivery/store.ts';
 import { generateImage, ImageChannelUnavailableError } from './imagegen.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
 import { buildProducerSystemPrompt } from './smart-producer.ts';
+
+/** 上传目录（与 routes/tasks.ts UPLOAD_DIR 一致），视觉审核时把 /uploads 转 dataURL */
+const UPLOAD_DIR = join(import.meta.dirname, '..', '..', 'data', 'uploads');
 
 /**
  * 小红书种草笔记生产者（独立于电商 SmartProducer）。
@@ -47,6 +52,47 @@ function mockCompliance(): ComplianceReport {
     ],
     issues: [],
   };
+}
+
+/** 视觉审核用的图片条目 */
+interface NoteImage {
+  id: string;
+  url: string;
+}
+
+/** 取配图阶段最新一批图片（跳过生成失败的），供视觉审核 */
+function newestNoteImages(task: Task): NoteImage[] {
+  const d = delivery.getDeliverable(task.id, 'xhs-image', 'image');
+  if (!d) return [];
+  try {
+    const items = JSON.parse(d.content) as { id: string; url?: string; status?: string }[];
+    return items.filter((i) => i.status !== 'failed' && i.url).map((i) => ({ id: i.id, url: String(i.url) }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 转成视觉模型可读的 URL：
+ * - data: / http(s): 原样返回
+ * - /uploads/xxx → 读本地文件转 dataURL
+ * - 取不到 → undefined（调用方跳过该图，不误判）
+ */
+async function toVisionUrl(raw: string): Promise<string | undefined> {
+  if (!raw) return undefined;
+  if (raw.startsWith('data:') || /^https?:\/\//.test(raw)) return raw;
+  if (raw.startsWith('/uploads/')) {
+    const name = raw.slice('/uploads/'.length);
+    try {
+      const buf = await readFile(join(UPLOAD_DIR, name));
+      const ext = name.split('.').pop()?.toLowerCase() ?? 'png';
+      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+      return `data:${mime};base64,${buf.toString('base64')}`;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 /** 从 LLM 输出中宽松提取 JSON */
@@ -236,12 +282,39 @@ class XhsProducer {
   }
 
   /**
-   * 合规审核（自动节点）：检查违禁词与夸张用语。
-   * 检出问题时给出 targetStage（xhs-copy 或 xhs-image），service 据此沿 rollback 边回退。
+   * 合规审核（自动节点）：文本合规 + **视觉审核**（与电商 produceReview 对齐）。
+   *
+   * 视觉审核补的是原来的缺口：只审文本时，配图与参考图不一致（生成的产品和上传的不是一个东西）
+   * 检不出来，用户要自己肉眼发现。这里按两条标准检查：
+   *   ① 有参考图 → 逐张比对「生成图 vs 参考图」是否同一主体（品类/颜色/造型/关键特征）
+   *   ② 无参考图 → 检查「文案描述 vs 图片内容」是否对得上（如文案说白瓶、图是黑瓶）
+   * 检出不一致 → targetStage: 'xhs-image' 打回配图阶段。
    */
   async produceCompliance(task: Task): Promise<ComplianceReport> {
     const agentId = AGENT_IDS['主管'];
     const note = latestNote(task);
+
+    // ① 文本合规检查（原逻辑保留）
+    const textReport = await this.textCompliance(agentId, task, note);
+
+    // ② 视觉审核（新增）：找出待审图片与基准图
+    const imgs = newestNoteImages(task);
+    if (imgs.length === 0) {
+      // 无图可审（早退：还没生成配图）→ 仅文本结论
+      return textReport;
+    }
+    const baseline = task.referenceImage ? await toVisionUrl(task.referenceImage) : undefined;
+    const visual = await this.visualReview(agentId, task, note, baseline, imgs);
+
+    // 合并：视觉问题优先（图片是返工成本最高的），文本问题其次
+    const issues = [...visual.issues, ...textReport.issues].slice(0, 3);
+    const checks = [...visual.checks, ...textReport.checks];
+    const report = [textReport.report, visual.summary].filter(Boolean).join(' ');
+    return { report, checks, issues };
+  }
+
+  /** 文本合规审核（违禁词 / 医疗宣称） */
+  private async textCompliance(agentId: string, task: Task, note: XhsNote | undefined): Promise<ComplianceReport> {
     const source = note ? `标题：${note.title}\n正文：${note.body}\n标签：${note.tags.join(' ')}` : `产品/主题：${task.title}`;
     return this.withLlm<ComplianceReport>(
       agentId,
@@ -267,6 +340,72 @@ class XhsProducer {
       task.id,
       task.workflowId,
     );
+  }
+
+  /**
+   * 视觉审核：逐张检查配图。有基准图 → 判「是否同一主体」；无基准图 → 判「与文案是否相符」。
+   * 视觉渠道不可用或图片取不到 → 静默跳过（不阻塞流程，宁可不审也不误判）。
+   */
+  private async visualReview(
+    agentId: string,
+    task: Task,
+    note: XhsNote | undefined,
+    baseline: string | undefined,
+    imgs: NoteImage[],
+  ): Promise<{ summary: string; checks: ComplianceReport['checks']; issues: ComplianceReport['issues'] }> {
+    const issues: ComplianceReport['issues'] = [];
+    const baselineName = '上传参考图';
+    const descText = note ? `标题「${note.title}」正文「${note.body.slice(0, 120)}」` : `主题「${task.title}」`;
+    let checked = 0;
+    let skipped = 0;
+
+    for (const img of imgs) {
+      const url = await toVisionUrl(img.url);
+      if (!url) {
+        skipped++;
+        continue;
+      }
+      try {
+        const r = await this.visualCheck(agentId, task, baseline, url, baseline ? baselineName : undefined, descText);
+        checked++;
+        if (!r.ok) issues.push({ targetStage: 'xhs-image', note: `「${img.id}」${r.reason}` });
+      } catch (err) {
+        skipped++;
+        console.warn(`[xhs-producer] 视觉审核跳过（${img.id}）: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    const basis = baseline ? `以${baselineName}为基准比对主体一致性` : '比对图片与文案描述是否相符';
+    const summary = checked === 0
+      ? `视觉审核未执行（${skipped} 张图片不可读取，已跳过）。`
+      : issues.length > 0
+        ? `视觉审核（${basis}）：${checked} 张中 ${issues.length} 张不一致${skipped ? `，${skipped} 张跳过` : ''}，已打回配图返工。`
+        : `视觉审核（${basis}）：${checked} 张一致${skipped ? `（${skipped} 张跳过）` : ''}。`;
+    const checks: ComplianceReport['checks'] = [
+      { passed: issues.length === 0, label: baseline ? '配图与参考图主体一致' : '配图与文案描述相符', note: skipped ? `${skipped} 张无法读取已跳过` : undefined },
+    ];
+    return { summary, checks, issues };
+  }
+
+  /** 单张视觉检查：有基准图比主体一致性；无基准图比文案与图片相符度 */
+  private async visualCheck(
+    agentId: string,
+    task: Task,
+    baselineUrl: string | undefined,
+    targetUrl: string,
+    baselineName: string | undefined,
+    descText: string,
+  ): Promise<{ ok: boolean; reason: string }> {
+    const images = baselineUrl ? [baselineUrl, targetUrl] : [targetUrl];
+    const system = baselineUrl
+      ? '你是小红书内容质检主管（视觉审核）。对比两张图，判断第二张（AI 生成图）与第一张（用户提供的参考图）是否为同一主体：品类、颜色、造型、LOGO/标识、核心特征一致即视为同一主体；角度、光线、背景、构图、渲染质感差异不影响判定。严格输出 JSON：{"ok":true或false,"reason":"不一致时的具体原因（40字内）；一致则空字符串"}'
+      : '你是小红书内容质检主管（视觉审核）。判断这张 AI 生成配图与给定文案描述是否相符（如文案提到颜色/材质/场景，图中是否体现；有无明显矛盾）。严格输出 JSON：{"ok":true或false,"reason":"不符时的具体原因（40字内）；相符则空字符串"}';
+    const user = baselineUrl
+      ? `任务「${task.title}」。第一张是用户提供的参考图（${baselineName}），第二张是 AI 生成的配图。请判断第二张与第一张是否为同一主体。`
+      : `任务「${task.title}」。文案描述：${descText}。请判断图中内容与文案是否相符。`;
+    const { content: text } = await callLlm({ agentId, system, user, images, temperature: 0.2, maxTokens: 200 });
+    const parsed = extractJson<{ ok?: unknown; reason?: string }>(text);
+    return { ok: parsed?.ok === true || parsed?.ok === 'true', reason: String(parsed?.reason ?? '') };
   }
 
   /** 发布包装：最终发布包（标题 + 正文 + 标签 + 图片顺序） */

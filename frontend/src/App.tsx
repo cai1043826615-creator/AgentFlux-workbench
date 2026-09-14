@@ -138,8 +138,11 @@ function NewTaskModal() {
     if (fileRef.current) fileRef.current.value = '';
   }, [open]);
 
-  // 小红书允许纯文字起号（无参考图也能生成配图），电商保持参考图必填
-  const canNext = title.trim() !== '' && platforms.length > 0 && (isXhs || refDataUrl !== null);
+  // 小红书：平台天然是小红书（表单不显示该字段），参考图允许留空（纯文字起号）
+  // 电商：平台必选 + 参考图必传（原行为不变）
+  const canNext = title.trim() !== '' && (isXhs || platforms.length > 0) && (isXhs || refDataUrl !== null);
+  /** 实际提交的平台：小红书固定为「小红书」，电商取用户勾选 */
+  const effectivePlatforms = isXhs ? ['小红书'] : platforms;
 
   const reset = () => {
     setStep('form');
@@ -180,7 +183,7 @@ function NewTaskModal() {
       }
       // 仅在小红书工作流带 brief；电商固定为 null，后端链路不变
       const brief = isXhs ? { contentType, audience: audience.trim() || undefined, product: product.trim() || undefined } : null;
-      await createTask({ title: title.trim(), description: desc.trim(), platforms, referenceImage, kbRefs, workflowId, brief });
+      await createTask({ title: title.trim(), description: desc.trim(), platforms: effectivePlatforms, referenceImage, kbRefs, workflowId, brief });
       reset();
     } finally {
       setBusy(false);
@@ -193,34 +196,17 @@ function NewTaskModal() {
     <Modal open title={stepTitle} onClose={reset} width={460}>
       {step === 'form' ? (
         <>
-          <Field label="工作流">
-            <div className="space-y-2">
-              {workflows.map((wf) => (
-                <label
-                  key={wf.id}
-                  className="flex cursor-pointer items-start gap-2 rounded-[4px] border px-3 py-2.5"
-                  style={{
-                    borderColor: workflowId === wf.id ? 'var(--color-signal)' : 'var(--color-line-strong)',
-                    background: workflowId === wf.id ? 'var(--color-signal-soft)' : 'var(--color-surface)',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="task-workflow"
-                    className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-signal)]"
-                    checked={workflowId === wf.id}
-                    onChange={() => switchWorkflow(wf.id)}
-                  />
-                  <span className="text-[13px] leading-snug">
-                    <span className="block font-medium">{wf.name}</span>
-                    <span className="qs-meta block" style={{ color: 'var(--color-ink-faint)' }}>
-                      {wf.nodes.map((n) => n.label).join(' → ')}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </Field>
+          {/* 工作流只读展示：跟随左栏当前选择，弹窗内不再切换（用户定案：只显示当前工作流） */}
+          <div
+            className="mb-3 flex items-center gap-2 rounded-[4px] border px-3 py-2"
+            style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}
+          >
+            <span className="qs-meta shrink-0" style={{ color: 'var(--color-ink-faint)' }}>工作流</span>
+            <span className="text-[13px] font-medium">{workflows.find((w) => w.id === workflowId)?.name ?? workflowId}</span>
+            <span className="qs-meta min-w-0 flex-1 truncate" style={{ color: 'var(--color-ink-faint)' }}>
+              {(workflows.find((w) => w.id === workflowId)?.nodes ?? []).map((n) => n.label).join(' → ')}
+            </span>
+          </div>
           {isXhs ? (
             <>
               <Field label="笔记主题" required>
@@ -253,11 +239,13 @@ function NewTaskModal() {
               </Field>
             </>
           )}
-          <div className="mb-3">
-            <span className="qs-label">
-              目标平台（可多选）
-              <span aria-hidden="true" style={{ color: 'var(--color-danger)', marginLeft: 3 }} title="必填">*</span>
-            </span>
+          {/* 目标平台：小红书工作流不需要（平台天然就是小红书），仅在电商工作流显示 */}
+          {isXhs ? null : (
+            <div className="mb-3">
+              <span className="qs-label">
+                目标平台（可多选）
+                <span aria-hidden="true" style={{ color: 'var(--color-danger)', marginLeft: 3 }} title="必填">*</span>
+              </span>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
               {PLATFORM_OPTIONS.map((p) => (
                 <label key={p} className="flex cursor-pointer items-center gap-1.5 text-[13px] select-none">
@@ -271,7 +259,8 @@ function NewTaskModal() {
                 </label>
               ))}
             </div>
-          </div>
+            </div>
+          )}
           <Field label={isXhs ? '参考图（选填，有图更像真实分享）' : '参考图（后续全部产出基于此图）'} required={!isXhs}>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
             <div className="flex items-center gap-3">
@@ -303,7 +292,7 @@ function NewTaskModal() {
           </Field>
           <p className="qs-meta mt-2" style={{ color: touched && !canNext ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
             {touched && !canNext ? (
-              `● ${!title.trim() ? (isXhs ? '请先填写笔记主题' : '请先填写任务标题') : platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步`
+              `● ${!title.trim() ? (isXhs ? '请先填写笔记主题' : '请先填写任务标题') : !isXhs && platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步`
             ) : (
               <>提交后将展示任务内容摘要，<b>确认后 AI 才开工</b></>
             )}
@@ -349,7 +338,7 @@ function NewTaskModal() {
               {workflows.find((w) => w.id === workflowId)?.name ?? workflowId}
             </div>
             {isXhs ? null : <div className="text-[13px]"><b>描述：</b>{desc || '新品上架全套物料'}</div>}
-            <div className="text-[13px]"><b>平台：</b>{platforms.join(' / ')}</div>
+            <div className="text-[13px]"><b>平台：</b>{effectivePlatforms.join(' / ')}</div>
             <div className="flex items-center gap-2 text-[13px]">
               <b>参考图：</b>
               {refDataUrl ? (

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { Agent, AgentSkillInfo, ChannelTestError, ChannelTestResult, LlmChannelConfig } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { api } from '../../lib/api.ts';
 import { Avatar, Badge, Btn, Field, Modal, ModalFooter } from '../../components/ui.tsx';
+import { SkillMountPicker } from './SkillMountPicker.tsx';
 
 /**
  * GET /api/agents/skills —— 后端同事新增接口；
@@ -46,8 +47,6 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
 
   // 已为当前 agent 初始化过的标记：避免 WS agent:status 推送（agent 引用变化）触发 effect 反复重置表单/挂载面板
   const initRef = useRef<{ key: string } | null>(null);
-  // 挂载面板容器：点击面板外关闭（mousedown 监听）
-  const pickerRef = useRef<HTMLDivElement | null>(null);
   // B8 · 11.x：测试渠道（进行中防重复；结果含归因与建议；不写入执行记录/设置）
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ChannelTestResult | null>(null);
@@ -106,14 +105,15 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
     void loadFiles();
   }, [open, agent.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 挂载面板：点击面板外关闭
+  // 二级挂载弹窗打开期间禁止外层配置弹窗滚动（skill-workflow-isolation：防滚动穿透）
   useEffect(() => {
     if (!pickerOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    const body = document.body;
+    const prev = body.style.overflow;
+    body.style.overflow = 'hidden';
+    return () => {
+      body.style.overflow = prev;
     };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
   }, [pickerOpen]);
 
   /** 文件目录：GET /api/agents/files（后端未实现时降级提示，不中断） */
@@ -164,43 +164,13 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
   /** 表单是否填了专属 key（区分「默认渠道密钥」与「专属密钥」提示） */
   const hasOwnKey = Boolean(apiKey.trim());
 
-  const skillMounted = (s: AgentSkillInfo) => skills.includes(s.id) || skills.includes(s.name);
   const skillDisplayName = (key: string) => catalog.find((s) => s.id === key || s.name === key)?.name ?? key;
   const fileMounted = (name: string) => files.includes(name);
-
-  /**
-   * 技能按业务域分区（目录即分类，后端已解析 category）：
-   * 电商 → 小红书 → 通用，未知分类排在已知分区之后原样展示。
-   * 空分区不渲染（含通用区），避免出现永远为空的分组标题。
-   */
-  const CATEGORY_ORDER = ['电商', '小红书', '通用'];
-  const skillGroups = useMemo(() => {
-    const map = new Map<string, AgentSkillInfo[]>();
-    for (const s of catalog) {
-      const c = s.category || '通用';
-      const list = map.get(c);
-      if (list) list.push(s);
-      else map.set(c, [s]);
-    }
-    return [...map.entries()].sort((a, b) => {
-      const ra = CATEGORY_ORDER.indexOf(a[0]);
-      const rb = CATEGORY_ORDER.indexOf(b[0]);
-      return (ra < 0 ? CATEGORY_ORDER.length : ra) - (rb < 0 ? CATEGORY_ORDER.length : rb);
-    });
-  }, [catalog]);
 
   /** 已挂载项的分类（列表徽标用）；查不到 = 目录中已不存在 → 「已失效」 */
   const skillCategory = (key: string) => catalog.find((s) => s.id === key || s.name === key)?.category ?? null;
   /** 已挂载文件是否仍存在于目录（失效标记用） */
   const fileResolves = (name: string) => fileCatalog.some((f) => f.id === name);
-
-  const toggleSkill = (s: AgentSkillInfo) => {
-    setSkills((prev) =>
-      prev.includes(s.id) || prev.includes(s.name)
-        ? prev.filter((x) => x !== s.id && x !== s.name)
-        : [...prev.filter((x) => x !== s.name), s.id],
-    );
-  };
 
   const toggleFile = (name: string) => {
     setFiles((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]));
@@ -393,89 +363,55 @@ export function AgentSettingsModal({ agent, open, onClose }: { agent: Agent; ope
           ) : null}
         </div>
 
-        {/* ＋ 挂载 skill 和文件：按钮 + 弹出面板（技能区 / 文件区；点面板外关闭） */}
-        <div ref={pickerRef} className="relative mt-2.5">
-          <Btn size="sm" onClick={() => setPickerOpen((v) => !v)}>
-            ＋ 挂载 skill 和文件
+        {/* ＋ 挂载 skill：打开二级弹窗（skill-workflow-isolation · 验收 #6：技能多时内嵌面板溢出且不可滚动） */}
+        <div className="mt-2.5">
+          <Btn size="sm" onClick={() => setPickerOpen(true)}>
+            ＋ 挂载 skill
           </Btn>
-          {pickerOpen ? (
-            <div className="qs-card absolute left-0 z-20 mt-1 w-full overflow-hidden" style={{ background: 'var(--color-surface)' }}>
-              {/* 技能区（按业务域分区：电商/小红书/通用；区标题右侧显示已挂计数） */}
-              <div className="border-b p-2" style={{ borderColor: 'var(--color-line)' }}>
-                <div className="qs-meta mb-1 px-1" style={{ color: 'var(--color-ink-soft)' }}>技能 SKILLS</div>
-                <div className="max-h-[220px] overflow-y-auto">
-                  {skillGroups.length === 0 ? (
-                    <div className="qs-meta px-2 py-2 text-center" style={{ color: 'var(--color-ink-faint)' }}>技能目录为空或暂不可用</div>
-                  ) : (
-                    skillGroups.map(([category, list]) => {
-                      const mountedCount = list.filter(skillMounted).length;
-                      return (
-                        <div key={category} className="mb-1.5 last:mb-0">
-                          <div className="flex items-center justify-between px-2 py-1">
-                            <span className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>{category}</span>
-                            {mountedCount > 0 ? (
-                              <span className="qs-meta text-[10px]" style={{ color: 'var(--color-signal-strong)' }}>
-                                已挂 {mountedCount}/{list.length}
-                              </span>
-                            ) : null}
-                          </div>
-                          {list.map((s) => (
-                            <button
-                              key={s.id}
-                              type="button"
-                              className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-signal-soft)]"
-                              onClick={() => toggleSkill(s)}
-                            >
-                              {checkBox(skillMounted(s))}
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[13px] font-medium">{s.name}</span>
-                                {s.description ? (
-                                  <span className="qs-meta block truncate" style={{ color: 'var(--color-ink-faint)' }}>{s.description}</span>
-                                ) : null}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
+          <SkillMountPicker
+            open={pickerOpen}
+            catalog={catalog}
+            initial={skills}
+            onCancel={() => setPickerOpen(false)}
+            onComplete={(next) => {
+              setSkills(next);
+              setPickerOpen(false);
+            }}
+          />
+        </div>
 
-              {/* 文件区（目录勾选 + 上传 md/txt/json） */}
-              <div className="p-2">
-                <div className="qs-meta mb-1 px-1" style={{ color: 'var(--color-ink-soft)' }}>文件 FILES</div>
-                {fileError ? (
-                  <div className="qs-meta px-2 py-1" style={{ color: 'var(--color-warn)' }}>{fileError}</div>
-                ) : null}
-                <div className="max-h-[120px] overflow-y-auto">
-                  {fileCatalog.length === 0 && !fileError ? (
-                    <div className="qs-meta px-2 py-2 text-center" style={{ color: 'var(--color-ink-faint)' }}>暂无文件，可上传 .md / .txt / .json</div>
-                  ) : (
-                    fileCatalog.map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className="flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-signal-soft)]"
-                        onClick={() => toggleFile(f.id)}
-                      >
-                        {checkBox(fileMounted(f.id))}
-                        <span className="min-w-0 flex-1 truncate text-[13px]">{f.name}</span>
-                        <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>FILE</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-                <label
-                  className={`qs-btn sm mt-1.5 inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
-                  style={{ fontSize: 12, padding: '3px 12px' }}
-                >
-                  {uploading ? '上传中…' : '上传文件'}
-                  <input type="file" accept=".md,.txt,.json" className="hidden" onChange={onPickUpload} disabled={uploading} />
-                </label>
-              </div>
-            </div>
+        {/* 文件区（目录勾选 + 上传 md/txt/json；文件挂载保持内联——验收原话只针对 skill 选择） */}
+        <div className="mt-3 border-t pt-2.5" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="qs-meta mb-1.5" style={{ color: 'var(--color-ink-soft)' }}>文件 FILES</div>
+          {fileError ? (
+            <div className="qs-meta mb-1" style={{ color: 'var(--color-warn)' }}>{fileError}</div>
           ) : null}
+          <div className="max-h-[120px] space-y-1 overflow-y-auto">
+            {fileCatalog.length === 0 && !fileError ? (
+              <div className="qs-meta px-2 py-2 text-center" style={{ color: 'var(--color-ink-faint)' }}>暂无文件，可上传 .md / .txt / .json</div>
+            ) : (
+              fileCatalog.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className={`flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-left transition-colors ${fileMounted(f.id) ? 'cursor-pointer hover:bg-[var(--color-signal-soft)]' : 'cursor-pointer hover:bg-[var(--color-signal-soft)]'}`}
+                  style={{ background: fileMounted(f.id) ? 'var(--color-signal-soft)' : 'transparent' }}
+                  onClick={() => toggleFile(f.id)}
+                >
+                  {checkBox(fileMounted(f.id))}
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{f.name}</span>
+                  <span className="qs-meta shrink-0 text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>FILE</span>
+                </button>
+              ))
+            )}
+          </div>
+          <label
+            className={`qs-btn sm mt-1.5 inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
+            style={{ fontSize: 12, padding: '3px 12px' }}
+          >
+            {uploading ? '上传中…' : '上传文件'}
+            <input type="file" accept=".md,.txt,.json" className="hidden" onChange={onPickUpload} disabled={uploading} />
+          </label>
         </div>
       </div>
 

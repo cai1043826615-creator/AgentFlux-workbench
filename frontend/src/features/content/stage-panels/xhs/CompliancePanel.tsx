@@ -1,14 +1,26 @@
-import { WORKFLOW_STAGE_LABELS } from '@workbench/shared';
+import { WORKFLOW_STAGE_LABELS, XHS_STAGE_REVIEW, type Deliverable } from '@workbench/shared';
 import { Badge } from '../../../../components/ui.tsx';
-import { PanelCard, type PanelCommon } from './shared.tsx';
+import { PanelCard, copyJsonForStage, type PanelCommon } from './shared.tsx';
 
 /* 合规审核（自动节点）：只展示检查清单，不提供任何人工决策按钮。
-   「它是自动的」靠面板内文案说明，阶段条上不加「自动」角标。 */
+   「它是自动的」靠面板内文案说明，阶段条上不加「自动」角标。
+   位置：渲染在「任务详情」页顶部（用户定案）。 */
 
 export interface ComplianceView {
   report: string;
   checks: { passed: boolean; label: string; note?: string }[];
   issues: { targetStage: string; note: string }[];
+}
+
+/** 解析合规审核结果（任务详情页顶部使用；与内容交付共用同一口径） */
+export function parseCompliance(deliverables: Deliverable[]): ComplianceView | null {
+  const raw = copyJsonForStage<{ outline?: string; points?: string[] }>(deliverables, XHS_STAGE_REVIEW);
+  if (!raw) return null;
+  const checks = (raw.points ?? []).map((p) => {
+    const passed = p.startsWith('通过') && !p.startsWith('未通过');
+    return { passed, label: p.replace(/^(通过|未通过)：?/, '') };
+  });
+  return { report: raw.outline ?? '', checks, issues: [] };
 }
 
 export function CompliancePanel({

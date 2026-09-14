@@ -1,17 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Deliverable, NotePackage, Task, TopicOption, XhsNote } from '@workbench/shared';
+import { useEffect, useMemo, useState } from 'react';
+import type { Deliverable, Task, TopicOption, XhsNote } from '@workbench/shared';
 import { XHS_STAGE_COPY, XHS_STAGE_DELIVER, XHS_STAGE_IMAGE, XHS_STAGE_PACKAGE, XHS_STAGE_REVIEW, XHS_STAGE_TOPIC, stageIndexOf } from '@workbench/shared';
 import { Btn, Empty, Spinner } from '../../../../components/ui.tsx';
 import { useWorkbench } from '../../../../store/useWorkbench.tsx';
-import { CompliancePanel, type ComplianceView } from './CompliancePanel.tsx';
 import { ImagePanel } from './ImagePanel.tsx';
 import { NotePanel } from './NotePanel.tsx';
-import { PackagePanel } from './PackagePanel.tsx';
 import { TopicPanel } from './TopicPanel.tsx';
 import { PendingCard, copyJsonForStage, imagesForStage, type PanelState, type ParsedImg } from './shared.tsx';
 
 /* 小红书种草笔记 · 内容交付（按阶段纵向序列，与电商两栏并排布局相互独立）
-   阶段顺序严格取自 XHS 图定义，不引用电商常量。 */
+   阶段顺序严格取自 XHS 图定义，不引用电商常量。
+   合规审核已移至「任务详情」页顶部；发布包装为自动节点，不再出卡片。 */
 
 const STAGES = [XHS_STAGE_TOPIC, XHS_STAGE_COPY, XHS_STAGE_IMAGE, XHS_STAGE_REVIEW, XHS_STAGE_PACKAGE, XHS_STAGE_DELIVER];
 
@@ -31,18 +30,10 @@ function stateOf(task: Task, stage: string): PanelState {
 }
 
 export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverables: Deliverable[] }) {
-  const { decide, retryImage, pushToast, focusPackageSignal } = useWorkbench();
+  const { decide, retryImage, pushToast } = useWorkbench();
   const [busy, setBusy] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
-  /** 发布包与合规面板锚点：供「查看发布包」滚动定位（不切 Tab，避免跳到空页面） */
-  const packageRef = useRef<HTMLDivElement>(null);
-  const complianceRef = useRef<HTMLDivElement>(null);
-
-  /** 滚动到发布包卡片（任务已交付时用它取代原来的 Tab 跳转） */
-  const scrollToPackage = () => {
-    packageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
 
   const wfId = task.workflowId;
   const stageIdx = stageIndexOf(wfId, task.stage);
@@ -64,22 +55,6 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
     return { title: raw.title, body: raw.outline ?? '', tags: raw.keywords ?? [] };
   }, [delivered]);
 
-  const compliance = useMemo<ComplianceView | null>(() => {
-    const raw = copyJsonForStage<{ outline?: string; points?: string[] }>(delivered, XHS_STAGE_REVIEW);
-    if (!raw) return null;
-    const checks = (raw.points ?? []).map((p) => {
-      const passed = p.startsWith('通过');
-      return { passed, label: p.replace(/^(通过|未通过)：?/, '') };
-    });
-    return { report: raw.outline ?? '', checks, issues: [] };
-  }, [delivered]);
-
-  const pack = useMemo<NotePackage | null>(() => {
-    const raw = copyJsonForStage<{ title?: string; outline?: string; keywords?: string[]; points?: string[] }>(delivered, XHS_STAGE_PACKAGE);
-    if (!raw?.title) return null;
-    return { title: raw.title, body: raw.outline ?? '', tags: raw.points ?? [], imageOrder: raw.keywords ?? [] };
-  }, [delivered]);
-
   const imgs = useMemo(() => imagesForStage(delivered, XHS_STAGE_IMAGE), [delivered]);
 
   // 任务切换时清理本地态
@@ -87,12 +62,6 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
     setPreview(null);
     setRetrying(null);
   }, [task.id]);
-
-  // 外部「查看发布包」→ 滚动定位到本页发布包卡（不切 Tab，避免跳空）
-  useEffect(() => {
-    if (focusPackageSignal > 0) scrollToPackage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusPackageSignal]);
 
   const doDecide = async (kind: 'copy' | 'image', decision: 'approve' | 'reject' | 'skip', imageId?: string, noteText?: string) => {
     setBusy(true);
@@ -121,20 +90,10 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
   const stTopic = stateOf(task, XHS_STAGE_TOPIC);
   const stCopy = stateOf(task, XHS_STAGE_COPY);
   const stImage = stateOf(task, XHS_STAGE_IMAGE);
-  const stReview = stateOf(task, XHS_STAGE_REVIEW);
-  const stPackage = stateOf(task, XHS_STAGE_PACKAGE);
+  const isDelivered = task.column === 'done';
 
   return (
     <div className="space-y-3.5">
-      {/* 合规审核置顶（用户要求：放在当前阶段上方，自动审核结果一眼可见） */}
-      <div ref={complianceRef}>
-        {stReview === 'none' ? (
-          <PendingCard label="合规审核" wait="主管 Agent 自动检查，无需人工" />
-        ) : (
-          <CompliancePanel data={compliance} state={stReview} />
-        )}
-      </div>
-
       {/* 当前阶段横幅 */}
       <div
         className="rounded-[4px] border px-3.5 py-2.5"
@@ -163,13 +122,8 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task; deliverabl
           onZoom={(img: ParsedImg) => setPreview({ url: img.url, name: img.name })}
         />
       )}
-      {stPackage === 'none' ? (
-        <PendingCard label="发布包装" />
-      ) : (
-        <div ref={packageRef}>
-          <PackagePanel pack={pack} state={stPackage} busy={busy} onDecide={doDecide} />
-        </div>
-      )}
+      {/* 合规审核与发布包装均为自动节点，不在内容交付里出卡片：
+          合规审核 → 任务详情页顶部；发布包装 → 自动跑完直接交付，交付包从右上角下载 */}
 
       {/* 加载态：当前阶段生成中且无产出时的统一提示 */}
       {task.column === 'progress' ? (

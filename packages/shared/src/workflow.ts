@@ -46,8 +46,8 @@ export const XHS_STAGE_KEYS = [
   XHS_STAGE_DELIVER,
 ] as const;
 
-/** XHS 确认点（选题 / 笔记 / 配图 / 发布包装）；合规审核为自动节点，不在其中 */
-export const XHS_APPROVAL_POINT_STAGES = [XHS_STAGE_TOPIC, XHS_STAGE_COPY, XHS_STAGE_IMAGE, XHS_STAGE_PACKAGE];
+/** XHS 确认点（选题 / 笔记 / 配图）；合规审核与发布包装均为自动节点，不在其中 */
+export const XHS_APPROVAL_POINT_STAGES = [XHS_STAGE_TOPIC, XHS_STAGE_COPY, XHS_STAGE_IMAGE];
 
 export const WORKFLOW_STAGE_LABELS: Record<string, string> = {
   [STAGE_REQUIREMENT]: '需求对接',
@@ -159,9 +159,10 @@ export const REVIEW_ROLLBACK_TARGETS = [STAGE_COPY, STAGE_MAIN_IMAGE, STAGE_DETA
 /**
  * 小红书种草笔记图定义：
  * 节点链 xhs-topic → xhs-copy → xhs-image → xhs-review → xhs-package → xhs-deliver
- * xhs-topic / xhs-copy / xhs-image / xhs-package 为人工确认点；
- * xhs-review 为自动节点（autoNext），通过沿 passed 边到 xhs-package，
- * 检出问题沿 rollback 边回退 xhs-copy 或 xhs-image（由合规产出给出 targetStage）。
+ * xhs-topic / xhs-copy / xhs-image 为人工确认点（3 个）；
+ * xhs-review 与 xhs-package 均为自动节点（autoNext）：
+ *   合规审核通过沿 passed 边到发布包装，检出问题沿 rollback 边回退 xhs-copy 或 xhs-image；
+ *   发布包装产出后沿 next 边直接进交付完成，用户无需再点确认（交付包在右上角下载）。
  * xhs-image 声明并行子任务分组（首图 ×1 + 内页图 ×2）。
  */
 export const XHS_WORKFLOW: WorkflowDefinition = {
@@ -197,7 +198,7 @@ export const XHS_WORKFLOW: WorkflowDefinition = {
       id: XHS_STAGE_PACKAGE,
       label: '发布包装',
       ownerRole: '文案',
-      approvalPoint: true,
+      autoNext: true,
     },
     {
       id: XHS_STAGE_DELIVER,
@@ -216,8 +217,8 @@ export const XHS_WORKFLOW: WorkflowDefinition = {
     { from: XHS_STAGE_REVIEW, to: XHS_STAGE_PACKAGE, label: '放行', condition: 'passed' },
     { from: XHS_STAGE_REVIEW, to: XHS_STAGE_COPY, label: '回退文案', condition: 'rollback' },
     { from: XHS_STAGE_REVIEW, to: XHS_STAGE_IMAGE, label: '回退配图', condition: 'rollback' },
-    { from: XHS_STAGE_PACKAGE, to: XHS_STAGE_DELIVER, label: '最终确认', condition: 'approved' },
-    { from: XHS_STAGE_PACKAGE, to: XHS_STAGE_PACKAGE, label: '返工', condition: 'rejected' },
+    // 发布包装为自动节点：产出后沿无条件 next 边直接到交付完成（无人为确认点）
+    { from: XHS_STAGE_PACKAGE, to: XHS_STAGE_DELIVER, label: '顺序' },
   ],
 };
 
@@ -270,4 +271,26 @@ export function imageStagesOf(workflowId?: string): string[] {
 /** 是否为 XHS 工作流（前端布局与面板分派用） */
 export function isXhsWorkflow(workflowId?: string): boolean {
   return workflowId === XHS_WORKFLOW_ID;
+}
+
+/* ===== 技能工作流分类隔离（skill-workflow-isolation）===== */
+
+/**
+ * 工作流 → 可使用的技能分类（与技能库目录分类同名：电商/小红书/通用）。
+ * - 挂载技能按此边界过滤：注入（后端 prompt）与展示（前端任务侧）同口径；
+ * - 「通用」对所有工作流可用（兜底区语义）；
+ * - 未列出的 workflowId 由 allowedCategoriesFor 返回 null = 全分类可见（兜底，防新增工作流技能被静默丢弃）。
+ */
+export const WORKFLOW_CATEGORIES: Record<string, string[]> = {
+  [WORKFLOW_ID]: ['电商', '通用'],
+  [XHS_WORKFLOW_ID]: ['小红书', '通用'],
+};
+
+/**
+ * 某工作流可使用的技能分类集合。
+ * 返回 null 表示该工作流不在映射表中（未知工作流兜底：全分类可见，不做过滤）。
+ */
+export function allowedCategoriesFor(workflowId?: string): string[] | null {
+  if (!workflowId) return null;
+  return WORKFLOW_CATEGORIES[workflowId] ?? null;
 }

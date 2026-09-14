@@ -8,7 +8,8 @@ import type { AgentRow } from '../db/schema.ts';
 import { generateImage, ImageChannelUnavailableError } from './imagegen.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
 import { MockProducer, type ReviewIssue, type ReviewReport, type StageProducer, setProducer } from './producer.ts';
-import { readFileContent, readSkillContent } from './skills.ts';
+import { readFileContent, readSkillContent, skillCategoryOf } from './skills.ts';
+import { allowedCategoriesFor } from '@workbench/shared';
 import { buildHotContext, buildKnowledgeContext } from '../knowledge/refs.ts';
 import { assembleReworkText, getPendingRework } from '../engine/rework.ts';
 import * as delivery from '../delivery/store.ts';
@@ -118,15 +119,27 @@ function collectStageImages(taskId: number): { stage: 'main-image' | 'detail-ima
  * 构建 LLM system prompt：在基础 system 后追加【挂载技能】与【挂载文件】段。
  * 查 agents 表取该 agent 的 skills/files 数组，逐项读取本地技能/文件内容注入；
  * 内容为空则跳过对应段，全部为空时原样返回 base。
+ *
+ * skill-workflow-isolation：传入 workflowId 时按 `allowedCategoriesFor` 的分类边界
+ * 过滤挂载技能（分类不在范围内的技能**在读取全文之前**跳过，省 IO 与 token）；
+ * 未传 workflowId（非 producer 调用点）或工作流不在映射表（未知兜底）→ 全量注入；
+ * 分类解析不出（null）的技能不过滤（spec：无分类技能不消失）。
+ * 工作流专属技能（WORKFLOW_SKILLS）为独立机制，不经过本过滤。
  */
-export async function buildSystemPrompt(agentId: string, base: string): Promise<string> {
+export async function buildSystemPrompt(agentId: string, base: string, workflowId?: string): Promise<string> {
   const row = get<Pick<AgentRow, 'skills' | 'files'>>('SELECT skills, files FROM agents WHERE id = ?', [agentId]);
   if (!row) return base;
 
+  const allowed = allowedCategoriesFor(workflowId); // null = 不过滤（未知工作流/未传）
   const parts: string[] = [];
 
   const skillBlocks: string[] = [];
   for (const skillId of parseList(row.skills)) {
+    if (allowed) {
+      const category = await skillCategoryOf(skillId);
+      // 已知分类且不在允许集合 → 跳过（不读全文）；未知分类（null）→ 兜底注入
+      if (category && !allowed.includes(category)) continue;
+    }
     const content = await readSkillContent(skillId);
     if (content) skillBlocks.push(`## 技能：${skillId}\n${content}`);
   }
@@ -175,7 +188,7 @@ async function workflowSkillBlock(workflowId?: string): Promise<string> {
  * - taskId 无关联资料 / 无热点背景 / 无待处理返工意见时对应段为空，最终 prompt 与既有完全一致（板块独立性）。
  */
 export async function buildProducerSystemPrompt(agentId: string, base: string, taskId?: number, workflowId?: string): Promise<string> {
-  const withMounts = await buildSystemPrompt(agentId, base);
+  const withMounts = await buildSystemPrompt(agentId, base, workflowId);
   const wfSkills = await workflowSkillBlock(workflowId);
   const kb = await buildKnowledgeContext(taskId);
   const hot = buildHotContext(taskId); // 同步只读快照表；异常内部降级为空串
