@@ -147,6 +147,7 @@ export function ensureSchema(): void {
     );
   `);
   migrateAgentFileMounts();
+  migrateAgentFileMountsToVault();
 }
 
 /**
@@ -180,6 +181,50 @@ function migrateAgentFileMounts(): void {
       if (typeof x === 'string' && FILE_MOUNT_RENAMES[x]) {
         changed = true;
         return FILE_MOUNT_RENAMES[x];
+      }
+      return x;
+    });
+    if (changed) run('UPDATE agents SET files = ? WHERE id = ?', [JSON.stringify(next), row.id]);
+  }
+}
+
+/**
+ * 旧库迁移：文件挂载改为引用知识库（二轮验收返工，用户确认方案 A）。
+ * 挂载文件模型从「专用文件夹里的裸文件名」改为「Vault 相对路径」——agents.files 中
+ * 不含「/」的历史条目按映射表改写为知识库路径；映射表未覆盖的裸文件名兜底落到「知识库/收件箱/」。
+ * 幂等：含「/」的条目（已是 Vault 路径）一律不动；JSON 坏行跳过；其余元素原样保留。
+ */
+const FILE_MOUNT_VAULT_PATHS: Record<string, string> = {
+  '品牌手册.md': '知识库/品牌规范/品牌手册.md',
+  '品牌视觉规范.md': '知识库/品牌规范/品牌视觉规范.md',
+  '产品价值观.md': '知识库/品牌规范/产品价值观.md',
+  '测试金句库.md': '知识库/文案素材/测试金句库.md',
+  '部署复盘与内容反馈.md': '知识库/复盘/部署复盘与内容反馈.md',
+};
+
+function migrateAgentFileMountsToVault(): void {
+  let rows: { id: string; files: string }[] = [];
+  try {
+    rows = all<{ id: string; files: string }>('SELECT id, files FROM agents');
+  } catch {
+    return; // 表尚未建好等异常场景：交给下次启动
+  }
+  for (const row of rows) {
+    let list: unknown;
+    try {
+      list = JSON.parse(row.files);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(list)) continue;
+    let changed = false;
+    const next = list.map((x) => {
+      if (typeof x === 'string' && !x.includes('/') && !x.includes('\\')) {
+        const target = FILE_MOUNT_VAULT_PATHS[x] ?? `知识库/收件箱/${x}`;
+        if (target !== x) {
+          changed = true;
+          return target;
+        }
       }
       return x;
     });

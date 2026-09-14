@@ -1,11 +1,10 @@
 /**
  * 技能挂载模块：扫描知识库 Vault 内的技能目录 <技能库>/**\/*.md，提供可挂载技能列表与内容读取；
- * 同时提供 <挂载文件> 目录（Agent.files 引用）的目录列表、全文读取与新增保存（上传）。
+ * 同时提供挂载文件能力——二轮验收返工后（用户确认）：挂载文件 = 引用知识库 Vault 内任意 Markdown
+ * 文档（agents.files 存 Vault 相对路径），不再有专用「挂载文件」文件夹；应用内上传统一落到
+ * 「知识库/收件箱/」，上传即可挂载、即入知识库索引范围。
  *
- * 存放位置（用户验收 #1/#8 决策）：技能与挂载文件统一放在知识库 Vault 的专门文件夹里，
- * 知识库页可直接浏览，挂载/注入链路从同一位置读取——单一真相来源。
- * 默认 <repo>/docs/示例Vault/技能库 与 <repo>/docs/示例Vault/挂载文件；
- * 环境变量 WORKBENCH_SKILLS_ROOT / WORKBENCH_FILES_ROOT 可显式覆盖（测试/自定义部署用）。
+ * 存放位置：技能默认 <repo>/docs/示例Vault/技能库；环境变量 WORKBENCH_SKILLS_ROOT 可覆盖（测试/自定义部署用）。
  *
  * 分类约定（目录即分类）：<技能库>/<分类目录>/*.md，目录名与展示名见 CATEGORY_LABEL
  * （中文目录名 电商/小红书/通用 原样即展示名）；根目录平铺的 *.md 归入「通用」；
@@ -168,15 +167,47 @@ export async function readSkillContent(skillId: string): Promise<string> {
   return readFile(join(resolveSkillsDir(), `${skillId}.md`), 'utf8').catch(() => '');
 }
 
-/** 读取挂载文件全文（挂载文件目录下；文件名归一化防路径逃逸，文件不存在返回空字符串） */
-export async function readFileContent(fileRef: string): Promise<string> {
-  if (!fileRef || fileRef.includes('\0')) return '';
-  const name = basename(fileRef);
-  if (!name || name === '.' || name === '..') return '';
-  return readFile(join(resolveFilesDir(), name), 'utf8').catch(() => '');
+/**
+ * 查询单个技能的分类（skill-workflow-isolation）：
+ * 与 listSkills 完全同一套解析链（索引 → categoryOfPath → parseSkillMeta，文件头可覆盖），
+ * 保证「展示徽标」与「注入过滤」口径一致。未命中（目录中不存在）返回 null。
+ */
+export async function skillCategoryOf(skillId: string): Promise<string | null> {
+  if (!skillId || skillId.includes('\0') || skillId.includes('..')) return null;
+  const index = await ensureIndex();
+  const fp = index.get(skillId);
+  if (!fp) return null;
+  const head = await readHead(fp).catch(() => '');
+  return parseSkillMeta(skillId, head, categoryOfPath(fp)).category;
 }
 
-/** 挂载文件目录信息：id = 完整文件名（Agent.files 引用，兼容 readFileContent）；name = 展示名（不含扩展名） */
+/**
+ * 读取挂载文件全文（二轮验收返工后：agents.files 存 Vault 相对路径，如「知识库/品牌规范/品牌手册.md」）。
+ * 解析顺序：① Vault 相对路径（现行为）→ ② 历史裸文件名兜底（迁移前旧库：Vault 挂载文件/ 与旧 backend/files/）。
+ * 文件不存在/越界返回空字符串（既有降级语义）。
+ */
+export async function readFileContent(fileRef: string): Promise<string> {
+  if (!fileRef || fileRef.includes('\0')) return '';
+  const root = vaultRootOrNull();
+  if (root && !fileRef.includes('\\')) {
+    try {
+      return await readFile(vaultAbsPath(root, fileRef), 'utf8');
+    } catch {
+      /* 落到历史兜底 */
+    }
+  }
+  const name = basename(fileRef);
+  if (!name || name === '.' || name === '..') return '';
+  const legacyDirs = [root ? join(root, '挂载文件') : null, resolve(BACKEND_ROOT, 'files')];
+  for (const dir of legacyDirs) {
+    if (!dir) continue;
+    const content = await readFile(join(dir, name), 'utf8').catch(() => null);
+    if (content !== null) return content;
+  }
+  return '';
+}
+
+/** 挂载文件条目：id = Vault 相对路径（Agent.files 引用，兼容 readFileContent）；name = 同 id（展示即来源路径，杜绝同名歧义） */
 export interface MountedFileInfo {
   id: string;
   name: string;
@@ -186,28 +217,26 @@ export interface MountedFileInfo {
 const FILE_EXT_RE = /\.(md|txt|json)$/i;
 
 /**
- * 扫描挂载文件目录 *.{md,txt,json}，返回可挂载文件列表（目录缺失时返回空数组）。
+ * 可挂载文件列表 = 知识库 Vault 内全部 Markdown（用户确认：挂载 = 从知识库挑文档，不再有专用文件夹）。
+ * 排除「技能库/」——技能已在 SKILL 区按分类挂载，避免同一文件被双重挂载为 FILE。
+ * Vault 未连接时返回空数组（前端已有降级提示）。
  */
 export async function listFiles(): Promise<MountedFileInfo[]> {
-  let entries: string[];
-  try {
-    entries = await readdir(resolveFilesDir());
-  } catch {
-    return [];
-  }
-  const files: MountedFileInfo[] = [];
-  for (const entry of entries) {
-    const m = FILE_EXT_RE.exec(entry);
-    if (!m) continue;
-    files.push({ id: entry, name: entry.slice(0, -(m[1].length + 1)) });
-  }
-  return files.sort((a, b) => a.id.localeCompare(b.id, 'zh-CN'));
+  const cfg = resolveVaultConfig();
+  if (!cfg.root) return [];
+  const root = cfg.root;
+  const skillRel = relative(root, resolveSkillsDir()).replace(/\\/g, '/');
+  const entries = await listVaultMarkdown({ ...cfg, root }).catch(() => []);
+  return entries
+    .filter((e) => !(skillRel && (e.path === skillRel || e.path.startsWith(`${skillRel}/`))))
+    .map((e) => ({ id: e.path, name: e.path }))
+    .sort((a, b) => a.id.localeCompare(b.id, 'zh-CN'));
 }
 
 /**
- * 把挂载文件写入挂载文件目录（Vault 内），返回写入后的完整文件名（id）。
+ * 把上传内容写入知识库（固定落点 Vault 内「知识库/收件箱/」，上传即可挂载、即入知识库索引范围）。
  * 校验：仅允许 .md/.txt/.json；只允许文件名（不含路径分隔符），basename 归一化后必须等于原值防路径逃逸。
- * 非法输入抛 Error，由调用方（路由层）转 4xx/5xx。
+ * Vault 未连接时抛错（路由层转 4xx/5xx）。
  */
 export async function saveFileContent(name: string, content: string): Promise<string> {
   if (!name || name.includes('\0')) throw new Error('文件名不能为空');
@@ -216,7 +245,11 @@ export async function saveFileContent(name: string, content: string): Promise<st
     throw new Error(`非法文件名（仅允许文件名，不允许路径）：${name}`);
   }
   if (!FILE_EXT_RE.test(safe)) throw new Error(`仅支持 .md/.txt/.json 文件：${name}`);
-  await mkdir(resolveFilesDir(), { recursive: true });
-  await writeFile(join(resolveFilesDir(), safe), content, 'utf8');
-  return safe;
+  const root = vaultRootOrNull();
+  if (!root) throw new Error('知识库 Vault 未连接，无法保存（请先在知识库页连接 Vault）');
+  const rel = `${UPLOAD_DIR_REL}/${safe}`;
+  const abs = vaultAbsPath(root, rel);
+  await mkdir(dirname(abs), { recursive: true });
+  await writeFile(abs, content, 'utf8');
+  return rel;
 }
