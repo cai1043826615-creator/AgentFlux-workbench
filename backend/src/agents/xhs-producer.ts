@@ -38,7 +38,7 @@ function mockNote(task: Task): XhsNote {
   const name = task.title || '本产品';
   return {
     title: `${name}｜真实体验分享`,
-    body: `入手「${name}」之后，使用感受比预期好。\n\n日常使用顺手，细节处理到位，性价比在线。\n\n有需要的姐妹可以试试，链接放评论区～`,
+    body: `入手「${name}」有一段时间了，今天来交一份真实作业📝\n\n先说结论：日常使用真的顺手，细节处理比预期到位，这个价位能打成这样我觉得可以冲。\n\n✅ 使用感受：上手没有学习成本，开箱即用；做工在同类里算扎实的，没有廉价感。\n✅ 日常体验：响应速度快，连续用下来也很稳，没有出现掉链子的情况。\n⚠️ 小缺点：包装偏简单，送人自用建议自己配个收纳。\n\n💰 性价比方面，对比之前用过的几款，它属于「不花冤枉钱」的类型：核心体验都在，溢价不高。\n\n👩‍🎓 适合人群：学生党、租房党、想提升日常幸福感的上班族都合适；追求极致参数的硬核玩家可能会觉得普通。\n\n总结：如果你最近正好在犹豫要不要入手，我的建议是——预算够就冲，早买早享受；还在观望的可以先收藏，蹲一个好价再上车也不迟～`,
     tags: ['#好物分享', '#真实体验', '#日常必备'],
   };
 }
@@ -60,16 +60,22 @@ interface NoteImage {
   url: string;
 }
 
-/** 取配图阶段最新一批图片（跳过生成失败的），供视觉审核 */
+/** 取配图阶段最新一批图片（跳过生成失败的），供视觉审核；覆盖首图段与内页段 */
 function newestNoteImages(task: Task): NoteImage[] {
-  const d = delivery.getDeliverable(task.id, 'xhs-image', 'image');
-  if (!d) return [];
-  try {
-    const items = JSON.parse(d.content) as { id: string; url?: string; status?: string }[];
-    return items.filter((i) => i.status !== 'failed' && i.url).map((i) => ({ id: i.id, url: String(i.url) }));
-  } catch {
-    return [];
+  const out: NoteImage[] = [];
+  for (const stage of ['xhs-cover', 'xhs-inner', 'xhs-image']) {
+    const d = delivery.getDeliverable(task.id, stage, 'image');
+    if (!d) continue;
+    try {
+      const items = JSON.parse(d.content) as { id: string; url?: string; status?: string }[];
+      for (const i of items) {
+        if (i.status !== 'failed' && i.url) out.push({ id: i.id, url: String(i.url) });
+      }
+    } catch {
+      /* 单阶段解析失败不影响其余阶段 */
+    }
   }
+  return out;
 }
 
 /**
@@ -156,11 +162,11 @@ function noteImagePrompt(task: Task, itemId: string, note?: XhsNote | null): str
 /** 生图尺寸 */
 const IMG_SIZE = '1024x1024';
 /**
- * 单张生图超时（毫秒）。
- * 三张图串行，若渠道不可达，默认 180s × 3 张 = 9 分钟，用户会以为"卡死"。
- * 收紧到 30s：最坏 90s 内失败并冒泡到卡片（显示原因 + 可重试），而不是无限等待。
+ * 单张生图超时（毫秒）：与电商工作流（淘宝链路）保持一致，不传自定义值走
+ * generateImage 的默认 180s——两条工作流生图口径统一（用户定案 2026-09-14）。
+ * 失败可见化由 runStage / 前端 toast 承担，不靠缩短超时。
  */
-const IMG_TIMEOUT_MS = 30_000;
+const IMG_TIMEOUT_MS = 180_000;
 
 class XhsProducer {
   private async withLlm<T>(
@@ -211,13 +217,13 @@ class XhsProducer {
     );
   }
 
-  /** 笔记撰写：标题（≤20 字含 emoji）+ 正文 + 话题标签 */
+  /** 笔记撰写：标题（≤20 字含 emoji）+ 正文（300-500 字小红书体）+ 话题标签 */
   async produceNote(task: Task): Promise<XhsNote> {
     const agentId = AGENT_IDS['文案'];
     return this.withLlm<XhsNote>(
       agentId,
-      '你是小红书种草文案。严格输出 JSON（不要多余文字）：{"title":"标题（含 1 个 emoji，总长度不超过 20 个字符）","body":"正文（口语化小红书体，3-5 句，可用换行分段）","tags":["#话题1","#话题2","#话题3"]}\n要求：避免「最」「第一」「国家级」等广告法违禁词与绝对化用语；不做医疗功效宣称。',
-      `产品/主题：${task.title}\n资料：${task.description || '（无）'}\n请撰写小红书种草笔记。`,
+      '你是资深小红书博主，写真实体验向的种草笔记。严格输出 JSON（不要多余文字）：{"title":"标题（含 1 个 emoji，总长度不超过 20 个字符）","body":"正文","tags":["#话题1","#话题2","#话题3"]}\n\n正文要求（逐条遵守）：\n1. 长度 300-500 字（硬性区间，少于 300 字不合格）；\n2. 小红书调性：第一人称真实体验感，口语化、有情绪、像朋友聊天；\n3. 结构：开头 1-2 句抓眼球（体验结论/场景痛点）→ 中间分点或分段讲 2-4 个真实细节（使用感受/优点，可带 1 个小缺点增加可信度）→ 结尾 1-2 句总结 + 行动引导；\n4. 排版：分 3-5 个自然段，段间空行；可用 1-2 个 emoji 做段首点缀（如 ✅👉💤），不要堆砌；\n5. 语言：多用「真的」「谁懂」「亲测」「闭眼冲」这类小红书口语（不违反广告法的前提下），避免书面腔与广告腔；\n6. 合规：无绝对化用语（最/第一/国家级），无医疗功效宣称。\n输出前自查字数：正文（不含标签）必须 ≥300 字。',
+      `产品/主题：${task.title}\n资料：${task.description || '（无）'}\n${task.brief?.audience ? `目标人群：${task.brief.audience}\n` : ''}${task.brief?.product ? `产品：${task.brief.product}\n` : ''}${task.brief?.contentType ? `内容类型：${task.brief.contentType}\n` : ''}请撰写 300-500 字的小红书种草笔记。`,
       () => mockNote(task),
       (text) => {
         const parsed = extractJson<Partial<XhsNote>>(text);
@@ -406,43 +412,6 @@ class XhsProducer {
     const { content: text } = await callLlm({ agentId, system, user, images, temperature: 0.2, maxTokens: 200 });
     const parsed = extractJson<{ ok?: unknown; reason?: string }>(text);
     return { ok: parsed?.ok === true || parsed?.ok === 'true', reason: String(parsed?.reason ?? '') };
-  }
-
-  /** 发布包装：最终发布包（标题 + 正文 + 标签 + 图片顺序） */
-  async producePackage(task: Task): Promise<NotePackage> {
-    const agentId = AGENT_IDS['文案'];
-    const note = latestNote(task) ?? mockNote(task);
-    // 图片顺序：取配图阶段交付物的图片 id 顺序（首图优先）
-    let imageOrder: string[] = [];
-    const imgDel = delivery.getDeliverable(task.id, 'xhs-image', 'image');
-    if (imgDel) {
-      try {
-        const items = JSON.parse(imgDel.content) as { id: string; status?: string }[];
-        imageOrder = items.filter((i) => i.status !== 'failed').map((i) => i.id);
-      } catch {
-        imageOrder = [];
-      }
-    }
-    return this.withLlm<NotePackage>(
-      agentId,
-      '你是小红书发布包装专员。严格输出 JSON（不要多余文字）：{"title":"最终标题（含 emoji，≤20 字符）","body":"最终正文","tags":["#话题"...],"imageOrder":["图片id"...]}\n要求：保留原笔记核心信息，仅做发布优化（排版、标签），不得引入广告法违禁词。imageOrder 必须使用输入给出的图片 id，不得自造。',
-      `原标题：${note.title}\n原正文：${note.body}\n原标签：${note.tags.join(' ')}\n可选图片 id：${imageOrder.join(' / ') || '（无）'}\n请输出最终发布包。`,
-      () => ({ title: note.title, body: note.body, tags: note.tags, imageOrder }),
-      (text) => {
-        const parsed = extractJson<Partial<NotePackage>>(text);
-        if (!parsed || !parsed.title || !parsed.body) return null;
-        // imageOrder 只接受交付物里真实存在的 id，避免模型自造
-        const valid = Array.isArray(parsed.imageOrder) ? parsed.imageOrder.map(String).filter((id) => imageOrder.includes(id)) : [];
-        return {
-          title: String(parsed.title),
-          body: String(parsed.body),
-          tags: Array.isArray(parsed.tags) ? parsed.tags.map(String) : [],
-          imageOrder: valid.length > 0 ? valid : imageOrder,
-        };
-      },
-      task.id,
-      task.workflowId,
-    );
   }
 }
 

@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { WORKFLOW_STAGE_LABELS, XHS_STAGE_REVIEW, isXhsWorkflow, nodeOfStage, stageKeysOf, approvalPointsOf, type Agent, type Deliverable, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef } from '@workbench/shared';
+import { WORKFLOW_STAGE_LABELS, isXhsWorkflow, nodeOfStage, stageKeysOf, approvalPointsOf, type Agent, type Deliverable, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
-import { CompliancePanel, parseCompliance } from '../content/stage-panels/xhs/CompliancePanel.tsx';
-import type { PanelState } from '../content/stage-panels/xhs/shared.tsx';
 import { DownloadButton, KbInvalidBadge, fmtRelative } from '../board/TaskListView.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
@@ -178,20 +176,6 @@ function EventTimeline({ events, workflowId }: { events: TaskEvent[]; workflowId
       })}
     </div>
   );
-}
-
-/** 合规审核面板状态：按任务是否已越过/正处于合规审核阶段推导（自动节点，不出现 pending） */
-function xhsReviewState(task: TaskWithMeta | undefined, deliverables: Deliverable[]): PanelState {
-  if (!task) return 'none';
-  if (task.column === 'done') return 'done';
-  const order = stageKeysOf(task.workflowId);
-  const cur = order.indexOf(task.stage);
-  const idx = order.indexOf(XHS_STAGE_REVIEW);
-  if (idx < 0 || cur < 0) return 'none';
-  if (cur > idx) return 'done';
-  if (cur < idx) return 'none';
-  // 正处于合规审核：有报告即算完成（自动节点没有 pending 态）
-  return parseCompliance(deliverables) ? 'done' : 'working';
 }
 
 /** 阶段负责角色 → Agent 名（意见3：requirement/copy→美美、main-image/detail-image→平平、review/deliver→波波；与工位/播报映射一致） */
@@ -498,7 +482,7 @@ export function TaskDetailView({
   const { tasks, agents, eventsByTask, deliverablesByTask, openTask, taskTab, setTaskTab } = useWorkbench();
   const [descExpanded, setDescExpanded] = useState(false);
 
-  // 新打开任务时默认落在「内容交付」tab（意见11；key=taskId 重挂载时执行一次；用户可手动切「任务详情」）
+  // 新打开任务时默认落在「内容交付」tab（key=taskId 重挂载时执行一次）
   const firstTabRef = useRef(true);
   useEffect(() => {
     if (firstTabRef.current) {
@@ -598,7 +582,7 @@ export function TaskDetailView({
         <StageStepper task={task} agents={agents} />
       </div>
 
-      {/* tabs（对齐线框 tabs；QS 焦点信号；意见12：内容交付在前，去掉「· 审批」） */}
+      {/* tabs（内容交付在前；QS 焦点信号） */}
       <Tabs
         items={[
           { key: 'deliver', label: '内容交付' },
@@ -619,12 +603,17 @@ export function TaskDetailView({
         /* status-grid：内容区 + 280 属性面板 */
         <div className="flex gap-4">
           <div className="min-w-0 flex-1 space-y-4">
-            {/* 合规审核（XHS 专有）：置顶展示，自动节点无决策按钮（用户定案：放「任务详情」最顶部） */}
-            {isXhsWorkflow(task?.workflowId) ? (
-              <CompliancePanel
-                data={parseCompliance(deliverables)}
-                state={xhsReviewState(task, deliverables)}
-              />
+            {/* 未关联知识库资料警示（用户定案 2026-09-14：两条工作流统一放「任务详情」顶部） */}
+            {(task.kbRefsTotal ?? 0) === 0 ? (
+              <div
+                className="flex items-center gap-2 rounded-[4px] border px-3 py-2 text-[12px]"
+                style={{ borderColor: 'var(--color-warn)', background: 'var(--color-warn-soft)', color: 'var(--color-ink-soft)' }}
+              >
+                <span aria-hidden="true">⚠</span>
+                <span>
+                  本任务未关联任何知识库资料 · <strong>参数由模型生成，请人工核对</strong>
+                </span>
+              </div>
             ) : null}
             {/* 当前阶段卡片 + 产出摘要（意见16 替代横幅与交付物概览） */}
             <div
@@ -633,7 +622,7 @@ export function TaskDetailView({
             >
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <span className={columnDot} />
-                <span className="text-[12px] font-bold">当前阶段：{task.stageLabel || WORKFLOW_STAGE_LABELS[task.stage]}</span>
+                <span className="font-display text-[15px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>当前阶段：{task.stageLabel || WORKFLOW_STAGE_LABELS[task.stage]}</span>
                 <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>负责人 {task.ownerName || '—'}</span>
               </div>
               <div className="text-[13px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
@@ -733,17 +722,12 @@ function ProvenancePanel({ taskId }: { taskId: number }) {
     );
   }
 
-  // 未关联资料：明确警示，不展示溯源率数值（spec 2.7）
+  // 未关联资料：顶部「任务详情」已有同款警示（用户定案 2026-09-14），此处不再重复渲染；
+  // 保留占位说明使面板不空白（spec 2.7 的溯源率隐藏语义不变）
   if (!provenance.hasRefs) {
     return (
-      <div
-        className="flex items-center gap-2 rounded-[4px] border px-3 py-2 text-[12px]"
-        style={{ borderColor: 'var(--color-warn)', background: 'var(--color-warn-soft)', color: 'var(--color-ink-soft)' }}
-      >
-        <span aria-hidden="true">⚠</span>
-        <span>
-          本任务未关联任何知识库资料 · <strong>参数由模型生成，请人工核对</strong>
-        </span>
+      <div className="qs-meta px-1 py-1.5" style={{ color: 'var(--color-ink-faint)' }}>
+        未关联知识库资料，无溯源结果可展示
       </div>
     );
   }

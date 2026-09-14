@@ -146,6 +146,13 @@ export function ensureSchema(): void {
   } catch {
     /* column already exists */
   }
+  // 旧库迁移：挂载文件同样按工作流分份（用户定案：A 工作流挂 A 的技能与文件，不单独挂文件）
+  // JSON：{"<workflowId>":["知识库/品牌规范/品牌手册.md",...]}；缺失份回退全局 files（零迁移）
+  try {
+    sqlite.exec("ALTER TABLE agents ADD COLUMN workflow_files TEXT NOT NULL DEFAULT '{}'");
+  } catch {
+    /* column already exists */
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,

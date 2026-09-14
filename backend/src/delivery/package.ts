@@ -203,10 +203,10 @@ export async function buildTaskPackage(task: Task, deliverables: Deliverable[]):
   const images: PackageImageInfo[] = [];
   let missingCount = 0;
 
-  // 文案：优先「本工作流的最终文案阶段」→ deliver 阶段 → copy 阶段已采纳。
-  // XHS 的最终文案落在 xhs-package 阶段（service.advanceXhs 写入），
-  // 若只找 deliver/copy 会漏掉 → copyFile 为 null，交付包就没文案（用户反馈「只有图片」）。
-  const copyStages = isXhsWorkflow(task.workflowId) ? ['xhs-package', 'xhs-copy'] : ['deliver'];
+  // 文案：优先「本工作流的最终文案阶段」→ 兜底已采纳文案。
+  // XHS：发布包装阶段已删除（用户定案），笔记文案落在 xhs-copy；
+  // 电商：最终文案在 deliver 阶段。
+  const copyStages = isXhsWorkflow(task.workflowId) ? ['xhs-copy'] : ['deliver'];
   const primaryCopy = copyStages.map((s) => deliverables.find((d) => d.stage === s && d.kind === 'copy')).find(Boolean);
   const fallbackCopy = deliverables.find((d) => d.stage === 'copy' && d.kind === 'copy' && d.status === 'approved');
   let copyFile: string | null = null;

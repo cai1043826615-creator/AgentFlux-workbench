@@ -70,7 +70,8 @@ export function WorkstationBar() {
       )}
 
       {settingsAgent ? (
-        <AgentSettingsModal agent={settingsAgent} open onClose={() => setSettingsAgent(null)} />
+        // 工位栏入口随当前工作流看板：挂载卡片只显示当前工作流份（scope 定案 2026-09-14）
+        <AgentSettingsModal agent={settingsAgent} open scope="workflow" onClose={() => setSettingsAgent(null)} />
       ) : null}
     </>
   );

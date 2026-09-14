@@ -10,7 +10,8 @@ export interface AgentRow {
   model: string;
   skills: string; // JSON array
   workflow_skills: string; // JSON object: {"<workflowId>":["技能",...]}（skill-workflow-isolation）
-  files: string; // JSON array
+  workflow_files: string; // JSON object: {"<workflowId>":["知识库/…md",...]}（挂载文件按工作流分份）
+  files: string; // JSON array（各工作流份的并集，只读派生视图）
   online_status: string; // online | busy | idle
   activity: string | null;
   last_active_at: string | null;

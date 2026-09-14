@@ -57,6 +57,27 @@ const STAGE_AGENT_FALLBACK: Record<string, string> = {
   deliver: 'agent-supervisor',
 };
 
+/**
+ * 配图数量边界（用户定案 2026-09-14）：**总数含首图**，首图固定 1 张，内页图 = 总数 − 1。
+ * 默认 3（1 首图 + 2 内页）；最小 2（至少 1 张内页）；最大 7（内页最多 6 张）。
+ */
+const IMAGE_TOTAL_MIN = 2;
+const IMAGE_TOTAL_MAX = 7;
+const IMAGE_TOTAL_DEFAULT = 3;
+
+/** 从任务 brief 取配图总数（越界/缺失回退默认值） */
+function noteImageTotal(task: Task): number {
+  const raw = task.brief?.imageCount;
+  const n = typeof raw === 'number' ? Math.floor(raw) : Number.NaN;
+  if (!Number.isFinite(n)) return IMAGE_TOTAL_DEFAULT;
+  return Math.min(IMAGE_TOTAL_MAX, Math.max(IMAGE_TOTAL_MIN, n));
+}
+
+/** 内页图数量 = 配图总数 − 1（首图固定 1 张） */
+function noteInnerImageCount(task: Task): number {
+  return noteImageTotal(task) - 1;
+}
+
 /** 长文本摘要截断 */
 function brief(text: string, max = 100): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -231,30 +252,34 @@ export class WorkflowService {
           t = this.ex(task).onStageCompleted(t.id, node.id);
           break;
         }
-        case 'xhs-image': {
-          await this.runStage(task, node.id, () => this.produceNoteImages(task, node.parallelGroups ?? []), (r) => `生成 ${r as number} 张配图`);
+        case 'xhs-cover': {
+          // 首图：只生成 1 张（确认后再进内页设计，避免一次生成全废）
+          await this.runStage(task, node.id, () => this.produceNoteImages(task, node.id, [{ channel: 'img-1', items: ['首图'] }]), () => '生成首图 1 张');
+          t = this.ex(task).onStageCompleted(t.id, node.id);
+          break;
+        }
+        case 'xhs-inner': {
+          // 内页图：数量由任务 brief.imageCount 决定（1-6，默认 2）
+          const count = noteInnerImageCount(task);
+          const items = Array.from({ length: count }, (_, i) => `内页图${i + 1}`);
+          await this.runStage(task, node.id, () => this.produceNoteImages(task, node.id, [{ channel: 'img-2', items }]), (r) => `生成内页图 ${r as number} 张`);
           t = this.ex(task).onStageCompleted(t.id, node.id);
           break;
         }
         case 'xhs-review': {
           const report = (await this.runStage(task, node.id, () => xhsProducer.produceCompliance(task), (r) => {
             const rep = r as ComplianceReport;
-            return `合规结论：${rep.issues.length ? `发现 ${rep.issues.length} 处问题，自动回退` : '无问题，自动放行'}`;
+            return `校对结论：${rep.issues.length ? `发现 ${rep.issues.length} 处问题，自动回退` : '无问题，自动放行'}`;
           })) as ComplianceReport;
-          delivery.saveDeliverable(t.id, node.id, 'copy', { title: '合规审核报告', points: report.checks.map((c) => `${c.passed ? '通过' : '未通过'}：${c.label}`), outline: report.report, keywords: [] });
+          delivery.saveDeliverable(t.id, node.id, 'copy', { title: '主管校对报告', points: report.checks.map((c) => `${c.passed ? '通过' : '未通过'}：${c.label}`), outline: report.report, keywords: [] });
           t = report.issues.length
             ? this.ex(task).reviewRollback(t.id, report.issues[0].targetStage, report.issues[0].note)
             : this.ex(task).reviewPass(t.id);
           break;
         }
-        case 'xhs-package': {
-          const pack = (await this.runStage(task, node.id, () => xhsProducer.producePackage(task), (r) => `发布包：${(r as NotePackage).title}`)) as NotePackage;
-          delivery.saveDeliverable(t.id, node.id, 'copy', { title: pack.title, points: pack.tags, outline: pack.body, keywords: pack.imageOrder });
-          t = this.ex(task).onStageCompleted(t.id, node.id);
-          break;
-        }
         case 'xhs-deliver': {
-          await this.runStage(task, node.id, async () => ({ packName: `小红书发布包 · ${task.title}` }), (r) => `交付完成：${(r as { packName: string }).packName}`);
+          // 交付完成是确认点：跑完进待确认，由用户「确认归档」（approve）后置 done
+          await this.runStage(task, node.id, async () => ({ packName: `小红书交付包 · ${task.title}` }), (r) => `交付准备完成：${(r as { packName: string }).packName}`);
           t = this.ex(task).onStageCompleted(t.id, node.id);
           break;
         }
@@ -265,22 +290,23 @@ export class WorkflowService {
     return t ?? this.getTask(taskId)!;
   }
 
-  /** XHS 配图产出：首图 ×1 + 内页图 ×2（并行组，逐张上报） */
-  private async produceNoteImages(task: Task, groups: { channel: string; items: string[] }[]): Promise<number> {
+  /** XHS 配图产出：按传入分组生成（首图段传 1 张，内页段传 N 张），逐张上报并把交付物挂在对应阶段 */
+  private async produceNoteImages(task: Task, stageId: string, groups: { channel: string; items: string[] }[]): Promise<number> {
     const results = await xhsProducer.produceNoteImages(task, groups, (itemId, ok) => {
-      this.ex(task).subTaskComplete(task.id, task.stage, itemId, ok, ok ? '生成完成' : '生成失败');
+      this.ex(task).subTaskComplete(task.id, stageId, itemId, ok, ok ? '生成完成' : '生成失败');
     });
     const images: ImageItem[] = results.map((r) => ({
       id: r.itemId,
       name: r.itemId,
-      kind: r.itemId === '首图' ? 'main' : 'sub',
+      kind: r.itemId.includes('首图') ? 'main' : 'sub',
       url: r.dataUrl ?? '',
       status: r.ok ? 'pending' : 'failed',
       note: r.error,
       error: r.ok ? undefined : r.error,
       attempts: r.attempts ?? (r.ok ? 1 : MAX_IMAGE_ATTEMPTS),
     }));
-    delivery.saveDeliverable(task.id, task.stage, 'image', images);
+    // 交付物必须挂在被执行的阶段（首图段挂 xhs-cover、内页段挂 xhs-inner），不能再用 task.stage
+    delivery.saveDeliverable(task.id, stageId, 'image', images);
     return results.length;
   }
 

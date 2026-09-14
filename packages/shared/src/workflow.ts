@@ -28,8 +28,12 @@ export const WORKFLOW_STAGE_KEYS = [
 
 export const XHS_STAGE_TOPIC = 'xhs-topic';
 export const XHS_STAGE_COPY = 'xhs-copy';
-export const XHS_STAGE_IMAGE = 'xhs-image';
+/** 首图设计：只生成 1 张首图，人工确认后才继续 */
+export const XHS_STAGE_COVER = 'xhs-cover';
+/** 内页设计：生成 N 张内页图（数量由新建任务指定） */
+export const XHS_STAGE_INNER = 'xhs-inner';
 export const XHS_STAGE_REVIEW = 'xhs-review';
+/** @deprecated 发布包装已删除（用户定案：包装并入交付，交付包直接导出） */
 export const XHS_STAGE_PACKAGE = 'xhs-package';
 export const XHS_STAGE_DELIVER = 'xhs-deliver';
 
@@ -40,14 +44,17 @@ export const XHS_WORKFLOW_NAME = '小红书种草笔记';
 export const XHS_STAGE_KEYS = [
   XHS_STAGE_TOPIC,
   XHS_STAGE_COPY,
-  XHS_STAGE_IMAGE,
+  XHS_STAGE_COVER,
+  XHS_STAGE_INNER,
   XHS_STAGE_REVIEW,
-  XHS_STAGE_PACKAGE,
   XHS_STAGE_DELIVER,
 ] as const;
 
-/** XHS 确认点（选题 / 笔记 / 配图）；合规审核与发布包装均为自动节点，不在其中 */
-export const XHS_APPROVAL_POINT_STAGES = [XHS_STAGE_TOPIC, XHS_STAGE_COPY, XHS_STAGE_IMAGE];
+/**
+ * XHS 确认点：选题 / 笔记 / 首图 / 内页图。
+ * 主管校对与交付完成均为自动节点（用户定案：主管校对后直接归档，不再人工确认）。
+ */
+export const XHS_APPROVAL_POINT_STAGES = [XHS_STAGE_TOPIC, XHS_STAGE_COPY, XHS_STAGE_COVER, XHS_STAGE_INNER];
 
 export const WORKFLOW_STAGE_LABELS: Record<string, string> = {
   [STAGE_REQUIREMENT]: '需求对接',
@@ -59,9 +66,9 @@ export const WORKFLOW_STAGE_LABELS: Record<string, string> = {
   // XHS 阶段（key 带 xhs- 前缀，永不与电商同名）
   [XHS_STAGE_TOPIC]: '选题策划',
   [XHS_STAGE_COPY]: '笔记撰写',
-  [XHS_STAGE_IMAGE]: '封面配图',
-  [XHS_STAGE_REVIEW]: '合规审核',
-  [XHS_STAGE_PACKAGE]: '发布包装',
+  [XHS_STAGE_COVER]: '首图设计',
+  [XHS_STAGE_INNER]: '内页设计',
+  [XHS_STAGE_REVIEW]: '主管校对',
   [XHS_STAGE_DELIVER]: '交付完成',
 };
 
@@ -132,6 +139,7 @@ export const ECOM_WORKFLOW: WorkflowDefinition = {
       autoNext: false,
     },
     {
+      // 交付完成：主管校对（自动）通过后即归档，不再设人工确认点（用户定案 2026-09-14）
       id: STAGE_DELIVER,
       label: '交付完成',
       ownerRole: '主管',
@@ -157,13 +165,15 @@ export const ECOM_WORKFLOW: WorkflowDefinition = {
 export const REVIEW_ROLLBACK_TARGETS = [STAGE_COPY, STAGE_MAIN_IMAGE, STAGE_DETAIL_IMAGE];
 
 /**
- * 小红书种草笔记图定义：
- * 节点链 xhs-topic → xhs-copy → xhs-image → xhs-review → xhs-package → xhs-deliver
- * xhs-topic / xhs-copy / xhs-image 为人工确认点（3 个）；
- * xhs-review 与 xhs-package 均为自动节点（autoNext）：
- *   合规审核通过沿 passed 边到发布包装，检出问题沿 rollback 边回退 xhs-copy 或 xhs-image；
- *   发布包装产出后沿 next 边直接进交付完成，用户无需再点确认（交付包在右上角下载）。
- * xhs-image 声明并行子任务分组（首图 ×1 + 内页图 ×2）。
+ * 小红书种草笔记图定义（用户定案 2026-09-14）：
+ * 节点链 xhs-topic → xhs-copy → xhs-cover → xhs-inner → xhs-review → xhs-deliver
+ *
+ * 关键结构决策：
+ * - **首图与内页图分成两段**：先只生成 1 张首图，人工确认后再生成内页图（避免一次生成全废）
+ * - **发布包装已删除**：包装内容并入交付，交付包由用户点「一键导出交付包」取回
+ * - **主管校对是自动节点**：通过沿 passed 边到交付完成，问题沿 rollback 回退对应阶段
+ * - **交付完成也是自动节点**：主管校对通过后直接归档，不再要人工确认（用户定案 2026-09-14）
+ * 人工确认点仅 4 个：选题策划 / 笔记撰写 / 首图设计 / 内页设计
  */
 export const XHS_WORKFLOW: WorkflowDefinition = {
   id: XHS_WORKFLOW_ID,
@@ -182,25 +192,29 @@ export const XHS_WORKFLOW: WorkflowDefinition = {
       approvalPoint: true,
     },
     {
-      id: XHS_STAGE_IMAGE,
-      label: '封面配图',
+      id: XHS_STAGE_COVER,
+      label: '首图设计',
       ownerRole: '设计师',
       approvalPoint: true,
-      parallelGroups: [{ channel: 'img-1', items: ['首图', '内页图1', '内页图2'] }],
+      // 首图固定 1 张（单渠道单张，生成完进确认点）
+      parallelGroups: [{ channel: 'img-1', items: ['首图'] }],
+    },
+    {
+      id: XHS_STAGE_INNER,
+      label: '内页设计',
+      ownerRole: '设计师',
+      approvalPoint: true,
+      // 内页图数量由任务 brief.imageCount 决定（1-6，默认 2）；此处给默认占位
+      parallelGroups: [{ channel: 'img-2', items: ['内页图1', '内页图2'] }],
     },
     {
       id: XHS_STAGE_REVIEW,
-      label: '合规审核',
+      label: '主管校对',
       ownerRole: '主管',
       autoNext: true,
     },
     {
-      id: XHS_STAGE_PACKAGE,
-      label: '发布包装',
-      ownerRole: '文案',
-      autoNext: true,
-    },
-    {
+      // 交付完成：主管校对（自动）通过后即归档，不再设人工确认点（用户定案 2026-09-14）
       id: XHS_STAGE_DELIVER,
       label: '交付完成',
       ownerRole: '主管',
@@ -210,15 +224,16 @@ export const XHS_WORKFLOW: WorkflowDefinition = {
   edges: [
     { from: XHS_STAGE_TOPIC, to: XHS_STAGE_COPY, label: '确认点1', condition: 'approved' },
     { from: XHS_STAGE_TOPIC, to: XHS_STAGE_TOPIC, label: '返工', condition: 'rejected' },
-    { from: XHS_STAGE_COPY, to: XHS_STAGE_IMAGE, label: '确认点2', condition: 'approved' },
+    { from: XHS_STAGE_COPY, to: XHS_STAGE_COVER, label: '确认点2', condition: 'approved' },
     { from: XHS_STAGE_COPY, to: XHS_STAGE_COPY, label: '返工', condition: 'rejected' },
-    { from: XHS_STAGE_IMAGE, to: XHS_STAGE_REVIEW, label: '确认点3', condition: 'approved' },
-    { from: XHS_STAGE_IMAGE, to: XHS_STAGE_IMAGE, label: '返工', condition: 'rejected' },
-    { from: XHS_STAGE_REVIEW, to: XHS_STAGE_PACKAGE, label: '放行', condition: 'passed' },
+    { from: XHS_STAGE_COVER, to: XHS_STAGE_INNER, label: '确认点3', condition: 'approved' },
+    { from: XHS_STAGE_COVER, to: XHS_STAGE_COVER, label: '返工', condition: 'rejected' },
+    { from: XHS_STAGE_INNER, to: XHS_STAGE_REVIEW, label: '确认点4', condition: 'approved' },
+    { from: XHS_STAGE_INNER, to: XHS_STAGE_INNER, label: '返工', condition: 'rejected' },
+    { from: XHS_STAGE_REVIEW, to: XHS_STAGE_DELIVER, label: '放行', condition: 'passed' },
     { from: XHS_STAGE_REVIEW, to: XHS_STAGE_COPY, label: '回退文案', condition: 'rollback' },
-    { from: XHS_STAGE_REVIEW, to: XHS_STAGE_IMAGE, label: '回退配图', condition: 'rollback' },
-    // 发布包装为自动节点：产出后沿无条件 next 边直接到交付完成（无人为确认点）
-    { from: XHS_STAGE_PACKAGE, to: XHS_STAGE_DELIVER, label: '顺序' },
+    { from: XHS_STAGE_REVIEW, to: XHS_STAGE_COVER, label: '回退首图', condition: 'rollback' },
+    { from: XHS_STAGE_REVIEW, to: XHS_STAGE_INNER, label: '回退内页', condition: 'rollback' },
   ],
 };
 

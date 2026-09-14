@@ -140,6 +140,11 @@ export function resetSkillIndexForTest(): void {
   indexPromise = null;
 }
 
+/** 使技能索引失效（上传新技能后调用，保证下一次 listSkills/readSkillContent 能扫到） */
+export function invalidateSkillIndex(): void {
+  indexPromise = null;
+}
+
 /** 扫描技能目录，返回按分类归好的可挂载技能列表（目录缺失时返回空数组） */
 export async function listSkills(): Promise<AgentSkillInfo[]> {
   const index = await ensureIndex();
@@ -231,6 +236,28 @@ export async function listFiles(): Promise<MountedFileInfo[]> {
     .filter((e) => !(skillRel && (e.path === skillRel || e.path.startsWith(`${skillRel}/`))))
     .map((e) => ({ id: e.path, name: e.path }))
     .sort((a, b) => a.id.localeCompare(b.id, 'zh-CN'));
+}
+
+/**
+ * 保存上传的技能：写入技能库/<分类目录>/<文件名>.md（分类由调用方给定，默认「通用」）。
+ * 技能 id = 文件名（不含 .md），与目录扫描口径一致；写完使索引失效，立即可挂载。
+ * 校验：仅 .md；只允许文件名（不含路径分隔符），basename 归一化后必须等于原值防路径逃逸。
+ */
+export async function saveSkillContent(name: string, content: string, category = CATEGORY_LABEL.common): Promise<string> {
+  if (!name || name.includes('\0')) throw new Error('技能文件名不能为空');
+  const safe = basename(name);
+  if (safe !== name || safe === '.' || safe === '..' || name.includes('/') || name.includes('\\')) {
+    throw new Error(`非法文件名（仅允许文件名，不允许路径）：${name}`);
+  }
+  if (!/\.md$/i.test(safe)) throw new Error(`技能仅支持 .md 文件：${name}`);
+  // 分类目录名 = 中文展示名本身（磁盘上是 电商/小红书/通用 中文目录，与 categoryOfPath 对称）；
+  // 兼容调用方传英文 key（CATEGORY_LABEL 的值查得到就归一为中文目录名）。
+  const dirName = CATEGORY_LABEL[category] ?? category;
+  const dir = join(resolveSkillsDir(), dirName);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, safe), content, 'utf8');
+  invalidateSkillIndex();
+  return safe.slice(0, -'.md'.length);
 }
 
 /**

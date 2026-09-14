@@ -137,20 +137,22 @@ export class TaskExecutor {
   /** 创建任务（未确认，列=规划中）；platforms 多选逗号拼接存储，referenceImage 参考图地址 */
   createTask(input: { title: string; description: string; platforms: string[]; referenceImage?: string; workflowId?: string; brief?: TaskBrief | null }): Task {
     const id = tx(() => {
+      // 首段负责人预填（用户反馈：最开始没有负责人）——按首段 ownerRole 解析，未开工也能看到归属
+      const firstNode = this.wf.nodes[0];
       const res = run(
         'INSERT INTO tasks (title, workflow_id, stage, column, owner_agent_id, description, platform, reference_image, brief, progress, stage_note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [
           input.title,
           input.workflowId ?? this.wf.id,
-          this.wf.nodes[0].id,
+          firstNode.id,
           'planned',
-          null,
+          AGENT_BY_ROLE[firstNode.ownerRole] ?? null,
           input.description,
           (input.platforms ?? []).join(','),
           input.referenceImage ?? null,
           input.brief ? JSON.stringify(input.brief) : null,
           0,
-          stageNoteOf(this.wf.nodes[0], 'planned'),
+          stageNoteOf(firstNode, 'planned'),
           '你',
           now(),
         ],
@@ -193,11 +195,19 @@ export class TaskExecutor {
       const node = this.wf.nodes.find((n) => n.id === stageId);
       const isLast = getNodeIndex(this.wf, stageId) === this.wf.nodes.length - 1;
 
+      // 末段归档：前置断言「本工作流的主管校对阶段确实跑过」。
+      // 背景：曾因库内图定义损坏（detail-image 的 approvalPoint 丢失）导致跳过确认、绕过校对直接归档。
+      // 这里做硬保证：有 review 类节点的工作流，未见 REVIEW_PASSED 事件就不允许归档，回退到该节点重跑。
       if (isLast) {
+        const reviewNode = this.wf.nodes.find((n) => n.ownerRole === '主管' && n.id !== stageId);
+        if (reviewNode && !this.hasEvent(taskId, 'REVIEW_PASSED')) {
+          this.logEventSync(taskId, 'REVIEW_ROLLBACK', { fromStage: stageId, targetStage: reviewNode.id, targetLabel: reviewNode.label, note: '末段归档前缺少主管校对，已回退补做' });
+          return this.reviewRollback(taskId, reviewNode.id, '归档前缺少主管校对，已回退补做');
+        }
         run('UPDATE tasks SET column = ?, progress = ?, stage_note = ?, owner_agent_id = ? WHERE id = ?', [
           'done',
           100,
-          '已交付 · 已完成',
+          '',
           AGENT_BY_ROLE[node?.ownerRole ?? ''] ?? row.owner_agent_id,
           taskId,
         ]);
@@ -224,7 +234,10 @@ export class TaskExecutor {
     });
   }
 
-  /** 确认点采纳：沿 approved 边推进下一节点；meta 合并进 APPROVED 事件 payload（B11：失败图片数等警示信息） */
+  /**
+   * 确认点采纳：沿 approved 边推进下一节点；meta 合并进 APPROVED 事件 payload（B11：失败图片数等警示信息）。
+   * 末段确认为「归档确认」：节点是最后一个且 approved 边指向自身时，直接置 done（不再找下一节点）。
+   */
   approve(taskId: number, meta?: Record<string, unknown>): Task {
     return tx(() => {
       const row = getTaskRow(taskId);
@@ -233,6 +246,20 @@ export class TaskExecutor {
       if (!node?.approvalPoint) throw new Error(`task ${taskId} not at approval point`);
       const next = approvalEdge(this.wf, row.stage, true);
       this.logEventSync(taskId, 'APPROVED', { stage: row.stage, stageLabel: node.label, ...(meta ?? {}) });
+      // 末段确认归档：approved 边自环或无下一跳时，本次确认即完成交付
+      const isLastNode = getNodeIndex(this.wf, row.stage) === this.wf.nodes.length - 1;
+      if (!next || next.id === row.stage || isLastNode) {
+        run('UPDATE tasks SET column = ?, progress = ?, stage_note = ?, owner_agent_id = ? WHERE id = ?', [
+          'done',
+          100,
+          '',
+          AGENT_BY_ROLE[node.ownerRole] ?? row.owner_agent_id,
+          taskId,
+        ]);
+        this.logEventSync(taskId, 'STAGE_COMPLETED', { stage: row.stage, stageLabel: node.label, done: true });
+        bus.emitTask(toTask(getTaskRow(taskId)!));
+        return toTask(getTaskRow(taskId)!);
+      }
       return this.moveTo(row, next, row.stage);
     });
   }
@@ -379,6 +406,12 @@ export class TaskExecutor {
     ]);
     this.logEventSync(row.id, 'STAGE_STARTED', { stage: next.id, stageLabel: next.label });
     return toTask(getTaskRow(row.id)!);
+  }
+
+  /** 该任务是否已有某类型事件（归档前置断言用：确认主管校对真的跑过） */
+  private hasEvent(taskId: number, type: TaskEventType): boolean {
+    const row = get<{ n: number }>('SELECT COUNT(*) AS n FROM task_events WHERE task_id = ? AND type = ?', [taskId, type]);
+    return (row?.n ?? 0) > 0;
   }
 
   private logEventSync(taskId: number, type: TaskEventType, payload: Record<string, unknown>): void {

@@ -3,7 +3,7 @@ import type { AgentOnlineStatus, AgentUpdateInput, ChannelTestResult, ExecutionS
 import { all, get, run } from '../db/client.ts';
 import type { AgentExecutionRow, AgentRow } from '../db/schema.ts';
 import { toAgent, isAgentConfigured, effectiveModel } from '../agents/runtime.ts';
-import { listFiles, listSkills, saveFileContent } from '../agents/skills.ts';
+import { listFiles, listSkills, saveFileContent, saveSkillContent } from '../agents/skills.ts';
 import { testAgentChannel } from '../agents/channel-test.ts';
 
 /** PUT 请求体：AgentUpdateInput 基础上扩展工位在线状态字段（shared 冻结，本地扩展） */
@@ -99,6 +99,21 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // 上传技能：body { name, content, category? } → 写入技能库/<分类>/<name>.md，立即可挂载
+  app.post<{ Body: { name?: string; content?: string; category?: string } }>('/api/agents/skills', async (req, reply) => {
+    const body = req.body ?? {};
+    const name = (body.name ?? '').trim();
+    const content = body.content;
+    if (!name) return reply.code(400).send({ error: '缺少技能文件名' });
+    if (typeof content !== 'string') return reply.code(400).send({ error: '缺少 content' });
+    try {
+      const skillId = await saveSkillContent(name, content, body.category ?? undefined);
+      return { skill: { id: skillId, name: name.replace(/\.md$/i, '') } };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : '写入技能失败' });
+    }
+  });
+
   // 更新工位（persona/model/skills/files/onlineStatus/activity），id 不存在返回 404
   app.put<{ Params: { id: string }; Body: AgentUpdateBody }>('/api/agents/:id', async (req, reply) => {
     const id = req.params.id;
@@ -116,6 +131,12 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       run('UPDATE agents SET skills = ? WHERE id = ?', [JSON.stringify(union), id]);
     }
     if (body.files !== undefined) run('UPDATE agents SET files = ? WHERE id = ?', [JSON.stringify(body.files), id]);
+    if (body.workflowFiles !== undefined) {
+      // 挂载文件按工作流分份（用户定案）：写入分份，并把全局 files 维护为各份并集（只读派生视图）
+      run('UPDATE agents SET workflow_files = ? WHERE id = ?', [JSON.stringify(body.workflowFiles), id]);
+      const union = [...new Set(Object.values(body.workflowFiles).flat())];
+      run('UPDATE agents SET files = ? WHERE id = ?', [JSON.stringify(union), id]);
+    }
     if (body.onlineStatus !== undefined) run('UPDATE agents SET online_status = ? WHERE id = ?', [body.onlineStatus, id]);
     if (body.activity !== undefined) run('UPDATE agents SET activity = ? WHERE id = ?', [body.activity, id]);
 

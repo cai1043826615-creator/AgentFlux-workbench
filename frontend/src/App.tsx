@@ -111,6 +111,8 @@ function NewTaskModal() {
   const [contentType, setContentType] = useState<string>('种草安利');
   const [audience, setAudience] = useState('');
   const [product, setProduct] = useState('');
+  /** 配图数量（总数，含首图；2-7，默认 3）——首图固定 1 张，内页图 = 该值 − 1 */
+  const [imageCount, setImageCount] = useState(3);
   // §6.3：校验提示仅在用户交互后出现，避免"打开即满屏红字"
   const [touched, setTouched] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -122,6 +124,7 @@ function NewTaskModal() {
     setContentType('种草安利');
     setAudience('');
     setProduct('');
+    setImageCount(3);
   };
 
   // 打开时重置表单（无任何预填——热点不得预填新建任务表单）
@@ -182,7 +185,7 @@ function NewTaskModal() {
         console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
       }
       // 仅在小红书工作流带 brief；电商固定为 null，后端链路不变
-      const brief = isXhs ? { contentType, audience: audience.trim() || undefined, product: product.trim() || undefined } : null;
+      const brief = isXhs ? { contentType, audience: audience.trim() || undefined, product: product.trim() || undefined, imageCount } : null;
       await createTask({ title: title.trim(), description: desc.trim(), platforms: effectivePlatforms, referenceImage, kbRefs, workflowId, brief });
       reset();
     } finally {
@@ -224,6 +227,16 @@ function NewTaskModal() {
               </Field>
               <Field label="目标人群（选填）">
                 <input className="qs-input" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="如：18-30 上班族、学生党" />
+              </Field>
+              <Field label="配图数量">
+                <select className="qs-input" value={imageCount} onChange={(e) => setImageCount(Number(e.target.value))}>
+                  {[2, 3, 4, 5, 6, 7].map((n) => (
+                    <option key={n} value={n}>{n} 张</option>
+                  ))}
+                </select>
+                <span className="qs-meta mt-1 block" style={{ color: 'var(--color-ink-faint)' }}>
+                  总数含首图：首图固定 1 张，内页图 {imageCount - 1} 张；确认首图后再生成内页图
+                </span>
               </Field>
               <Field label="笔记要求 / 卖点素材">
                 <textarea className="qs-input min-h-[90px]" value={desc} onChange={(e) => { setTouched(true); setDesc(e.target.value); }} placeholder="想突出的卖点、真实体验、避免提到的点…" />
@@ -327,6 +340,7 @@ function NewTaskModal() {
                   <b>内容类型：</b>{contentType}
                   {product.trim() ? ` · 产品：${product.trim()}` : ''}
                   {audience.trim() ? ` · 人群：${audience.trim()}` : ''}
+                  {` · 配图：共 ${imageCount} 张（首图 1 + 内页 ${imageCount - 1}）`}
                 </div>
                 <div className="text-[13px]"><b>笔记要求：</b>{desc || '（未填写，按主题自由发挥）'}</div>
               </>

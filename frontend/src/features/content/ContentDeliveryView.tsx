@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CopyPackage, Deliverable, DeliverableDiff, DeliverableVersion, ProvenanceResult, Task } from '@workbench/shared';
 import { BOARD_COLUMNS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { Badge, Btn, Card, Empty, SectionTitle, Spinner, Tabs } from '../../components/ui.tsx';
+import { MutedPlaceholder, resolveInfoBarRef } from './stage-panels/xhs/shared.tsx';
+import { TaskInfoBar } from './stage-panels/xhs/TaskInfoBar.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 
@@ -92,12 +94,9 @@ function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () =
       <div
         className="relative aspect-square overflow-hidden border"
         style={{ borderColor: 'var(--color-line)', borderStyle: 'dashed', background: 'var(--color-canvas)' }}
-        title={`${name} · 模拟占位（非成品图）`}
       >
+        {/* 占位格不放「模拟占位」类文案（用户定案）：仅图名 */}
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-1">
-          <span className="text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
-            模拟占位
-          </span>
           <span className="qs-meta max-w-full truncate text-[10px]">{name}</span>
         </div>
       </div>
@@ -129,29 +128,6 @@ function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () =
         </button>
       ) : null}
     </div>
-  );
-}
-
-/** 参考图缩略（任务信息条）：加载失败显示灰底「图片失效」占位，不破版；key=src 保证换图后失败状态复位 */
-function RefThumb({ src, name, onZoom }: { src: string; name: string; onZoom: () => void }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <span className="qs-meta flex h-14 w-14 shrink-0 items-center justify-center border" style={{ borderColor: 'var(--color-line-strong)' }}>
-        图片失效
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className="h-14 w-14 shrink-0 overflow-hidden border transition-colors hover:border-[var(--color-signal)]"
-      style={{ borderColor: 'var(--color-line-strong)', cursor: 'pointer' }}
-      title="点击放大参考图"
-      onClick={onZoom}
-    >
-      <img src={src} alt={name} onLoad={() => setFailed(false)} onError={() => setFailed(true)} className="h-full w-full object-cover" />
-    </button>
   );
 }
 
@@ -210,12 +186,10 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const detailImages = useMemo(() => imagesForStage(deliverables, 'detail-image'), [deliverables]);
   const imgState = imgBlockState(task);
 
-  /** 无用户上传参考图时，参考图位回退显示 AI 生成主图：main-image 阶段第一张已生成(pending)/已采纳(approved) 的图片（failed 的 url 为空自动排除；mock svg 占位保留，与图片卡既有展示一致） */
-  const refFallbackImg = useMemo<ParsedImg | null>(() => {
-    if (task?.referenceImage) return null;
-    return mainImages.find((img) => (img.status === 'pending' || img.status === 'approved') && !!img.url) ?? null;
-  }, [task?.referenceImage, mainImages]);
-  const refSrc = task?.referenceImage ?? refFallbackImg?.url ?? null;
+  /** 信息条参考图来源（shared 统一逻辑）：上传图优先，无则回退 AI 生成主图（main-image 第一张已生成/已采纳） */
+  const infoRef = useMemo(() => resolveInfoBarRef(task?.referenceImage, mainImages), [task?.referenceImage, mainImages]);
+  const refFallbackImg = useMemo<ParsedImg | null>(() => (infoRef.isUploaded ? null : mainImages.find((img) => img.url === infoRef.src) ?? null), [infoRef, mainImages]);
+  const refSrc = infoRef.src;
 
   const reviewDeliverables = useMemo(() => deliverables.filter((d) => d.stage === 'review' && d.kind === 'copy'), [deliverables]);
   const reviewOutline = parseCopy(reviewDeliverables[reviewDeliverables.length - 1])?.outline;
@@ -273,21 +247,28 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
 
   /* ---------- 审批条（对齐线框 approve-box；QS 焦点信号） ----------
      用户验收定案（P1-4 打回）：审批条只作提醒，不承载决策按钮——
-     采纳/打回统一在下方内容卡内操作。条内只保留一行短说明。 */
+     采纳/打回统一在上方内容卡内操作。条内只保留一行短说明。
+     注：审批条渲染在两栏卡片**之下**，故文案为「上方」（此前误写「下方」）。 */
   const pendingKind: 'copy' | 'image' | null =
     task && task.column === 'awaiting' ? (task.stage === 'copy' ? 'copy' : 'image') : null;
 
   const approveBox =
     task && task.column === 'awaiting' ? (
-      <div className="rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
-        <div className="mb-1.5 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
-          审批 · 待你确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
+      <div className="flex items-center gap-3 rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
+            审批 · 待你确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
+          </div>
+          <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
+            {pendingKind === 'copy'
+              ? '待你确认 · 采纳后自动进入图片设计（在上方文案卡内操作）；失败可打回重做。'
+              : '待逐张确认 · 全部采纳后自动推进（在上方图片卡内逐张操作）；失败可打回重做。'}
+          </div>
         </div>
-        <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-          {pendingKind === 'copy'
-            ? '待你确认 · 采纳后自动进入图片设计（在下方文案卡内操作）'
-            : '待逐张确认 · 全部采纳后自动推进（在下方图片卡内逐张操作）'}
-        </div>
+        {/* 一键采纳（快捷操作，与上方内容卡内逐项操作并存；采纳后自动推进，条随之消失） */}
+        <Btn variant="primary" className="shrink-0" disabled={busy} onClick={() => void doDecide(pendingKind === 'copy' ? 'copy' : 'image', 'approve')}>
+          {busy ? '处理中…' : '一键采纳'}
+        </Btn>
       </div>
     ) : null;
 
@@ -307,7 +288,8 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
 
   const copyBlock = (() => {
     if (copyState === 'none') {
-      return <Empty text="文案尚未产出 · 待进入卖点文案阶段" />;
+      // 未产出态与小红书工作流同款灰态虚线卡（用户定案：形式统一）
+      return <MutedPlaceholder text="文案尚未产出 · 待进入卖点文案阶段" />;
     }
     if (copyState === 'working') {
       return (
@@ -524,7 +506,8 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
 
   const imageBlock = (() => {
     if (imgState === 'none') {
-      return <Empty text="图片尚未产出 · 待文案确认后进入主图设计" />;
+      // 未产出态与小红书工作流同款灰态虚线卡（用户定案：形式统一）
+      return <MutedPlaceholder text="图片尚未产出 · 待文案确认后进入主图设计" />;
     }
     if (imgState === 'working') {
       return (
@@ -615,56 +598,31 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     <div className="space-y-4">
       {task ? (
         <>
-          {/* 任务信息条：参考图（可点击放大）+ 目标平台（platforms 多选；兼容单数 platform）
-              参考图优先级：用户上传图 → AI 生成主图（main-image 第一张已生成/已采纳）→ 暂无参考图空态；加载失败灰底「图片失效」 */}
-          <div className="flex items-center gap-3 rounded-[4px] border px-3 py-2" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
-            <div className="flex shrink-0 flex-col items-center gap-1">
-              {refSrc ? (
-                <RefThumb
-                  key={refSrc}
-                  src={refSrc}
-                  name={task.referenceImage ? '参考图' : refFallbackImg?.name ?? '参考图'}
-                  onZoom={() =>
-                    setPreview({
-                      url: refSrc,
-                      name: task.referenceImage ? '参考图' : refFallbackImg?.name ?? '参考图',
-                      status: task.referenceImage ? 'ref' : refFallbackImg?.status ?? 'ref',
-                    })
-                  }
-                />
-              ) : (
-                <span className="qs-meta flex h-14 w-14 shrink-0 items-center justify-center border" style={{ borderColor: 'var(--color-line-strong)' }}>
-                  暂无参考图
-                </span>
-              )}
-              {!task.referenceImage && refFallbackImg ? <span className="qs-meta text-[10px] leading-none">AI 生成主图</span> : null}
-            </div>
-            <div className="min-w-0">
-              <div className="text-[12px] font-medium">
-                目标平台 · {task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
-              </div>
-              <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
-                {task.referenceImage
-                  ? 'AI 产出将基于参考图生成'
-                  : refFallbackImg
-                    ? '未提供参考图，产出由 Agent 按产品资料生成'
-                    : '暂无参考图 · 产出由 Agent 生成'}
-              </div>
-            </div>
-          </div>
+          {/* 任务信息条（与小红书工作流共用组件）
+              参考图优先级：用户上传图 → AI 生成主图（main-image 第一张已生成/已采纳）→ 暂无参考图空态 */}
+          <TaskInfoBar
+            platforms={task.platforms && task.platforms.length > 0 ? task.platforms.join(' / ') : task.platform || '—'}
+            refThumbSrc={refSrc}
+            refThumbName={task.referenceImage ? '参考图' : refFallbackImg ? 'AI 生成主图' : undefined}
+            refThumbNote={
+              task.referenceImage
+                ? 'AI 产出将基于参考图生成'
+                : refFallbackImg
+                  ? '未提供参考图，产出由 Agent 按产品资料生成'
+                  : '暂无参考图 · 产出由 Agent 生成'
+            }
+            onZoomRef={() =>
+              refSrc
+                ? setPreview({
+                    url: refSrc,
+                    name: task.referenceImage ? '参考图' : refFallbackImg?.name ?? '参考图',
+                    status: task.referenceImage ? 'ref' : refFallbackImg?.status ?? 'ref',
+                  })
+                : undefined
+            }
+          />
 
-          {/* B1 · 2.7 未关联资料的核对警示（内容交付视图）：明确提示参数由模型生成、不展示溯源率数值 */}
-          {provenance?.hasRefs === false ? (
-            <div
-              className="flex items-center gap-2 rounded-[4px] border px-3 py-2 text-[12px]"
-              style={{ borderColor: 'var(--color-warn)', background: 'var(--color-warn-soft)', color: 'var(--color-ink-soft)' }}
-            >
-              <span aria-hidden="true">⚠</span>
-              <span>
-                本任务未关联任何知识库资料 · <strong>参数由模型生成，请人工核对</strong>
-              </span>
-            </div>
-          ) : null}
+          {/* 「未关联知识库资料」警示已移至「任务详情」页顶部（用户定案 2026-09-14，两条工作流统一） */}
 
           {/* 两卡等高：grid items-stretch + 每 Card 内部 grid 行撑满 */}
           <div className="grid grid-cols-2 items-stretch gap-4">

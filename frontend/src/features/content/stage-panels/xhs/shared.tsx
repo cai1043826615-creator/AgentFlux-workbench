@@ -32,6 +32,20 @@ export function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] 
   return out;
 }
 
+/**
+ * 任务信息条的参考图来源（两条工作流统一，用户定案 2026-09-14）：
+ * 有用户上传参考图 → 用上传图；没有 → 用 AI 生成的首图（第一张已生成/已采纳，failed 自动排除）。
+ * aiImages：该工作流的首图阶段图片（电商传 main-image 的，小红书传 xhs-cover 的）。
+ */
+export function resolveInfoBarRef(
+  referenceImage: string | undefined,
+  aiImages: ParsedImg[],
+): { src: string | null; isUploaded: boolean } {
+  if (referenceImage) return { src: referenceImage, isUploaded: true };
+  const first = aiImages.find((img) => (img.status === 'pending' || img.status === 'approved') && !!img.url) ?? null;
+  return { src: first?.url ?? null, isUploaded: false };
+}
+
 /** 面板状态：none 未产出 / working 生成中 / pending 待确认 / done 已采纳 / rejected 已打回返工 */
 export type PanelState = 'none' | 'working' | 'pending' | 'done' | 'rejected';
 
@@ -53,22 +67,25 @@ export function copyJsonForStage<T>(dels: Deliverable[], stage: string): T | nul
   }
 }
 
-/** 未开始阶段的灰态占位（不显示「生成中」，避免阶段时序矛盾） */
+/** 未开始阶段的灰态占位（不显示「生成中」，避免阶段时序矛盾）；h-full 撑满列高，与并排的白卡对齐 */
 export function PendingCard({ label, wait }: { label: string; wait?: string }) {
+  return <MutedPlaceholder text={`${label} · ${wait ?? '待上一阶段确认后自动开始'}`} />;
+}
+
+/** 通用灰态虚线占位卡（小红书与电商未产出态共用同一视觉形式；h-full 撑满并排列高） */
+export function MutedPlaceholder({ text }: { text: string }) {
   return (
     <div
-      className="flex items-center gap-2.5 rounded-[4px] border px-3.5 py-3 text-[12px] dashed"
+      className="flex h-full min-h-[96px] items-center gap-2.5 rounded-[4px] border border-dashed px-3.5 py-3 text-[12px]"
       style={{ borderColor: 'var(--color-line-strong)', borderStyle: 'dashed', color: 'var(--color-ink-faint)' }}
     >
       <span aria-hidden="true">○</span>
-      <span>
-        <b style={{ color: 'var(--color-ink-soft)' }}>{label}</b> · {wait ?? '待上一阶段确认后自动开始'}
-      </span>
+      <span>{text}</span>
     </div>
   );
 }
 
-/** 阶段面板统一外壳（标题 + 状态角标） */
+/** 阶段面板统一外壳（标题 + 状态角标）；h-full 保证并排两卡等高（内容矮的一侧撑满） */
 export function PanelCard({
   title,
   badge,
@@ -81,7 +98,7 @@ export function PanelCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card title={title} extra={badge}>
+    <Card title={title} extra={badge} className="h-full">
       {children}
       {footer ? (
         <div className="mt-3.5 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
@@ -105,15 +122,12 @@ function ImgThumb({ img, onZoom }: { img: ParsedImg; onZoom: () => void }) {
   const [loaded, setLoaded] = useState(false);
   const isPlaceholder = img.url.startsWith('data:image/svg');
   if (isPlaceholder || !img.url) {
+    // 占位格不放「模拟占位」类文案（用户定案）：仅图名，状态由下方徽标与失败说明表达
     return (
       <div
         className="relative flex aspect-square flex-col items-center justify-center gap-1 border px-1"
         style={{ borderColor: 'var(--color-line)', borderStyle: 'dashed', background: 'var(--color-canvas)' }}
-        title="模拟占位（非成品图）"
       >
-        <span className="text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
-          模拟占位
-        </span>
         <span className="qs-meta max-w-full truncate text-[10px]">{img.name}</span>
       </div>
     );

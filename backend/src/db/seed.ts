@@ -3,8 +3,28 @@ import { CHANNEL } from '../config.ts';
 import { get, run, tx } from './client.ts';
 import { ensureSchema } from './ensure.ts';
 
-/** 预置 Agent 岗位（线框原型：美美/平平/波波；模型为默认值，可在工位设置中修改） */
-export const SEED_AGENTS = [
+/**
+ * 内置工作流同步（启动自检）：
+ * 库内 stages_json 是运行时权威定义，但历史上出现过与代码不一致（如 detail-image 的
+ * approvalPoint 丢失 → 详情图跳过人工确认直通归档；XHS 阶段重排后库里仍是旧结构）。
+ * 原 if(!wf) 幂等插入不覆盖已有记录，导致「代码改了却不生效」。
+ * 这里改为：内置工作流以代码常量为准强制同步，不一致时覆盖并打日志。
+ * （自定义工作流 id 不在内置表里，不受影响。）
+ */
+function syncBuiltinWorkflow(id: string, name: string, def: unknown): void {
+  const row = get<{ name: string; stages_json: string }>('SELECT name, stages_json FROM workflows WHERE id = ?', [id]);
+  const json = JSON.stringify(def);
+  if (!row) {
+    run('INSERT INTO workflows (id,name,stages_json) VALUES (?,?,?)', [id, name, json]);
+    console.log(`[workbench] 工作流已创建：${id}`);
+    return;
+  }
+  if (row.stages_json === json) return;
+  run('UPDATE workflows SET name = ?, stages_json = ? WHERE id = ?', [name, json, id]);
+  console.warn(`[workbench] 工作流定义与代码不一致，已同步覆盖：${id}`);
+}
+
+/** 预置 Agent 岗位（线框原型：美美/平平/波波；模型为默认值，可在工位设置中修改） */export const SEED_AGENTS = [
   {
     id: 'agent-copy',
     name: '美美',
@@ -63,15 +83,14 @@ export function seed(): void {
         run('UPDATE agents SET name = ? WHERE id = ?', [a.name, a.id]);
       }
     }
-    const wf = get<{ id: string }>('SELECT id FROM workflows WHERE id = ?', [WORKFLOW_ID]);
-    if (!wf) {
-      run('INSERT INTO workflows (id,name,stages_json) VALUES (?,?,?)', [WORKFLOW_ID, WORKFLOW_NAME, JSON.stringify(ECOM_WORKFLOW)]);
-    }
-    // 第二条业务工作流「小红书种草笔记」（幂等；阶段 key 全带 xhs- 前缀，不与电商同名）
-    const xhs = get<{ id: string }>('SELECT id FROM workflows WHERE id = ?', [XHS_WORKFLOW_ID]);
-    if (!xhs) {
-      run('INSERT INTO workflows (id,name,stages_json) VALUES (?,?,?)', [XHS_WORKFLOW_ID, XHS_WORKFLOW_NAME, JSON.stringify(XHS_WORKFLOW)]);
-    }
+    // ===== 工作流定义同步（启动自检）=====
+    // 背景：库内的 stages_json 是「运行时的权威定义」，但历史上出现过库与代码不一致
+    // （例：detail-image 的 approvalPoint 丢失 → 详情图跳过人工确认直通归档；
+    //   XHS 阶段重排后库里仍是旧结构）。seed 的 if(!wf) 幂等插入不会覆盖已有记录，
+    // 于是代码改了却不生效。这里改为：**内置工作流以代码常量为准强制同步**，
+    // 不一致时覆盖并打日志（自定义工作流 id 不在内置表里，不受影响）。
+    syncBuiltinWorkflow(WORKFLOW_ID, WORKFLOW_NAME, ECOM_WORKFLOW);
+    syncBuiltinWorkflow(XHS_WORKFLOW_ID, XHS_WORKFLOW_NAME, XHS_WORKFLOW);
     const mode = get<{ key: string }>('SELECT key FROM settings WHERE key = ?', ['orchestrationMode']);
     if (!mode) {
       run('INSERT INTO settings (key,value) VALUES (?,?)', ['orchestrationMode', JSON.stringify({ mode: 'graph' })]);

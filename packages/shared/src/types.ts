@@ -29,7 +29,10 @@ export interface Agent {
   skills: string[];
   /** 按工作流分份的挂载（skill-workflow-isolation）：key=workflowId，value=展示名数组 */
   workflowSkills?: Record<string, string[]>;
+  /** 全局挂载文件（读视图 = 各工作流份并集；注入数据源已改为 workflowFiles 分份） */
   files: string[];
+  /** 按工作流分份的挂载文件：key=workflowId，value=Vault 相对路径数组 */
+  workflowFiles?: Record<string, string[]>;
   onlineStatus: AgentOnlineStatus;
   /** 当前活动描述，如「正在写卖点文案 #13」 */
   activity?: string;
@@ -45,6 +48,8 @@ export interface AgentUpdateInput {
   /** 按工作流分份的挂载（可选传入；缺省不触碰分份数据） */
   workflowSkills?: Record<string, string[]>;
   skills?: string[];
+  /** 按工作流分份的挂载文件（可选传入；缺省不触碰分份数据） */
+  workflowFiles?: Record<string, string[]>;
   files?: string[];
 }
 
@@ -84,6 +89,8 @@ export interface TaskBrief {
   audience?: string;
   /** 产品/品牌名 */
   product?: string;
+  /** 配图数量（总数，含首图；2-7，默认 3）。首图固定 1 张，内页图 = 该值 − 1 */
+  imageCount?: number;
 }
 
 export interface TaskCreateInput {

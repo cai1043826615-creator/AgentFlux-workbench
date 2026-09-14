@@ -106,6 +106,10 @@ export const api = {
   uploadFile: (input: { name: string; content: string }) => j<{ file: { id: string; name: string } }>(
     fetch('/api/agents/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }),
   ),
+  /** 上传技能：POST /api/agents/skills（JSON { name, content, category }）→ 写入技能库/<分类>/，立即可挂载 */
+  uploadSkill: (input: { name: string; content: string; category?: string }) => j<{ skill: { id: string; name: string } }>(
+    fetch('/api/agents/skills', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }),
+  ),
 
   // ===== 工作流 / 设置 =====
   listWorkflows: () => j<{ workflows: WorkflowDefinition[] }>(fetch('/api/workflows')),

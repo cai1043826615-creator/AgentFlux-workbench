@@ -116,30 +116,37 @@ function collectStageImages(taskId: number): { stage: 'main-image' | 'detail-ima
 
 /**
  * 构建 LLM system prompt：在基础 system 后追加【挂载技能】与【挂载文件】段。
- * 查 agents 表取该 agent 的 skills/files 数组，逐项读取本地技能/文件内容注入；
- * 内容为空则跳过对应段，全部为空时原样返回 base。
+ * 查 agents 表取该 agent 的挂载项，逐项读取内容注入；内容为空则跳过对应段，全部为空时原样返回 base。
  *
- * skill-workflow-isolation（二轮定案）：传入 workflowId 时注入**该工作流的挂载份**
- * （agents.workflow_skills[workflowId]，挂什么用什么）；分份缺失（旧数据/未分份）回退
- * 全局 skills（等价「每份初始值 = 旧全局挂载」）；未传 workflowId（非 producer 调用点）
- * 回退全局。分类过滤逻辑已废弃——隔离由分份存储本身实现。
+ * skill-workflow-isolation（二轮定案 + 用户返工）：传入 workflowId 时注入**该工作流的挂载份**
+ * （技能用 workflow_skills[workflowId]、文件用 workflow_files[workflowId]，挂什么用什么）；
+ * 某份缺失（旧数据/未分份）回退全局 skills / files（等价「每份初始值 = 旧全局挂载」，零迁移）；
+ * 未传 workflowId（非 producer 调用点）回退全局。分类过滤逻辑已废弃——隔离由分份存储本身实现。
  * 工作流专属技能（WORKFLOW_SKILLS）为独立机制，不经过本通道。
  */
 export async function buildSystemPrompt(agentId: string, base: string, workflowId?: string): Promise<string> {
-  const row = get<Pick<AgentRow, 'skills' | 'files' | 'workflow_skills'>>('SELECT skills, files, workflow_skills FROM agents WHERE id = ?', [agentId]);
+  const row = get<Pick<AgentRow, 'skills' | 'files' | 'workflow_skills' | 'workflow_files'>>(
+    'SELECT skills, files, workflow_skills, workflow_files FROM agents WHERE id = ?',
+    [agentId],
+  );
   if (!row) return base;
 
-  // 该任务工作流的挂载份：workflow_skills 有值用之，否则回退全局 skills（读时兜底，零迁移）
-  let mountedSkills = parseList(row.skills);
-  if (workflowId) {
-    try {
-      const parts_map = row.workflow_skills ? (JSON.parse(row.workflow_skills) as Record<string, string[]>) : null;
-      const part = parts_map?.[workflowId];
-      if (part) mountedSkills = part;
-    } catch {
-      /* JSON 坏行 → 回退全局（与既有容错语义一致） */
+  /** 取该工作流的分份值；份缺失/JSON 坏行 → 回退全局（读时兜底，零迁移） */
+  const partOf = (jsonCol: string, globalJson: string): string[] => {
+    if (workflowId) {
+      try {
+        const map = jsonCol ? (JSON.parse(jsonCol) as Record<string, string[]>) : null;
+        const part = map?.[workflowId];
+        if (part) return part;
+      } catch {
+        /* JSON 坏行 → 回退全局（与既有容错语义一致） */
+      }
     }
-  }
+    return parseList(globalJson);
+  };
+
+  const mountedSkills = partOf(row.workflow_skills, row.skills);
+  const mountedFiles = partOf(row.workflow_files, row.files);
 
   const parts: string[] = [];
 
@@ -151,7 +158,7 @@ export async function buildSystemPrompt(agentId: string, base: string, workflowI
   if (skillBlocks.length > 0) parts.push(`【挂载技能】\n\n${skillBlocks.join('\n\n')}`);
 
   const fileBlocks: string[] = [];
-  for (const fileRef of parseList(row.files)) {
+  for (const fileRef of mountedFiles) {
     const content = await readFileContent(fileRef);
     if (content) fileBlocks.push(`## 文件：${fileRef}\n${content}`);
   }
