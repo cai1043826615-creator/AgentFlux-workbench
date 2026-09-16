@@ -1,4 +1,0 @@
-#!/bin/sh
-# 提交前密钥扫描（禁止把 API Key / 私钥 / .env 提交到仓库）
-cd "$(git rev-parse --show-toplevel)" || exit 1
-node backend/scripts/check-secrets.mjs || exit 1

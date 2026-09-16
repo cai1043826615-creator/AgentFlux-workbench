@@ -34,6 +34,11 @@ secrets*
 .pnpm-store/
 debug.log
 
+# git 内部元数据备份目录（.git 快照，本不该入库；曾因 add -A 误入库过）
+.git-backup-*
+.git-tmp-*
+.git-snapshot-*
+
 # 编辑器/系统
 .idea/
 .vscode/
