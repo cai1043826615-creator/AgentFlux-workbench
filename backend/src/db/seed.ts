@@ -91,8 +91,9 @@ export function seed(): void {
         );
       } else if (exists.name !== a.name) {
         // P2·新1：内置 Agent 的显示名以 seed 为准同步（如小助理「涵涵」→「依依」）。
-        // 只同步姓名——人设/模型/技能仍归用户，不被 seed 覆盖。
-        // （挂载的旧库修正由 ensure.ts 的 repairBuiltinAgentMounts 按同一张权威表处理。）
+        // 只同步姓名——人设/模型/技能/挂载仍归用户，不被 seed 覆盖。
+        // 注意：显示名是**代码持续拥有**的（每次启动都会同步）；挂载只在旧库做过一次性修复，
+        // 之后完全归用户（见 ensure.ts 的 repairBuiltinAgentMounts 与 settings 标记）。
         run('UPDATE agents SET name = ? WHERE id = ?', [a.name, a.id]);
       }
     }

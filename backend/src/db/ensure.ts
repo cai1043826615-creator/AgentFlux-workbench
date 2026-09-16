@@ -1,5 +1,5 @@
 import { BUILTIN_AGENT_MOUNTS } from './agent-mounts.ts';
-import { all, run, sqlite } from './client.ts';
+import { all, get, run, sqlite } from './client.ts';
 
 /** 幂等建表（启动保底；dev / test / prod 一致） */
 export function ensureSchema(): void {
@@ -309,14 +309,23 @@ function unionOfParts(parts: Record<string, string[]>): string[] {
  * - 分份只覆盖权威表显式声明的键；表里没有的工作流键（含未来新增工作流）保留原值；
  * - 全局 skills / files 仅在「该岗位声明了分份」时按各份并集重算（与 PUT 路由同口径）；
  *   未声明分份的通用岗（依依）只在漂移时对齐，不做并集推导。
- * 幂等：目标值与现值相同则不写库、不打日志。
+ *
+ * **只跑一次**（关键）：本函数是「一次性数据修复」，不是「每次启动都对账」。
+ * 若每次启动都按权威表覆盖，用户在界面上改过的挂载会在下次重启时被改回去 ——
+ * 挂载是用户的运行期配置，代码不该持续拥有它。故修复完成后写入 settings 标记，
+ * 之后一律跳过；后续要改挂载请走界面（或自行在库里改），改完不会再被覆盖。
+ * （全新库不需要修复：seed 建表时已按同一张权威表写入。）
  */
 function repairBuiltinAgentMounts(): void {
+  const MARK = 'migration:builtinAgentMountsRepaired';
+  const done = get<{ key: string }>('SELECT key FROM settings WHERE key = ?', [MARK]);
+  if (done) return; // 已修复过：此后挂载完全归用户，代码不再介入
+
   let rows: AgentMountRow[] = [];
   try {
     rows = all<AgentMountRow>('SELECT id, skills, files, workflow_skills, workflow_files FROM agents');
   } catch {
-    return; // 表尚未建好等异常场景：交给下次启动
+    return; // 表尚未建好等异常场景：交给下次启动（标记未写，下次会重试）
   }
 
   for (const row of rows) {
@@ -353,4 +362,10 @@ function repairBuiltinAgentMounts(): void {
       if (unionFJson !== row.files) run('UPDATE agents SET files = ? WHERE id = ?', [unionFJson, row.id]);
     }
   }
+
+  // 写完标记：从此本修复不再运行，挂载交由用户（界面 / 直接改库）
+  run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [
+    MARK,
+    JSON.stringify({ at: new Date().toISOString(), note: '内置岗位挂载一次性修复已执行；后续挂载以用户配置为准' }),
+  ]);
 }
