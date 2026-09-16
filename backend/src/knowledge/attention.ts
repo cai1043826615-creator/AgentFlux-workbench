@@ -43,7 +43,7 @@ export const HOT_REQUEST_TIMEOUT_MS = 12_000;
 export const DEFAULT_MIN_KEYWORD_HITS = 2;
 
 /**
- * 内置默认源列表（hot-intel B10，按 docs/相关设计文件/热点多信息源调研.md 的 P0/P1 公开源）：
+ * 内置默认源列表（hot-intel B10，按 docs/设计/05_热点多信息源调研_0911.md 的 P0/P1 公开源）：
  * 本期只接公开源（无需凭据、无需企业资质）；需资质/合规高风险源不接，仅预留 enterpriseCredentialRequired 配置项。
  * 覆盖 平台规则 / 促销节点 / 品类趋势 / 竞品动态 中的 ≥2 类（电商垂直源 ×2 + 政府数据源 ×1 + AI 行业聚合可选 ×1）。
  */

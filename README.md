@@ -66,7 +66,7 @@ Multi-Agent E-Commerce Workbench —— 一套把「电商新品上架全套物�
 │   └── files/                # 可挂载文件（人设 / 知识库等）
 ├── packages/shared/          # @workbench/shared 共享类型与工作流常量
 ├── openspec/                 # OpenSpec 变更文档（proposal / design / tasks / specs）
-└── docs/                     # 验收清单（含大白话版）、修改意见落地记录
+└── docs/                     # 规范、设计、验收、改动记录（详见 AGENTS.md 文档体系定位）
 ```
 
 ## 快速启动
@@ -117,7 +117,7 @@ cd backend && node scripts/smoke-chat-reply.ts
 cd backend && node scripts/smoke-skills.ts
 ```
 
-前端验收请见 `docs/验收清单-大白话版.md`（逐步操作 + 预期表现）与 `docs/前端UI验证清单.md`、`docs/前端操作测试清单.md`。
+前端验收请见 `docs/验收/04_验收清单-大白话版_0910.md`（逐步操作 + 预期表现）与 `docs/验收/02_前端UI验证清单_0910.md`、`docs/验收/01_前端操作测试清单_0910.md`。
 
 ## 设计说明
 
