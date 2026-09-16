@@ -122,9 +122,15 @@ function collectStageImages(taskId: number): { stage: 'main-image' | 'detail-ima
  * （技能用 workflow_skills[workflowId]、文件用 workflow_files[workflowId]，挂什么用什么）；
  * 某份缺失（旧数据/未分份）回退全局 skills / files（等价「每份初始值 = 旧全局挂载」，零迁移）；
  * 未传 workflowId（非 producer 调用点）回退全局。分类过滤逻辑已废弃——隔离由分份存储本身实现。
- * 工作流专属技能（WORKFLOW_SKILLS）为独立机制，不经过本通道。
+ * 工作流专属技能（WORKFLOW_SKILLS）为独立机制，不经过本通道；excludeSkillIds 用于避免
+ * 同一技能被「挂载」与「工作流机制」重复注入（同一份内容进 prompt 两次 = 白烧 token）。
  */
-export async function buildSystemPrompt(agentId: string, base: string, workflowId?: string): Promise<string> {
+export async function buildSystemPrompt(
+  agentId: string,
+  base: string,
+  workflowId?: string,
+  excludeSkillIds?: readonly string[],
+): Promise<string> {
   const row = get<Pick<AgentRow, 'skills' | 'files' | 'workflow_skills' | 'workflow_files'>>(
     'SELECT skills, files, workflow_skills, workflow_files FROM agents WHERE id = ?',
     [agentId],
@@ -137,6 +143,8 @@ export async function buildSystemPrompt(agentId: string, base: string, workflowI
       try {
         const map = jsonCol ? (JSON.parse(jsonCol) as Record<string, string[]>) : null;
         const part = map?.[workflowId];
+        // 注意：空数组是有效值（「这条工作流不挂」），truthy 判定即可，勿改成 length 判定，
+        // 否则空份会掉进全局回退、把另一条工作流的技能串进来。
         if (part) return part;
       } catch {
         /* JSON 坏行 → 回退全局（与既有容错语义一致） */
@@ -147,11 +155,13 @@ export async function buildSystemPrompt(agentId: string, base: string, workflowI
 
   const mountedSkills = partOf(row.workflow_skills, row.skills);
   const mountedFiles = partOf(row.workflow_files, row.files);
+  const excluded = new Set(excludeSkillIds ?? []);
 
   const parts: string[] = [];
 
   const skillBlocks: string[] = [];
   for (const skillId of mountedSkills) {
+    if (excluded.has(skillId)) continue; // 已由工作流机制注入，跳过避免重复
     const content = await readSkillContent(skillId);
     if (content) skillBlocks.push(`## 技能：${skillId}\n${content}`);
   }
@@ -173,17 +183,32 @@ export async function buildSystemPrompt(agentId: string, base: string, workflowI
  * 场景：同一 Agent 服务多条工作流（如美美既写电商文案又写小红书笔记），
  * 工作流红线（如《小红书合规违禁词清单》）只应出现在对应工作流的 prompt 里。
  * 键为技能 id，值为适用的工作流 id 列表；未列出任何工作流技能时本函数不产生任何内容。
+ *
+ * 定位（用户定案 2026-09-16）：这是**系统级流程组件**，不是用户的挂载素材——
+ * 用户不该把它当文件挂载，后续新增电商/小红书工作流时也应作为「组件按钮」供用户选用，
+ * 而不是要求用户自己去挂。因此这里维护系统内置的默认component表，
+ * 由 workflowSkillIdsFor 统一对外暴露，注入与去重都走同一个来源。
  */
 const WORKFLOW_SKILLS: Record<string, string[]> = {
   小红书合规违禁词清单: ['xhs-note'],
 };
 
+/**
+ * 某工作流由**系统机制**注入的技能 id（与用户挂载无关，不含 Agent 个人挂载）。
+ * 两处用：① 生成「工作流专属技能」段；② 作为挂载段的排除清单——同一技能若已被
+ * 系统注入，就不再经挂载通道注入一遍（同一份内容进 prompt 两次纯属浪费 token）。
+ */
+export function workflowSkillIdsFor(workflowId?: string): string[] {
+  if (!workflowId) return [];
+  return Object.entries(WORKFLOW_SKILLS)
+    .filter(([, wfIds]) => wfIds.includes(workflowId))
+    .map(([skillId]) => skillId);
+}
+
 /** 收集适用于某工作流的工作流专属技能段（无则返回空串，prompt 与既有完全一致） */
 async function workflowSkillBlock(workflowId?: string): Promise<string> {
-  if (!workflowId) return '';
   const blocks: string[] = [];
-  for (const [skillId, wfIds] of Object.entries(WORKFLOW_SKILLS)) {
-    if (!wfIds.includes(workflowId)) continue;
+  for (const skillId of workflowSkillIdsFor(workflowId)) {
     const content = await readSkillContent(skillId);
     if (content) blocks.push(`## 工作流专属技能：${skillId}\n${content}`);
   }
@@ -200,7 +225,9 @@ async function workflowSkillBlock(workflowId?: string): Promise<string> {
  * - taskId 无关联资料 / 无热点背景 / 无待处理返工意见时对应段为空，最终 prompt 与既有完全一致（板块独立性）。
  */
 export async function buildProducerSystemPrompt(agentId: string, base: string, taskId?: number, workflowId?: string): Promise<string> {
-  const withMounts = await buildSystemPrompt(agentId, base, workflowId);
+  // 系统工作流技能先算 id：既用于注入该段，也作为挂载段的排除清单（同一技能不注入两遍）
+  const wfSkillIds = workflowSkillIdsFor(workflowId);
+  const withMounts = await buildSystemPrompt(agentId, base, workflowId, wfSkillIds);
   const wfSkills = await workflowSkillBlock(workflowId);
   const kb = await buildKnowledgeContext(taskId);
   const hot = buildHotContext(taskId); // 同步只读快照表；异常内部降级为空串

@@ -1,3 +1,4 @@
+import { BUILTIN_AGENT_MOUNTS } from './agent-mounts.ts';
 import { all, run, sqlite } from './client.ts';
 
 /** 幂等建表（启动保底；dev / test / prod 一致） */
@@ -161,6 +162,7 @@ export function ensureSchema(): void {
   `);
   migrateAgentFileMounts();
   migrateAgentFileMountsToVault();
+  repairBuiltinAgentMounts();
 }
 
 /**
@@ -242,5 +244,113 @@ function migrateAgentFileMountsToVault(): void {
       return x;
     });
     if (changed) run('UPDATE agents SET files = ? WHERE id = ?', [JSON.stringify(next), row.id]);
+  }
+}
+
+/* ===== 内置 Agent 分份挂载回填与错位修正 ===== */
+
+type AgentMountRow = {
+  id: string;
+  skills: string;
+  files: string;
+  workflow_skills: string;
+  workflow_files: string;
+};
+
+/** 把分份 JSON 列安全解析为「工作流 id → 条目数组」；坏行/非对象一律回退 {}（保持既有容错语义） */
+function parseParts(json: string | null | undefined): Record<string, string[]> {
+  if (!json) return {};
+  try {
+    const v = JSON.parse(json) as unknown;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, string[]> = {};
+    for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
+      if (Array.isArray(val) && val.every((x) => typeof x === 'string')) out[key] = val as string[];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** 权威表的份覆盖到现值上：只覆盖表里声明的键，未声明的键（含未来新增工作流）保留原值 */
+function overlayParts(
+  current: Record<string, string[]>,
+  target: Record<string, string[]> | undefined,
+): Record<string, string[]> {
+  if (!target) return current;
+  return { ...current, ...target };
+}
+
+/** 各份取并集（去重、保持首现顺序）——全局 skills/files 是只读派生视图 */
+function unionOfParts(parts: Record<string, string[]>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of Object.values(parts)) {
+    for (const item of list) {
+      if (seen.has(item)) continue;
+      seen.add(item);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+/**
+ * 内置 Agent 的分份挂载回填与错位修正（幂等）。
+ *
+ * 为什么需要：workflow_skills / workflow_files 是后加的列，存量行只拿到 DEFAULT '{}'；
+ * 而 seed() 对已存在的 Agent 只同步 name（persona/model/skills/files 属用户领地），
+ * 于是「代码里的内置挂载意图」从未落到存量库；试用期间又产生了角色错位
+ * （设计师技能《电商视觉规范》挂到了文案美美、文案技能《电商文案模板》挂到了主管波波）。
+ *
+ * 修正范围刻意收窄，避免误伤用户配置：
+ * - 只处理 BUILTIN_AGENT_MOUNTS 列出的内置岗位 id，用户自建岗位一律不动；
+ * - 分份只覆盖权威表显式声明的键；表里没有的工作流键（含未来新增工作流）保留原值；
+ * - 全局 skills / files 仅在「该岗位声明了分份」时按各份并集重算（与 PUT 路由同口径）；
+ *   未声明分份的通用岗（依依）只在漂移时对齐，不做并集推导。
+ * 幂等：目标值与现值相同则不写库、不打日志。
+ */
+function repairBuiltinAgentMounts(): void {
+  let rows: AgentMountRow[] = [];
+  try {
+    rows = all<AgentMountRow>('SELECT id, skills, files, workflow_skills, workflow_files FROM agents');
+  } catch {
+    return; // 表尚未建好等异常场景：交给下次启动
+  }
+
+  for (const row of rows) {
+    const intent = BUILTIN_AGENT_MOUNTS[row.id];
+    if (!intent) continue; // 非内置岗位：用户自建，一律不动
+
+    // ---- 技能份 ----
+    if (intent.workflowSkills) {
+      const next = overlayParts(parseParts(row.workflow_skills), intent.workflowSkills);
+      const nextJson = JSON.stringify(next);
+      if (nextJson !== row.workflow_skills) {
+        run('UPDATE agents SET workflow_skills = ? WHERE id = ?', [nextJson, row.id]);
+        console.warn(`[workbench] 内置岗位分份技能已回填/修正：${row.id}`);
+      }
+      const unionJson = JSON.stringify(unionOfParts(next));
+      if (unionJson !== row.skills) run('UPDATE agents SET skills = ? WHERE id = ?', [unionJson, row.id]);
+    } else {
+      const want = JSON.stringify(intent.skills);
+      if (want !== row.skills) {
+        run('UPDATE agents SET skills = ? WHERE id = ?', [want, row.id]);
+        console.warn(`[workbench] 内置岗位全局技能已对齐：${row.id}`);
+      }
+    }
+
+    // ---- 文件份 ----
+    if (intent.workflowFiles) {
+      const nextF = overlayParts(parseParts(row.workflow_files), intent.workflowFiles);
+      const nextFJson = JSON.stringify(nextF);
+      if (nextFJson !== row.workflow_files) {
+        run('UPDATE agents SET workflow_files = ? WHERE id = ?', [nextFJson, row.id]);
+        console.warn(`[workbench] 内置岗位分份文件已回填/修正：${row.id}`);
+      }
+      const unionFJson = JSON.stringify(unionOfParts(nextF));
+      if (unionFJson !== row.files) run('UPDATE agents SET files = ? WHERE id = ?', [unionFJson, row.id]);
+    }
   }
 }

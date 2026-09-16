@@ -1,6 +1,7 @@
 import { ECOM_WORKFLOW, WORKFLOW_ID, WORKFLOW_NAME, XHS_WORKFLOW, XHS_WORKFLOW_ID, XHS_WORKFLOW_NAME } from '@workbench/shared';
 import { CHANNEL } from '../config.ts';
 import { get, run, tx } from './client.ts';
+import { BUILTIN_AGENT_MOUNTS } from './agent-mounts.ts';
 import { ensureSchema } from './ensure.ts';
 
 /**
@@ -24,15 +25,18 @@ function syncBuiltinWorkflow(id: string, name: string, def: unknown): void {
   console.warn(`[workbench] 工作流定义与代码不一致，已同步覆盖：${id}`);
 }
 
-/** 预置 Agent 岗位（线框原型：美美/平平/波波；模型为默认值，可在工位设置中修改） */export const SEED_AGENTS = [
+/**
+ * 预置 Agent 岗位（线框原型：美美/平平/波波/依依；模型为默认值，可在工位设置中修改）。
+ * 挂载（skills / files / 分份）不在此处硬写，统一取自 agent-mounts.ts 的 BUILTIN_AGENT_MOUNTS，
+ * 与 ensure.ts 的旧库回填共用同一份权威表，避免两处各写一份而漂移。
+ */
+export const SEED_AGENTS = [
   {
     id: 'agent-copy',
     name: '美美',
     role: '文案',
     persona: '产品文案专家，擅长提炼卖点与转化话术；输出结构化文案包（标题/5条核心卖点/详情大纲/关键词清单）。语气专业、简洁。',
     model: 'deepseek-chat',
-    skills: JSON.stringify(['电商文案模板', 'SEO 关键词', '小红书合规违禁词清单']),
-    files: JSON.stringify(['知识库/品牌规范/品牌手册.md']),
   },
   {
     id: 'agent-design',
@@ -40,8 +44,6 @@ function syncBuiltinWorkflow(id: string, name: string, def: unknown): void {
     role: '设计师',
     persona: '电商视觉设计师，负责主图与详情图；构图干净、卖点清晰，输出白底图+场景图组。',
     model: 'gpt-image-2',
-    skills: JSON.stringify(['电商视觉规范']),
-    files: JSON.stringify(['知识库/品牌规范/品牌视觉规范.md']),
   },
   {
     id: 'agent-supervisor',
@@ -49,8 +51,6 @@ function syncBuiltinWorkflow(id: string, name: string, def: unknown): void {
     role: '主管',
     persona: '质检主管，跨产出物一致性校对（文案与图片信息一致、规格完整、平台合规），输出校对报告与修改意见单。',
     model: 'deepseek-chat',
-    skills: JSON.stringify(['质检清单']),
-    files: JSON.stringify([]),
   },
   {
     // P2·F3：知识库小助理「依依」。不参与电商工作流（AGENT_BY_ROLE 三角色白名单不含「助理」），
@@ -60,8 +60,6 @@ function syncBuiltinWorkflow(id: string, name: string, def: unknown): void {
     role: '助理',
     persona: '知识库整理助理，负责把产品资料与每日热点素材整理成结构化 Markdown（保留关键事实与来源路径），并能对知识库做体检给出整理建议（重复主题/缺失标签/可互链孤岛）。只读知识库，绝不修改 Vault 内任何文件。',
     model: 'deepseek-chat',
-    skills: JSON.stringify(['知识库整理', '素材结构化']),
-    files: JSON.stringify([]),
   },
 ] as const;
 
@@ -73,13 +71,28 @@ export function seed(): void {
     for (const a of SEED_AGENTS) {
       const exists = get<{ id: string; name: string }>('SELECT id, name FROM agents WHERE id = ?', [a.id]);
       if (!exists) {
+        const mount = BUILTIN_AGENT_MOUNTS[a.id];
         run(
-          'INSERT INTO agents (id,name,role,persona,model,skills,files,online_status,activity,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-          [a.id, a.name, a.role, a.persona, a.model, a.skills, a.files, 'idle', '待命', now],
+          'INSERT INTO agents (id,name,role,persona,model,skills,files,workflow_skills,workflow_files,online_status,activity,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+          [
+            a.id,
+            a.name,
+            a.role,
+            a.persona,
+            a.model,
+            JSON.stringify(mount?.skills ?? []),
+            JSON.stringify(mount?.files ?? []),
+            JSON.stringify(mount?.workflowSkills ?? {}),
+            JSON.stringify(mount?.workflowFiles ?? {}),
+            'idle',
+            '待命',
+            now,
+          ],
         );
       } else if (exists.name !== a.name) {
         // P2·新1：内置 Agent 的显示名以 seed 为准同步（如小助理「涵涵」→「依依」）。
         // 只同步姓名——人设/模型/技能仍归用户，不被 seed 覆盖。
+        // （挂载的旧库修正由 ensure.ts 的 repairBuiltinAgentMounts 按同一张权威表处理。）
         run('UPDATE agents SET name = ? WHERE id = ?', [a.name, a.id]);
       }
     }
