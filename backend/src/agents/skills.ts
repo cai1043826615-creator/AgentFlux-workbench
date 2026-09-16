@@ -18,6 +18,14 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentSkillInfo } from '@workbench/shared';
 import { listVaultMarkdown, resolveVaultConfig, vaultAbsPath } from '../knowledge/vault.ts';
+import {
+  SNAPSHOT_SKILLS,
+  contentHash,
+  followCatalogChanges,
+  readCatalogSnapshot,
+  saveCatalogSnapshot,
+  type CatalogEntry,
+} from './mount-repoint.ts';
 
 /** 后端根目录 backend（src/agents 或 dist/agents 上溯两级；再上溯一级即 repo 根，与 Vault 目录 docs/ 同层） */
 const BACKEND_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -105,6 +113,34 @@ function ensureIndex(): Promise<Map<string, string>> {
 
 /** 扫描根目录 + 各一级分类子目录；跨目录同名技能保留先扫到的并告警（design D4） */
 async function scanIndex(): Promise<Map<string, string>> {
+  const index = await buildSkillIndex();
+  await syncSkillCatalog(index);
+  return index;
+}
+
+/**
+ * 技能目录快照同步与改名/移动跟随（mount-rename-follow）。
+ * 技能不在 Vault 索引范围内，指纹只能在此现算（技能文件都很小，数量个位数）。
+ * 任何异常一律吞掉：挂载跟随是增强，不能让它把「取技能」这条主链路弄挂。
+ */
+async function syncSkillCatalog(index: Map<string, string>): Promise<void> {
+  try {
+    const entries: CatalogEntry[] = [];
+    for (const [id, fp] of index) {
+      const content = await readFile(fp, 'utf8').catch(() => '');
+      if (!content) continue;
+      entries.push({ ref: id, hash: contentHash(content) });
+    }
+    const baseline = readCatalogSnapshot(SNAPSHOT_SKILLS);
+    followCatalogChanges(SNAPSHOT_SKILLS, baseline, entries);
+    saveCatalogSnapshot(SNAPSHOT_SKILLS, entries);
+  } catch (err) {
+    console.warn(`[skills] 技能目录快照同步失败（不影响技能读取）：${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** 构建「技能 id → 绝对路径」映射（不含快照副作用，便于单独复用与测试） */
+async function buildSkillIndex(): Promise<Map<string, string>> {
   const index = new Map<string, string>();
   const skillsDir = resolveSkillsDir();
   const addDir = async (dir: string): Promise<void> => {

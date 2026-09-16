@@ -7,6 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import { all, run, tx } from '../db/client.ts';
+import { SNAPSHOT_DOCS, followCatalogChanges, readCatalogSnapshot, saveCatalogSnapshot } from '../agents/mount-repoint.ts';
 import { extractLinks, extractTags, extractTitle, parseFrontmatter, resolveLinkTarget } from './markdown.ts';
 import { KT, META, ensureKnowledgeSchema, setMeta } from './schema.ts';
 import { dirOf, listVaultMarkdown, readVaultFile, resolveVaultConfig, type VaultConfig } from './vault.ts';
@@ -74,12 +75,23 @@ async function collectDocs(cfg: VaultConfig): Promise<{ docs: DocEntry[]; skippe
   return { docs, skipped };
 }
 
-/** 写入索引（同步事务：docs + fts + links 一次落库，保证一致） */
+/**
+ * 写入索引（同步事务：docs + fts + links 一次落库，保证一致）。
+ *
+ * mount-rename-follow：写入前后各做一件事——
+ * - **写前**取「重建前的目录快照」作为基线（必须在 DELETE 之前，否则基线也被清掉）；
+ * - **写后**用基线与新目录比对识别改名/移动并静默跟随挂载，然后落新快照。
+ * 快照只在构建成功后更新，因此构建失败时基线保持对应上一次成功状态。
+ */
 function writeIndex(docs: DocEntry[]): IndexResult {
   const indexed = new Set(docs.map((d) => d.path));
   const tagSet = new Set<string>();
   const dirSet = new Set<string>();
   let edgeCount = 0;
+
+  // 基线：本次重建前的目录状态（挂载跟随的比对依据）
+  const baseline = readCatalogSnapshot(SNAPSHOT_DOCS);
+  const entries = docs.map((d) => ({ ref: d.path, hash: d.hash }));
 
   tx(() => {
     run(`DELETE FROM ${KT.docs}`);
@@ -110,6 +122,15 @@ function writeIndex(docs: DocEntry[]): IndexResult {
       }
     }
   });
+
+  // 改名/移动跟随（静默；唯一指纹匹配才跟随，见 mount-repoint.ts），随后落新快照作为下一轮基线
+  try {
+    followCatalogChanges(SNAPSHOT_DOCS, baseline, entries);
+    saveCatalogSnapshot(SNAPSHOT_DOCS, entries);
+  } catch (err) {
+    // 跟随失败不能影响索引本身（索引是主职责，挂载跟随是增强）
+    console.warn(`[mount-repoint] 挂载跟随失败（不阻断索引）：${err instanceof Error ? err.message : String(err)}`);
+  }
 
   return { docCount: docs.length, tagCount: tagSet.size, dirCount: dirSet.size, edgeCount, skipped: 0 };
 }

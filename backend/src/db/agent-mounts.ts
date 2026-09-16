@@ -77,3 +77,55 @@ export const BUILTIN_AGENT_MOUNTS: Record<string, BuiltinAgentMount> = {
     files: [],
   },
 };
+
+/* ===== 分份挂载的 JSON 解析与并集工具（db 层共用，ensure.ts 与 agents/mount-repoint.ts 都取自这里） ===== */
+
+/** 把分份 JSON 列安全解析为「工作流 id → 条目数组」；坏行/非对象一律回退 {}（保持既有容错语义） */
+export function parseParts(json: string | null | undefined): Record<string, string[]> {
+  if (!json) return {};
+  try {
+    const v = JSON.parse(json) as unknown;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, string[]> = {};
+    for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
+      if (Array.isArray(val) && val.every((x) => typeof x === 'string')) out[key] = val as string[];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** 把 JSON 列安全解析为字符串数组；坏行/非数组一律回退 [] */
+export function parseList(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const v = JSON.parse(json) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 权威表的份覆盖到现值上：只覆盖表里声明的键，未声明的键（含未来新增工作流）保留原值 */
+export function overlayParts(
+  current: Record<string, string[]>,
+  target: Record<string, string[]> | undefined,
+): Record<string, string[]> {
+  if (!target) return current;
+  return { ...current, ...target };
+}
+
+/** 各份取并集（去重、保持首现顺序）——全局 skills/files 是只读派生视图 */
+export function unionOfParts(parts: Record<string, string[]>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of Object.values(parts)) {
+    for (const item of list) {
+      if (seen.has(item)) continue;
+      seen.add(item);
+      out.push(item);
+    }
+  }
+  return out;
+}

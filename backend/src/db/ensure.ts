@@ -1,4 +1,4 @@
-import { BUILTIN_AGENT_MOUNTS } from './agent-mounts.ts';
+import { BUILTIN_AGENT_MOUNTS, overlayParts, parseParts, unionOfParts } from './agent-mounts.ts';
 import { all, get, run, sqlite } from './client.ts';
 
 /** 幂等建表（启动保底；dev / test / prod 一致） */
@@ -160,6 +160,17 @@ export function ensureSchema(): void {
       value TEXT NOT NULL
     );
   `);
+  // 目录快照（mount-rename-follow）：记录「上一次成功构建」的目录条目与内容指纹，
+  // 供下次重建作为基线比对，识别改名/移动并静默跟随挂载。
+  // kind 区分两个命名空间：docs（Vault 文档，ref=Vault 相对路径）/ skills（技能，ref=技能 id）。
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS catalog_snapshot (
+      kind TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      PRIMARY KEY (kind, ref)
+    );
+  `);
   migrateAgentFileMounts();
   migrateAgentFileMountsToVault();
   repairBuiltinAgentMounts();
@@ -257,44 +268,7 @@ type AgentMountRow = {
   workflow_files: string;
 };
 
-/** 把分份 JSON 列安全解析为「工作流 id → 条目数组」；坏行/非对象一律回退 {}（保持既有容错语义） */
-function parseParts(json: string | null | undefined): Record<string, string[]> {
-  if (!json) return {};
-  try {
-    const v = JSON.parse(json) as unknown;
-    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
-    const out: Record<string, string[]> = {};
-    for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
-      if (Array.isArray(val) && val.every((x) => typeof x === 'string')) out[key] = val as string[];
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-/** 权威表的份覆盖到现值上：只覆盖表里声明的键，未声明的键（含未来新增工作流）保留原值 */
-function overlayParts(
-  current: Record<string, string[]>,
-  target: Record<string, string[]> | undefined,
-): Record<string, string[]> {
-  if (!target) return current;
-  return { ...current, ...target };
-}
-
-/** 各份取并集（去重、保持首现顺序）——全局 skills/files 是只读派生视图 */
-function unionOfParts(parts: Record<string, string[]>): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const list of Object.values(parts)) {
-    for (const item of list) {
-      if (seen.has(item)) continue;
-      seen.add(item);
-      out.push(item);
-    }
-  }
-  return out;
-}
+/* 分份解析与并集工具已上移到 db/agent-mounts.ts（与 mount-repoint.ts 共用同一份实现，避免两处各写一遍） */
 
 /**
  * 内置 Agent 的分份挂载回填与错位修正（幂等）。
