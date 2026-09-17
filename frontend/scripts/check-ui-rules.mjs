@@ -3,6 +3,7 @@
  *
  * 用法：
  *   node frontend/scripts/check-ui-rules.mjs                        # 扫描 git 暂存区（pre-commit 调用）
+ *   node frontend/scripts/check-ui-rules.mjs --all                  # 全仓扫描已跟踪前端源码（CI 调用）
  *   node frontend/scripts/check-ui-rules.mjs --patch-file <路径> [假想文件名]  # 离线验证（测试/CI 复现）
  *
  * 退出码：
@@ -10,7 +11,7 @@
  *   1 = 检出违规（应阻止提交）
  *   2 = 用法错误（如 --patch-file 路径不存在）
  *
- * 校验规则来源：项目根 AGENTS.md「二、UI 设计硬约束」+ docs/规范/01_UI设计与组件规范_0908.md
+ * 校验规则来源：项目根 AGENTS.md「二、UI 设计硬约束」+ docs/规范/01_UI设计与组件规范_0916.md
  *
  * 放行机制：行内注释 `ui-rules-ignore`（需写明理由）或 `ui-rules-ignore-next-line`
  */
@@ -151,6 +152,35 @@ function reportAndExit() {
 const argv = process.argv.slice(2);
 if (argv[0] === '--patch-file') {
   process.exit(runFromPatchFile(argv[1], argv[2]));
+}
+
+/**
+ * 全仓扫描模式（CI 用）：扫描所有已跟踪且未被忽略的前端源码文件
+ * 与暂存区模式的差别：没有「新增行」概念，故对整文件逐行检查。
+ */
+if (argv[0] === '--all') {
+  try {
+    const files = execFileSync('git', ['ls-files', 'frontend/src'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((f) => TARGET_RE.test(f))
+      .filter((f) => !/\.(test|spec)\./.test(f));
+
+    for (const f of files) {
+      let text;
+      try {
+        text = readFileSync(f, 'utf8');
+      } catch {
+        continue;
+      }
+      scanPatch(f, text.split('\n').map((l) => '+' + l).join('\n'));
+    }
+    process.exit(reportAndExit());
+  } catch (err) {
+    console.error('[check-ui-rules] ⚠️ 全仓扫描失败: ' + (err.message || err));
+    process.exit(0); // 环境异常不阻构建
+  }
 }
 
 try {

@@ -34,6 +34,9 @@ secrets*
 .pnpm-store/
 debug.log
 
+# Firecrawl 调研缓存（网页抓取产物，不入库）
+.firecrawl/
+
 # git 内部元数据备份目录（.git 快照，本不该入库；曾因 add -A 误入库过）
 .git-backup-*
 .git-tmp-*
