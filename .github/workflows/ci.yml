@@ -1,0 +1,58 @@
+name: CI
+
+# 触发：推送到 master、对 master 的 PR
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  # ── 规则校验（安全红线 + UI 规范）─────────────────────────────
+  # 本机靠 .git/hooks/pre-commit 拦截，但钩子不入库、换机失效、沙箱环境无法运行，
+  # 故在 CI 里显式跑同样的脚本，作为「离开本机也拦得住」的兜底。
+  rules:
+    name: 规则校验（密钥 + UI 规范）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 1. 密钥泄露扫描：全仓扫描（CI 无暂存区概念，故扫工作树）
+      - name: 密钥泄露扫描
+        run: node backend/scripts/check-secrets.mjs --all
+
+      # 2. UI 规范扫描：全仓扫描前端源码
+      - name: UI 规范扫描
+        run: node frontend/scripts/check-ui-rules.mjs --all
+
+  # ── 类型检查与测试 ────────────────────────────────────────────
+  test:
+    name: 类型检查与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 后端测试
+        run: pnpm --filter ./backend test
+
+      - name: 前端构建
+        run: pnpm --filter ./frontend build
