@@ -423,7 +423,7 @@ export function AgentSettingsModal({
               <span className="flex-1" />
               <label
                 className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
-                style={{ fontSize: 12, padding: '3px 10px' }}
+                style={{ fontSize: 12 }}
                 title="上传 .md 技能文件到技能库对应分类，并自动挂到本工作流"
               >
                 上传技能
@@ -431,7 +431,7 @@ export function AgentSettingsModal({
               </label>
               <label
                 className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
-                style={{ fontSize: 12, padding: '3px 10px' }}
+                style={{ fontSize: 12 }}
                 title="上传 .md/.txt/.json 到知识库收件箱，并自动挂到本工作流"
               >
                 上传文件

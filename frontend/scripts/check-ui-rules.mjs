@@ -27,6 +27,12 @@ const ALLOWED_COLOR_TOKENS = [
   'dur-fast', 'dur-standard', 'dur-deliberate', 'ease-standard',
 ];
 
+/** 令牌定义源：这些文件允许出现字面色值（它们是令牌本身的定义处，不是使用处）
+ *  - index.css：@theme 令牌定义
+ *  - graphCanvas.ts：Canvas 令牌桥接层（含 FALLBACK 回退值定义，与 @theme 一一对应）
+ */
+const TOKEN_SOURCE_RE = /(?:^|\/)(index\.css|graphCanvas\.ts)$/;
+
 const RULES = [
   {
     id: 'R1',
@@ -34,7 +40,7 @@ const RULES = [
     // 命中 #abc / #aabbcc，但排除纯 #fff/#000 之外的一切裸色值
     re: /#[0-9a-fA-F]{3,8}\b/g,
     hint: '改用 var(--color-*) 令牌，令牌表见 frontend/src/index.css @theme',
-    allowFile: (f) => /index\.css$/.test(f), // index.css 是令牌定义源，允许
+    allowFile: (f) => TOKEN_SOURCE_RE.test(f),
   },
   {
     id: 'R2',
@@ -43,7 +49,7 @@ const RULES = [
     // 旧版只匹配 0/255 会漏报（2026-09-16 实测漏了 10 处）。
     re: /\brgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+/g,
     hint: '改用具名令牌；遮罩/浮层阴影属规范允许例外，在该行加注释 ui-rules-ignore 并写明理由',
-    allowFile: (f) => false,
+    allowFile: (f) => TOKEN_SOURCE_RE.test(f),
   },
   {
     id: 'R3',

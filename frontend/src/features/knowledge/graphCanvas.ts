@@ -9,6 +9,37 @@
  */
 import type { KnowledgeGraphEdge, KnowledgeGraphNode } from '@workbench/shared';
 
+/**
+ * ── 令牌桥接层 ─────────────────────────────────────────────────────────
+ * Canvas 的 fillStyle/strokeStyle **只接受具体色值，无法使用 `var(--color-*)`**。
+ * 因此在此集中读取 CSS 变量（AGENTS.md 规则 C1 / 规范 §5）：
+ *   - 读取集中在文件顶部，不散落在绘制逻辑里；
+ *   - `document` 不可用时（SSR/测试/未挂载）回退到与令牌一致的字面值；
+ *   - 半透明一律用 `ctx.globalAlpha`，不再手写 rgba()。
+ */
+const FALLBACK = {
+  signal: '#7c3aed', // --color-signal
+  signalLight: '#a78bfa', // --color-signal-light
+  signalPale: '#c4b5fd', // --color-signal-pale
+  graphTag: '#d4d4d8', // --color-graph-tag
+  ink: '#0a0a0a', // --color-ink
+  inkSoft: '#52525b', // --color-ink-soft
+  inkFaint: '#a1a1aa', // --color-ink-faint
+  surface: '#ffffff', // --color-surface
+};
+
+function cssVar(name: string): string {
+  if (typeof document === 'undefined') return '';
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/** 读取令牌（读不到则用回退值）。每次调用时读取，以支持主题变化。 */
+function token(name: keyof typeof FALLBACK): string {
+  const varName = `--color-${name.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase())}`;
+  return cssVar(varName) || FALLBACK[name];
+}
+
+
 /** 视图变换（世界坐标 → 屏幕坐标的平移与缩放） */
 export interface GraphView {
   zoom: number;
@@ -130,10 +161,21 @@ export function drawGraph(ctx: CanvasRenderingContext2D, opts: GraphRenderOpts):
     ctx.beginPath();
     ctx.setLineDash(e.kind === 'tag' ? [3, 3] : []);
     ctx.lineWidth = focused ? 1.8 : 0.9;
-    ctx.strokeStyle = focused ? 'rgba(124,58,237,0.85)' : e.kind === 'tag' ? 'rgba(161,161,170,0.5)' : 'rgba(82,82,91,0.32)';
+    // 边透明度用 globalAlpha 表达（原 rgba 的 0.85 / 0.5 / 0.32）
+    if (focused) {
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = token('signal');
+    } else if (e.kind === 'tag') {
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = token('inkFaint');
+    } else {
+      ctx.globalAlpha = 0.32;
+      ctx.strokeStyle = token('inkSoft');
+    }
     ctx.moveTo(sp.x, sp.y);
     ctx.lineTo(tp.x, tp.y);
     ctx.stroke();
+    ctx.globalAlpha = 1;
   }
   ctx.setLineDash([]);
 
@@ -147,19 +189,21 @@ export function drawGraph(ctx: CanvasRenderingContext2D, opts: GraphRenderOpts):
     if (n.highlight) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(124,58,237,0.22)';
+      ctx.globalAlpha = 0.22; // 原 rgba(124,58,237,0.22)
+      ctx.fillStyle = token('signal');
       ctx.fill();
+      ctx.globalAlpha = 1;
     }
 
     ctx.globalAlpha = dim ? 0.32 : 1;
     if (n.kind === 'doc') {
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = selected ? '#7c3aed' : n.neighbor ? '#a78bfa' : '#52525b';
+      ctx.fillStyle = selected ? token('signal') : n.neighbor ? token('signalLight') : token('inkSoft');
       ctx.fill();
       if (selected) {
         ctx.lineWidth = 2;
-        ctx.strokeStyle = '#7c3aed';
+        ctx.strokeStyle = token('signal');
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2);
         ctx.stroke();
@@ -172,10 +216,10 @@ export function drawGraph(ctx: CanvasRenderingContext2D, opts: GraphRenderOpts):
       ctx.lineTo(p.x, p.y + r);
       ctx.lineTo(p.x - r, p.y);
       ctx.closePath();
-      ctx.fillStyle = selected ? '#7c3aed' : n.neighbor ? '#c4b5fd' : '#d4d4d8';
+      ctx.fillStyle = selected ? token('signal') : n.neighbor ? token('signalPale') : token('graphTag');
       ctx.fill();
       ctx.lineWidth = 1;
-      ctx.strokeStyle = '#a1a1aa';
+      ctx.strokeStyle = token('inkFaint');
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -183,10 +227,12 @@ export function drawGraph(ctx: CanvasRenderingContext2D, opts: GraphRenderOpts):
     // 标签文字：文档节点在缩放足够或选中/邻居/高亮时绘制
     if (n.kind === 'doc' && (zoom >= 0.8 || selected || n.neighbor || n.highlight)) {
       ctx.font = `${selected || n.highlight ? '600 ' : ''}11px ui-sans-serif, system-ui, sans-serif`;
-      // canvas 不支持 CSS 变量，使用与 --color-ink 一致的字面色值
-      ctx.fillStyle = dim ? 'rgba(10,10,10,0.3)' : DARK ? 'rgba(250,250,250,0.9)' : '#0a0a0a';
+      // 文字色与透明度：淡化态 0.3，深色主题用 surface，浅色主题用 ink
+      ctx.globalAlpha = dim ? 0.3 : 1;
+      ctx.fillStyle = DARK ? token('surface') : token('ink');
       ctx.textAlign = 'center';
       ctx.fillText(n.label.length > 12 ? `${n.label.slice(0, 12)}…` : n.label, p.x, p.y + r + 11);
+      ctx.globalAlpha = 1;
     }
   }
 }
