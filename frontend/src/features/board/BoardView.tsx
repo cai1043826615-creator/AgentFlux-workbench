@@ -201,6 +201,7 @@ function TaskCard({
           {menuOpen ? (
             <div
               className="qs-card absolute bottom-full right-0 z-20 mb-1 w-[124px] p-1"
+              /* ui-rules-ignore 浮层阴影：下拉菜单真实抬升，规范允许（AGENTS.md 二.5 例外） */
               style={{ boxShadow: '0 4px 12px rgba(10,10,10,0.08)' }}
             >
               <button
@@ -283,7 +284,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
         <div className="flex items-center gap-1 rounded-[4px] border p-0.5" style={{ borderColor: 'var(--color-line)' }}>
           <button
             type="button"
-            className={`cursor-pointer rounded-[3px] px-3 py-1 text-[12px] transition-colors ${boardMode === 'board' ? 'font-semibold' : 'qs-meta'}`}
+            className={`cursor-pointer rounded-[4px] px-3 py-1 text-[12px] transition-colors ${boardMode === 'board' ? 'font-semibold' : 'qs-meta'}`}
             style={boardMode === 'board' ? { background: 'var(--color-signal-soft)', color: 'var(--color-signal-strong)' } : undefined}
             onClick={() => setBoardMode('board')}
           >
@@ -291,7 +292,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
           </button>
           <button
             type="button"
-            className={`cursor-pointer rounded-[3px] px-3 py-1 text-[12px] transition-colors ${boardMode === 'list' ? 'font-semibold' : 'qs-meta'}`}
+            className={`cursor-pointer rounded-[4px] px-3 py-1 text-[12px] transition-colors ${boardMode === 'list' ? 'font-semibold' : 'qs-meta'}`}
             style={boardMode === 'list' ? { background: 'var(--color-signal-soft)', color: 'var(--color-signal-strong)' } : undefined}
             onClick={() => setBoardMode('list')}
           >

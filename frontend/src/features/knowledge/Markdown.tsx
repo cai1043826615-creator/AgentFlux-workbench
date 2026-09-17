@@ -25,7 +25,7 @@ function renderInline(text: string, keyPrefix: string, onOpenDoc?: (path: string
       );
     } else if (token.startsWith('`')) {
       nodes.push(
-        <code key={key} className="rounded-[3px] px-1 py-0.5 text-[12px]" style={{ background: 'var(--color-sunken)', fontFamily: 'ui-monospace, monospace' }}>
+        <code key={key} className="rounded-[4px] px-1 py-0.5 text-[12px]" style={{ background: 'var(--color-sunken)', fontFamily: 'ui-monospace, monospace' }}>
           {token.slice(1, -1)}
         </code>,
       );

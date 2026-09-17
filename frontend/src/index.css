@@ -4,6 +4,9 @@
 @theme {
   --color-canvas: #fafafa;
   --color-surface: #ffffff;
+  /* 反色前景：深底上的白字/白图标（如紫色主按钮、深色 Toast、状态点内文字）。
+     与 surface 的区别：surface 是「面」，inverse 是「反色前景」。 */
+  --color-inverse: #ffffff;
   --color-sunken: #f4f4f5;
   --color-ink: #0a0a0a;
   --color-ink-soft: #52525b;
@@ -109,12 +112,12 @@ body {
 .qs-btn.primary {
   background: var(--color-ink);
   border-color: var(--color-ink);
-  color: #fff;
+  color: var(--color-inverse);
 }
 .qs-btn.primary:hover:not(:disabled) {
   background: var(--color-signal-strong);
   border-color: var(--color-signal-strong);
-  color: #fff;
+  color: var(--color-inverse);
 }
 .qs-btn.ghost {
   background: transparent;
@@ -471,7 +474,7 @@ body {
 .qs-btn.signal {
   background: var(--color-signal);
   border-color: var(--color-signal);
-  color: #fff;
+  color: var(--color-inverse);
 }
 .qs-btn.signal:hover:not(:disabled) {
   background: var(--color-signal-strong);

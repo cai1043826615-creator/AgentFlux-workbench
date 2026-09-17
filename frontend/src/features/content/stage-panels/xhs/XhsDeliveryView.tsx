@@ -317,6 +317,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
       {preview ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          /* ui-rules-ignore 大图预览遮罩：规范允许的遮罩类语义色（AGENTS.md 二.5 例外） */
           style={{ background: 'rgba(10,10,10,0.72)' }}
           onClick={() => setPreview(null)}
         >
@@ -325,11 +326,13 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               src={preview.url}
               alt={preview.name}
               className="max-h-[76vh] max-w-full border object-contain"
+              /* ui-rules-ignore 遮罩上元素描边：半透明白，属遮罩内配色（AGENTS.md 二.5 例外） */
               style={{ borderColor: 'rgba(255,255,255,0.25)' }}
             />
             <button type="button" className="qs-btn sm absolute -top-10 right-0" onClick={() => setPreview(null)}>
               ✕ 关闭
             </button>
+            {/* ui-rules-ignore 遮罩上元信息文字：半透明白，属遮罩内配色（AGENTS.md 二.5 例外） */}
             <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
               {preview.name}
             </div>

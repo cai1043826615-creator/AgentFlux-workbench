@@ -147,7 +147,7 @@ function ImgThumb({ img, onZoom }: { img: ParsedImg; onZoom: () => void }) {
         className={`h-full w-full cursor-zoom-in object-cover ${loaded ? '' : 'opacity-0'}`}
         onClick={onZoom}
       />
-      <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[11px]" style={{ background: 'rgba(28,27,34,0.75)', color: '#fff' }}>
+      <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[11px]" style={{ background: 'color-mix(in srgb, var(--color-ink) 75%, transparent)', color: 'var(--color-inverse)' }}>
         {img.name}
       </div>
     </div>

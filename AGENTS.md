@@ -16,19 +16,65 @@
 
 ## 二、UI 设计硬约束（对应用户痛点：UI 设计不规范）
 
-**新建/修改任何 UI 前，先读 `frontend/src/index.css` 的 `@theme`，只用其中已有的 token。**
+> ### ⛔ 强制前置检查（不可跳过）
+>
+> **你要新建或修改任何 `.tsx` / `.css` 文件了吗？**
+> 如果是 → 在写第一行 UI 代码前，**必须先做这两件事**：
+>
+> 1. **读本节的《规范摘要卡》**（就在下面，已内嵌，无需跳转）
+> 2. **写完代码后运行**：`node frontend/scripts/check-ui-rules.mjs`
+>    （提交时 pre-commit 会自动跑；**被拦截时按提示改，不要用 `--no-verify` 绕过**）
+>
+> 若需**完整 token 表 / 组件清单 / 视效规划**，再读 `docs/规范/01_UI设计与组件规范_0908.md`。
+> **不读那个文件不算违规；但本节的摘要卡与校验脚本是强制的。**
 
-2. **禁止硬编码颜色**。只用 `var(--color-*)`：`canvas/surface/sunken/ink/ink-soft/ink-faint/line/line-strong/signal/signal-strong/signal-soft/ok/warn/danger` 及各 `*-soft`。
-   - ❌ 禁止 `#7C3AED`、`rgba(0,0,0,0.04)` 这类裸值写进组件。
-3. **圆角只有两档**：大结构 `0`（`.qs-card` 直角），小控件（按钮/输入框/小表面）`4px`。
-   - **禁止 `rounded-[3px]` / `[6px]` / `[8px]` 等中间值**（历史遗留 10 处 3px 待清理，不要再新增）。
-   - `pill`（999px）仅限极短状态标签。
-4. **间距只用 4 的倍数**，优先引用 `var(--space-1..6)`（4/8/12/16/20/24px）。
-5. **默认无阴影**。仅真实抬升的浮层（Toast / Modal / 下拉）允许。
-6. **动效只用** `var(--dur-fast|standard|deliberate)` + `var(--ease-standard)`；必须含 `prefers-reduced-motion` 降级。
-7. **风格禁止项**：不做玻璃拟态 / 渐变光晕 / 层层圆角 / 卡片墙 / 胶囊泛滥 / 装饰性 3D / 无意义循环动效。紫色仅作焦点与关键状态，**稀疏使用**。
-8. **新功能优先复用既有浏览/阅读体系**，不要造重复 UI（历史打回：「为什么不能直接用现有的阅读卡片看」）。产出应进既有目录结构，点开走既有阅读卡片。
-9. **改一致性类问题时，改完必须全局 grep 复查**（历史漏改「未连接」分支第 4 处）。
+### 📋 规范摘要卡（直接可用，无需跳转）
+
+**颜色令牌**（写在 `frontend/src/index.css` 的 `@theme`，只能用这些）：
+
+| 用途 | 令牌 | 值 |
+|---|---|---|
+| 页面底 / 卡片 | `--color-canvas` / `--color-surface` | `#fafafa` / `#ffffff` |
+| 内收区 | `--color-sunken` | `#f4f4f5` |
+| 文字三级 | `--color-ink` / `--color-ink-soft` / `--color-ink-faint` | `#0a0a0a` / `#52525b` / `#a1a1aa` |
+| 描边两级 | `--color-line` / `--color-line-strong` | `#ececee` / `#dcdce0` |
+| **主色（紫，稀疏用）** | `--color-signal` / `--color-signal-strong` / `--color-signal-soft` | `#7c3aed` / `#6d28d9` / `#f3effe` |
+| 状态 | `--color-ok` / `--color-warn` / `--color-danger` | `#15803d` / `#b45309` / `#b91c1c` |
+| 状态浅底 | `--color-ok-soft` / `--color-warn-soft` / `--color-danger-soft` | `#ecfdf3` / `#fff8e6` / `#fef2f2` |
+
+**其他令牌**：
+
+| 类别 | 可用值 |
+|---|---|
+| 圆角 | **只有两档**：`0`（大结构，`.qs-card` 直角）｜`4px`（小控件）。`pill` 999px 仅限极短状态标签 |
+| 间距 | `var(--space-1..6)` = 4 / 8 / 12 / 16 / 20 / 24 px |
+| 字体 | `--font-display`（Noto Serif SC，标题）｜`--font-body`（Noto Sans SC，正文）｜`--font-mono`（JetBrains Mono，元信息） |
+| 动效 | 时长 `--dur-fast` 160ms / `--dur-standard` 220ms / `--dur-deliberate` 300ms；曲线 `--ease-standard` |
+| 阴影 | **默认无**。仅真实抬升浮层（Toast / Modal / 下拉）允许 |
+
+**写法示例**：
+
+```tsx
+// ✅ 正确
+<div className="rounded-[4px] p-4"
+     style={{ background: 'var(--color-surface)', color: 'var(--color-ink)', border: '1px solid var(--color-line)' }} />
+
+// ❌ 错误（会被校验脚本拦截）
+<div className="rounded-[3px]" style={{ background: '#fff', color: '#7C3AED', padding: '6px' }} />
+```
+
+#### 规则条列
+
+1. **禁止硬编码颜色**。只用上表 `var(--color-*)`。
+   - ❌ 禁止 `#7C3AED`、`rgba(0,0,0,0.04)` 这类裸值写进组件（`index.css` 令牌定义处除外）。
+2. **禁止非法圆角**：只允许 `0` 与 `4px`。禁止 `rounded-[3px]` / `[6px]` / `[8px]` 等中间值。
+3. **间距只用 4 的倍数**，优先引用 `var(--space-1..6)`。
+4. **动效必须含 `prefers-reduced-motion` 降级**。
+5. **风格禁止项**：不做玻璃拟态 / 渐变光晕 / 层层圆角 / 卡片墙 / 胶囊泛滥 / 装饰性 3D / 无意义循环动效。**紫色仅作焦点与关键状态，稀疏使用**。
+6. **新功能优先复用既有浏览/阅读体系**，不要造重复 UI（历史打回：「为什么不能直接用现有的阅读卡片看」）。产出应进既有目录结构，点开走既有阅读卡片。
+7. **改一致性类问题时，改完必须全局 grep 复查**（历史漏改「未连接」分支第 4 处）。
+
+> **例外机制**：确需突破上述规则时，在该行加注释 `ui-rules-ignore` **并写明理由**，否则校验脚本会拦截。
 
 ## 三、架构铁律
 

@@ -44,7 +44,7 @@ export function CompliancePanel({
                 style={{ borderColor: 'var(--color-line)' }}
               >
                 <span
-                  className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-bold"
+                  className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[10px] font-bold"
                   style={
                     c.passed
                       ? { background: 'var(--color-ok-soft)', color: 'var(--color-ok)' }

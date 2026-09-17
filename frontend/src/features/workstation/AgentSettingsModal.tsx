@@ -307,7 +307,7 @@ export function AgentSettingsModal({
       style={{
         borderColor: mounted ? 'var(--color-signal)' : 'var(--color-line-strong)',
         background: mounted ? 'var(--color-signal)' : 'transparent',
-        color: '#fff',
+        color: 'var(--color-inverse)',
       }}
     >
       {mounted ? '✓' : ''}
@@ -448,7 +448,7 @@ export function AgentSettingsModal({
                     <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal-strong)' }}>SKILL</span>
                     <span className="min-w-0 flex-1 truncate text-[13px]">{skillDisplayName(s)}</span>
                     {cat ? (
-                      <span className="qs-meta shrink-0 rounded-[3px] border px-1 text-[10px]" style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-soft)' }}>
+                      <span className="qs-meta shrink-0 rounded-[4px] border px-1 text-[10px]" style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-soft)' }}>
                         {cat}
                       </span>
                     ) : (

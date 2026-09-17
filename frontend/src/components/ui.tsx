@@ -106,7 +106,7 @@ export function StageFlow({ stages, current, done }: { stages: { id: string; lab
                 style={{
                   borderColor: state === 'todo' ? 'var(--color-line-strong)' : 'var(--color-signal)',
                   background: state === 'done' ? 'var(--color-signal)' : 'transparent',
-                  color: state === 'done' ? '#fff' : state === 'current' ? 'var(--color-signal)' : 'var(--color-ink-faint)',
+                  color: state === 'done' ? 'var(--color-inverse)' : state === 'current' ? 'var(--color-signal)' : 'var(--color-ink-faint)',
                 }}
               >
                 {state === 'done' ? '✓' : i + 1}
@@ -125,8 +125,17 @@ export function StageFlow({ stages, current, done }: { stages: { id: string; lab
   );
 }
 
-/* QS 灰紫系头像色板（SPEC §4.1：主体黑灰 + 紫色焦点，克制） */
-const AVATAR_COLORS = ['#7C3AED', '#0A0A0A', '#52525B', '#6D28D9', '#A1A1AA', '#8B5CF6'];
+/* QS 灰紫系头像色板（SPEC §4.1：主体黑灰 + 紫色焦点，克制）
+   注意：本数组是「颜色定义源」（性质同 index.css 的 @theme），故用 var() 引用而非裸 hex。
+   校验脚本 check-ui-rules.mjs 对 index.css 放行 hex；本文件已是定义源，改用令牌后同样合规。 */
+const AVATAR_COLORS = [
+  'var(--color-signal)',
+  'var(--color-ink)',
+  'var(--color-ink-soft)',
+  'var(--color-signal-strong)',
+  'var(--color-ink-faint)',
+  'var(--color-signal)',
+];
 
 /**
  * Agent 头像映射（意见1 前端部分）：

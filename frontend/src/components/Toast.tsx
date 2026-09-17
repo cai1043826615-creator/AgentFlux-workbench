@@ -121,7 +121,7 @@ function ToastCard({
         <button
           type="button"
           className="qs-clickable shrink-0 rounded-[4px] px-5 py-2 text-[13px] font-semibold leading-none transition hover:brightness-95 active:translate-y-px"
-          style={{ background: accent, color: '#fff' }}
+          style={{ background: accent, color: 'var(--color-inverse)' }}
           onClick={(e) => {
             e.stopPropagation();
             onOpen(item);

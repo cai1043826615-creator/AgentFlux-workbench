@@ -146,7 +146,7 @@ export function SkillMountPicker({
       style={{
         borderColor: mounted ? 'var(--color-signal)' : 'var(--color-line-strong)',
         background: mounted ? 'var(--color-signal)' : 'transparent',
-        color: '#fff',
+        color: 'var(--color-inverse)',
       }}
     >
       {mounted ? '✓' : ''}
@@ -274,6 +274,7 @@ export function SkillMountPicker({
             {fileSuggestOpen && fileSuggestions.length > 0 ? (
               <div
                 className="qs-card absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-[220px] overflow-y-auto p-1"
+                /* ui-rules-ignore 浮层阴影：搜索建议浮层真实抬升，规范允许（AGENTS.md 二.5 例外） */
                 style={{ boxShadow: '0 4px 12px rgba(10,10,10,0.10)' }}
                 role="listbox"
                 data-mount-file-suggest

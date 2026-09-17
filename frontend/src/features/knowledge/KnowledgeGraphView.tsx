@@ -48,7 +48,7 @@ function dirLabel(dir: string): string {
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
     <span
-      className="qs-clickable inline-flex items-center gap-1 rounded-[3px] border px-2 py-0.5 text-[12px]"
+      className="qs-clickable inline-flex items-center gap-1 rounded-[4px] border px-2 py-0.5 text-[12px]"
       style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-sunken)', color: 'var(--color-ink)' }}
     >
       {label}
@@ -809,7 +809,7 @@ export function KnowledgeGraphView() {
             {/* 图例（7c：操作说明移入画布角落） */}
             {hasData && !showFilterEmpty ? (
               <div
-                className="pointer-events-none absolute left-3 top-3 z-10 flex flex-col gap-0.5 rounded-[3px] border px-2 py-1 text-[11px]"
+                className="pointer-events-none absolute left-3 top-3 z-10 flex flex-col gap-0.5 rounded-[4px] border px-2 py-1 text-[11px]"
                 style={{ borderColor: 'var(--color-line-strong)', background: 'var(--color-surface)' }}
               >
                 <span className="qs-meta">圆形=文档 · 菱形=标签 · 虚线=标签归属</span>

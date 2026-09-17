@@ -209,7 +209,7 @@ export function ChatPanel() {
                 // 右侧：用户消息 = 黑底白字气泡（无头像）
                 return (
                   <div key={m.id} className="flex justify-end">
-                    <div className="max-w-[78%] rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'var(--color-ink)', color: '#fff', borderRadius: 4 }}>
+                    <div className="max-w-[78%] rounded-[4px] px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ background: 'var(--color-ink)', color: 'var(--color-inverse)', borderRadius: 4 }}>
                       {m.body}
                     </div>
                   </div>

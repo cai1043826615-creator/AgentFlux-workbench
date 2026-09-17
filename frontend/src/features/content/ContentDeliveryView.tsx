@@ -121,6 +121,7 @@ function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () =
           type="button"
           onClick={onZoom}
           className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 py-1 text-[11px] text-white opacity-0 transition-opacity duration-160 group-hover:opacity-100 focus-visible:opacity-100"
+          /* ui-rules-ignore 悬浮操作条遮罩：规范允许的遮罩类语义色（AGENTS.md 二.5 例外） */
           style={{ background: 'rgba(0,0,0,0.55)', cursor: 'pointer' }}
         >
           <span aria-hidden="true" className="text-[12px] leading-none">⊕</span>
@@ -642,14 +643,17 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
       {preview ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          /* ui-rules-ignore 大图预览遮罩：规范允许的遮罩类语义色（AGENTS.md 二.5 例外） */
           style={{ background: 'rgba(10,10,10,0.72)' }}
           onClick={() => setPreview(null)}
         >
           <div className="relative max-h-full max-w-full" onClick={(e) => e.stopPropagation()}>
+            {/* ui-rules-ignore 遮罩上元素描边：半透明白描边，属遮罩内配色（AGENTS.md 二.5 例外） */}
             <img src={preview.url} alt={preview.name} className="max-h-[76vh] max-w-full border object-contain" style={{ borderColor: 'rgba(255,255,255,0.25)' }} />
             <button type="button" className="qs-btn sm absolute -top-10 right-0" onClick={() => setPreview(null)}>
               ✕ 关闭
             </button>
+            {/* ui-rules-ignore 遮罩上元信息文字：半透明白，属遮罩内配色（AGENTS.md 二.5 例外） */}
             <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
               {preview.name} ·{' '}
               {preview.status === 'approved' ? '已采纳' : preview.status === 'rejected' ? '已打回' : preview.status === 'skipped' ? '已跳过' : preview.status === 'ref' ? '参考图' : '待确认'}
@@ -813,7 +817,7 @@ function CopyVersionPanel({ taskId }: { taskId: number }) {
                 <div>
                   新增卖点：
                   {diff.addedPoints.map((p) => (
-                    <span key={p} className="ml-1 rounded-[3px] px-1.5 py-0.5" style={{ background: 'var(--color-ok-soft)', color: 'var(--color-ok)' }}>
+                    <span key={p} className="ml-1 rounded-[4px] px-1.5 py-0.5" style={{ background: 'var(--color-ok-soft)', color: 'var(--color-ok)' }}>
                       +{p}
                     </span>
                   ))}
@@ -825,7 +829,7 @@ function CopyVersionPanel({ taskId }: { taskId: number }) {
                   {diff.removedPoints.map((p) => (
                     <span
                       key={p}
-                      className="ml-1 line-through rounded-[3px] px-1.5 py-0.5"
+                      className="ml-1 line-through rounded-[4px] px-1.5 py-0.5"
                       style={{ background: 'var(--color-danger-soft)', color: 'var(--color-danger)' }}
                     >
                       −{p}

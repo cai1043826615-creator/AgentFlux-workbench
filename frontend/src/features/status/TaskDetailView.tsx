@@ -223,7 +223,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                     style={{
                       background: state === 'done' ? 'var(--color-ok)' : state === 'current' ? 'var(--color-ink)' : 'var(--color-surface)',
                       border: `1px solid ${state === 'todo' ? 'var(--color-line-strong)' : 'transparent'}`,
-                      color: state === 'done' || state === 'current' ? '#fff' : 'var(--color-ink-faint)',
+                      color: state === 'done' || state === 'current' ? 'var(--color-inverse)' : 'var(--color-ink-faint)',
                       boxShadow: state === 'current' ? '0 0 0 2px var(--color-signal)' : undefined,
                       transition:
                         'background var(--dur-standard) var(--ease-standard), color var(--dur-standard) var(--ease-standard), border-color var(--dur-standard) var(--ease-standard), box-shadow var(--dur-standard) var(--ease-standard)',
@@ -241,7 +241,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                   {state === 'done' ? (
                     <span
                       className="absolute -top-0.5 -right-0.5 flex h-[14px] w-[14px] items-center justify-center rounded-full text-[9px] font-bold"
-                      style={{ background: '#fff', color: 'var(--color-ok)', boxShadow: '0 0 0 2px var(--color-surface)' }}
+                      style={{ background: 'var(--color-surface)', color: 'var(--color-ok)', boxShadow: '0 0 0 2px var(--color-surface)' }}
                     >
                       ✓
                     </span>
@@ -294,7 +294,7 @@ function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) 
   return (
     <div className="qs-card p-4" aria-busy="true">
       <div className="mb-3 flex items-center gap-2">
-        <span className="qs-pulse block h-4 w-32 rounded-[3px]" style={{ background: 'var(--color-sunken)' }} />
+        <span className="qs-pulse block h-4 w-32 rounded-[4px]" style={{ background: 'var(--color-sunken)' }} />
       </div>
       <div className="space-y-2">
         {Array.from({ length: lines }).map((_, i) => (
@@ -757,7 +757,7 @@ function ProvenancePanel({ taskId }: { taskId: number }) {
       </div>
       <div className="max-h-56 space-y-1 overflow-y-auto">
         {provenance.facts.map((f) => (
-          <div key={f.id} className="flex items-baseline gap-2 rounded-[3px] px-1.5 py-1 text-[12px]" style={{ background: f.traced ? 'var(--color-ok-soft)' : 'var(--color-danger-soft)' }}>
+          <div key={f.id} className="flex items-baseline gap-2 rounded-[4px] px-1.5 py-1 text-[12px]" style={{ background: f.traced ? 'var(--color-ok-soft)' : 'var(--color-danger-soft)' }}>
             <span className="shrink-0 font-medium" style={{ color: f.traced ? 'var(--color-ok)' : 'var(--color-danger)' }}>
               {f.traced ? '已溯源' : '未溯源'}
             </span>
