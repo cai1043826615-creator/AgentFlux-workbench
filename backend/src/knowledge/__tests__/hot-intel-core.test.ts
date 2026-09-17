@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { before, describe, test } from 'node:test';
+import type { AttentionDomain } from '@workbench/shared';
 import type { RawHotItem } from '../attention.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'workbench-hotintel-'));
@@ -34,8 +35,11 @@ const {
 const { loadHotPanel, clearHotCache, evidenceOf } = await import('../hot.ts');
 const { paiNewsAdapter } = await import('../hot-sources/pai-news.ts');
 const { ec100Adapter } = await import('../hot-sources/100ec.ts');
-const { statsSjjdAdapter } = await import('../hot-sources/stats-sjjd.ts');
 const { aihotAdapter } = await import('../hot-sources/aihot.ts');
+const { baiduHotAdapter } = await import('../hot-sources/baidu.ts');
+const { weibo60sAdapter, douyin60sAdapter } = await import('../hot-sources/60s.ts');
+const { toutiaoHotAdapter } = await import('../hot-sources/toutiao.ts');
+const { taobaoRuleAdapter, tmallRuleAdapter, xhsRuleAdapter } = await import('../hot-sources/rule-sources.ts');
 const { ADAPTERS, instantiateAdapters } = await import('../hot-sources/index.ts');
 
 // ===== fixture（2026-09-11 真实探测的源结构，脱敏） =====
@@ -61,13 +65,6 @@ const EC100_HTML = `<div class="search_result" id="">
 <dl><dt><a href="detail--6663871.html" target="_blank">天猫双11预售规则更新 商家报名开启</a><span>${hoursAgoIso(4).replace('T', ' ').slice(0, 19)}</span></dt><dd><span>${hoursAgoIso(4).replace('T', ' ').slice(0, 19)}</span></dd></dl>
 </div>`;
 
-const STATS_HTML = `<html><body>
-<ul>
-<li><a href="./202609/t20260909_1965261.html">国家统计局城市司首席统计师董莉娟解读2026年8月份CPI和PPI数据</a></li>
-<li><a href="./202608/t20260831_1965155.html">国家统计局服务业调查中心首席统计师霍丽慧解读2026年8月中国采购经理指数</a></li>
-</ul>
-</body></html>`;
-
 const HOT_TOPICS_JSON = JSON.stringify({
   items: [
     {
@@ -91,6 +88,45 @@ const SELECTED_JSON = JSON.stringify({
   ],
 });
 
+// 热榜源 fixture（3.3 新增；公开匿名 JSON 结构）：
+// 百度返回「天猫双11新规」无标点版，60s·微博返回同题带标点版 → 三层去重 L2 标题归一并合（sourceCount=2 进必看）
+const BAIDU_JSON = JSON.stringify({
+  data: {
+    cards: [
+      {
+        content: [
+          { word: '天猫双11新规预售期延长商家报名开启', desc: '平台调整预售规则，商家报名同步开启', url: 'https://top.baidu.com/board?raw=1' },
+          { word: '某地暴雨红色预警', desc: '出行注意安全', url: 'https://top.baidu.com/board?raw=2' },
+        ],
+      },
+    ],
+  },
+});
+
+const WEIBO_JSON = JSON.stringify({
+  data: [
+    { title: '天猫双11新规：预售期延长，商家报名开启', hot: 1234567, url: 'https://weibo.com/1' },
+  ],
+});
+
+const DOUYIN_JSON = JSON.stringify({
+  data: [
+    { title: '某某明星新剧开机路透', hot: 998877, url: 'https://douyin.com/1' },
+    // 与上一条归一后不同（多「现场」2 字），但 3-gram Jaccard=0.8 → L3 近似合并（sourceCount 累加=2）
+    { title: '某某明星新剧开机路透现场', hot: 991122, url: 'https://douyin.com/2' },
+  ],
+});
+
+const TOUTIAO_JSON = JSON.stringify({
+  data: [
+    { Title: '抖音电商特色风味商品订单量增长78%', HotValue: 555000, Url: 'https://www.toutiao.com/article/1/' },
+  ],
+});
+
+// 规则源骨架 fixture：JS 渲染 SPA 壳（实测 2026-09 三个站点返回的形态）
+const RULE_SPA_HTML = '<!DOCTYPE html><html><head><title>淘宝网 - 淘！我喜欢</title></head><body><div id="root"></div><script>window.__NEXT_DATA__={}</script></body></html>';
+const XHS_HTML = '<!doctype html><html><head><title>用户协议</title></head><body><article>小红书用户协议正文……（非规则公告列表）</article></body></html>';
+
 function okResponse(body: string, type = 'application/json'): Response {
   return new Response(body, { status: 200, headers: { 'content-type': type } });
 }
@@ -101,7 +137,13 @@ const routeMap: Record<string, () => Response> = {
   'https://aihot.virxact.com/api/v1/items?mode=selected&window=24h&limit=20': () => okResponse(SELECTED_JSON),
   'https://www.pai.com.cn/news/': () => okResponse(PAI_HTML, 'text/html; charset=utf-8'),
   'https://www.100ec.cn/list.html': () => okResponse(EC100_HTML, 'text/html; charset=utf-8'),
-  'https://www.stats.gov.cn/sj/sjjd/': () => okResponse(STATS_HTML, 'text/html'),
+  'https://top.baidu.com/api/board?platform=wise&tab=realtime': () => okResponse(BAIDU_JSON),
+  'https://60s.viki.moe/v2/weibo': () => okResponse(WEIBO_JSON),
+  'https://60s.viki.moe/v2/douyin': () => okResponse(DOUYIN_JSON),
+  'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc': () => okResponse(TOUTIAO_JSON),
+  'https://rule.taobao.com/': () => okResponse(RULE_SPA_HTML, 'text/html'),
+  'https://rule.tmall.com/': () => okResponse(RULE_SPA_HTML, 'text/html'),
+  'https://www.xiaohongshu.com/protocols/about/terms': () => okResponse(XHS_HTML, 'text/html'),
 };
 
 function installFetchStub(): { calls: string[]; failUrls: Set<string> } {
@@ -304,33 +346,91 @@ describe('3.2-3.4 多源适配器解析（fixture 结构）', () => {
     assert.ok(Number.isFinite(t) && Date.now() - t <= 24 * 60 * 60 * 1000, `latestAt 应在最近 24h 内，实际 ${temu.latestAt}`);
   });
 
-  test('stats-sjjd 适配器：相对链接解析 + 路径日期提取', async () => {
+  test('baidu-hot 适配器：cards[].content[].word/desc/url 解析，上限 30 条', async () => {
     installFetchStub();
-    const r = await statsSjjdAdapter.fetchAll(5000);
+    const r = await baiduHotAdapter.fetchAll(5000);
     assert.equal(r.items.length, 2);
-    assert.ok(r.items[0].url!.includes('/sj/sjjd/202609/t20260909_1965261.html'));
-    assert.equal(r.items[0].latestAt, '2026-09-09T00:00:00.000Z', '路径 t20260909 → 2026-09-09');
+    const hit = r.items.find((i) => i.title.includes('天猫双11'))!;
+    assert.ok(hit.url!.startsWith('https://top.baidu.com/'), 'url 原样透传');
+    assert.ok(hit.latestAt, 'latestAt=抓取时刻');
   });
 
-  test('适配器注册表：4 个已注册源（aihot/pai-news/100ec-24h/stats-sjjd）', () => {
-    for (const id of ['aihot', 'pai-news', '100ec-24h', 'stats-sjjd']) {
+  test('60s 适配器：微博/抖音 data[].title/hot/url 解析', async () => {
+    installFetchStub();
+    const wb = await weibo60sAdapter.fetchAll(5000);
+    assert.equal(wb.items.length, 1);
+    assert.ok(wb.items[0].title.includes('天猫双11'));
+    assert.equal(wb.items[0].url, 'https://weibo.com/1');
+    const dy = await douyin60sAdapter.fetchAll(5000);
+    assert.equal(dy.items.length, 2);
+    assert.ok(dy.items[0].title.includes('明星'));
+    assert.ok(dy.items[0].latestAt, 'latestAt=抓取时刻');
+  });
+
+  test('toutiao-hot 适配器：data[].Title/HotValue/Url 解析', async () => {
+    installFetchStub();
+    const r = await toutiaoHotAdapter.fetchAll(5000);
+    assert.equal(r.items.length, 1);
+    assert.ok(r.items[0].title.includes('抖音电商'));
+    assert.equal(r.items[0].url, 'https://www.toutiao.com/article/1/');
+    assert.ok(r.items[0].latestAt, 'latestAt=抓取时刻');
+  });
+
+  test('规则源骨架：JS 渲染壳 → 抛 HOT_MANUAL_MAINTENANCE（待人工维护摘要文档）', async () => {
+    installFetchStub();
+    for (const adapter of [taobaoRuleAdapter, tmallRuleAdapter, xhsRuleAdapter]) {
+      await assert.rejects(
+        () => adapter.fetchAll(5000),
+        (err: unknown) => {
+          const e = err as { code?: string; message?: string };
+          assert.equal(e.code, 'HOT_MANUAL_MAINTENANCE', `${adapter.id} 应为待人工维护错误`);
+          assert.ok(e.message && e.message.includes('人工维护'), `${adapter.id} 错误信息应提示人工维护`);
+          return true;
+        },
+      );
+    }
+  });
+
+  test('适配器注册表：10 个已注册源（含 4 热榜 + 3 规则源骨架，无 stats-sjjd）', () => {
+    for (const id of ['aihot', 'pai-news', '100ec-24h', 'baidu-hot', '60s-weibo', '60s-douyin', 'toutiao-hot', 'taobao-rule', 'tmall-rule', 'xhs-rule']) {
       assert.ok(ADAPTERS[id], `缺少适配器 ${id}`);
     }
+    assert.ok(!ADAPTERS['stats-sjjd'], 'stats-sjjd 应已移除');
   });
 });
 
 // ===================== 3.6/3.7/3.8 聚合 / 证据 / 源状态 =====================
 
 describe('3.6 聚合与单源降级隔离', () => {
-  test('多源聚合：全部可用 → live，逐源状态 ok，upstream 为去重后总数', async () => {
+  test('多源聚合：全部可用 → live，逐源状态 ok，upstream 为三层去重后总数', async () => {
     clearHotCache();
     installFetchStub();
     const panel = await loadHotPanel(true);
     assert.equal(panel.status, 'live');
-    assert.equal(panel.sources.filter((s) => s.status === 'ok').length, 4);
-    assert.ok(panel.counts.upstream >= 6, `upstream 应 ≥6（aihot 3 + pai 2 + 100ec 3 + stats 2 去重后），实际 ${panel.counts.upstream}`);
+    assert.equal(panel.sources.filter((s) => s.status === 'ok').length, 6, '启用源=电商派/网经社/百度/60s·微博/60s·抖音/头条（aihot 与规则源默认 disabled）');
+    assert.ok(panel.counts.upstream >= 6, `upstream 应 ≥6（pai 2 + 100ec 3 + 热榜 5 条经三层去重后），实际 ${panel.counts.upstream}`);
     assert.ok(panel.counts.selected24h > 0, '最近 24h 条目数应 > 0');
-    assert.ok(panel.tiers.other.length > 0, '应存在「其他」层条目（AI/政府源降层条目）');
+    assert.ok(panel.tiers.other.length > 0, '应存在「其他」层条目');
+  });
+
+  test('三层去重 L2：同题不同标点（百度/微博）归一后精确去重，仅保留一条', async () => {
+    clearHotCache();
+    installFetchStub();
+    const panel = await loadHotPanel(true);
+    const all = [...panel.tiers.mustRead, ...panel.tiers.browse, ...panel.tiers.other];
+    const baiduWeibo = all.filter((i) => i.title.startsWith('天猫双11') && (i.sourceId === 'baidu-hot' || i.sourceId === '60s-weibo'));
+    assert.equal(baiduWeibo.length, 1, `百度/微博同题归一后应只保留 1 条，实际 ${baiduWeibo.length} 条`);
+    assert.equal(baiduWeibo[0].sourceId, 'baidu-hot', '保留首个（百度）');
+  });
+
+  test('三层去重 L3：近似标题（抖音两条 Jaccard=0.8）合并并累加 sourceCount → multi-source', async () => {
+    clearHotCache();
+    installFetchStub();
+    const panel = await loadHotPanel(true);
+    const merged = [...panel.tiers.mustRead, ...panel.tiers.browse, ...panel.tiers.other].find((i) => i.title.includes('明星'));
+    assert.ok(merged, '抖音近似两条应合并为一条');
+    assert.ok(merged!.sourceCount >= 2, `L3 合并 sourceCount 应累加 ≥2，实际 ${merged!.sourceCount}`);
+    assert.equal(merged!.evidence, 'multi-source', 'L3 合并 → multi-source 证据等级');
   });
 
   test('单源失败不影响其他源（面板仍 live 且标注降级源）', async () => {
@@ -347,7 +447,7 @@ describe('3.6 聚合与单源降级隔离', () => {
 
   test('需凭据源未配置凭据时单独降级（enterpriseCredentialRequired 预留）', async () => {
     clearHotCache();
-    const stub = installFetchStub();
+    installFetchStub();
     // 模拟配置了一个需凭据但未配置凭据的源：适配器缺失/不可用时仅该源降级
     const cfg = normalizeAttention({
       sources: [
@@ -368,7 +468,7 @@ describe('3.6 聚合与单源降级隔离', () => {
     const panel = await loadHotPanel(true);
     assert.equal(panel.status, 'unavailable');
     assert.ok(panel.error && panel.error.message.length > 0);
-    assert.equal(panel.sources.length, 4, '逐源状态仍可见');
+    assert.equal(panel.sources.length, 6, '逐源状态仍可见（启用源数）');
     assert.ok(panel.sources.every((s) => s.status === 'degraded'));
   });
 
@@ -408,14 +508,46 @@ describe('3.7 证据等级判定', () => {
   });
 });
 
-describe('3.8 源状态可见（面板 sources[]）', () => {
-  test('live 面板 sources 含 4 个源（ok），itemCount 正确', async () => {
+describe('3.8 源状态可见 + 源作用域字段透传', () => {
+  test('live 面板 sources 含 6 个源（ok），itemCount 正确', async () => {
     clearHotCache();
     installFetchStub();
     const panel = await loadHotPanel(true);
     const pai = panel.sources.find((s) => s.id === 'pai-news');
     assert.equal(pai!.status, 'ok');
     assert.equal(pai!.itemCount, 2);
-    assert.ok(panel.sources.length >= 4);
+    assert.equal(panel.sources.length, 6);
+  });
+
+  test('默认配置：stats-sjjd 移除、aihot 关闭、4 热榜启用、3 规则源骨架 disabled', () => {
+    const cfg = loadAttentionConfig();
+    const ids = cfg.sources!.map((s) => s.id);
+    assert.ok(!ids.includes('stats-sjjd'), '统计局源已移除');
+    assert.equal(cfg.sources!.find((s) => s.id === 'aihot')!.enabled, false, 'AI HOT 关闭');
+    for (const id of ['baidu-hot', '60s-weibo', '60s-douyin', 'toutiao-hot']) {
+      assert.equal(cfg.sources!.find((s) => s.id === id)!.enabled, true, `${id} 应启用`);
+    }
+    for (const id of ['taobao-rule', 'tmall-rule', 'xhs-rule']) {
+      assert.equal(cfg.sources!.find((s) => s.id === id)!.enabled, false, `${id} 骨架默认 disabled`);
+    }
+  });
+
+  test('3.8 源作用域字段：normalize 后 applyToSourceIds/applyToSourceTiers 透传保留', () => {
+    const cfg = normalizeAttention({
+      domains: [
+        { id: 'platform-rules', label: '平台规则', keywords: ['天猫'], minKeywordHits: 1, applyToSourceIds: ['pai-news'], applyToSourceTiers: [1, 2] },
+      ],
+    });
+    const d = cfg.domains[0] as AttentionDomain & { applyToSourceIds?: string[]; applyToSourceTiers?: number[] };
+    assert.deepEqual(d.applyToSourceIds, ['pai-news']);
+    assert.deepEqual(d.applyToSourceTiers, [1, 2]);
+    // 非法值（tier 越界/非数组）被滤掉
+    const bad = normalizeAttention({
+      domains: [
+        { id: 'x', label: '域', keywords: ['a'], applyToSourceTiers: [5, 'x', 1] },
+      ],
+    });
+    const dx = bad.domains[0] as { applyToSourceTiers?: number[] };
+    assert.deepEqual(dx.applyToSourceTiers, [1], '越界/非法 tier 应滤除');
   });
 });

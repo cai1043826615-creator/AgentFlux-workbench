@@ -21,12 +21,10 @@ const SEGMENT_LABELS: Record<string, string> = {
   doc: '文档',
   topics: '主题',
   topic: '主题',
-  inbox: '收件箱',
+  // report-driven-fixes 0.2：删除 inbox/drafts/draft 映射（界面不再出现「收件箱」「草稿」显示名）
   inspiration: '灵感库',
   inspirations: '灵感库',
   ideas: '灵感库',
-  drafts: '草稿',
-  draft: '草稿',
   skills: 'Skill 素材',
   skill: 'Skill 素材',
   assets: '素材',

@@ -160,6 +160,23 @@ export function ensureSchema(): void {
       value TEXT NOT NULL
     );
   `);
+  // D-03 列表优化：复合索引（/api/tasks 的 updatedAt LEFT JOIN 聚合与按任务筛选走这两条索引）
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_deliverables_task_updated ON deliverables (task_id, updated_at);');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_task_events_task_created ON task_events (task_id, created_at);');
+  // D-04 搜索元信息：交付物图片索引表（D-03 落盘后 content 已不含 base64 巨串，
+  // 搜索走本表 name LIKE，不再全表 SELECT content 做 JSON.parse）
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS deliverable_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deliverable_id INTEGER NOT NULL,
+      image_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      url TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_deliverable_images_deliverable ON deliverable_images (deliverable_id);');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_deliverable_images_name ON deliverable_images (name);');
   // 目录快照（mount-rename-follow）：记录「上一次成功构建」的目录条目与内容指纹，
   // 供下次重建作为基线比对，识别改名/移动并静默跟随挂载。
   // kind 区分两个命名空间：docs（Vault 文档，ref=Vault 相对路径）/ skills（技能，ref=技能 id）。

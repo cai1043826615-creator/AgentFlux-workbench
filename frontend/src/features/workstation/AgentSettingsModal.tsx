@@ -432,7 +432,7 @@ export function AgentSettingsModal({
               <label
                 className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
                 style={{ fontSize: 12 }}
-                title="上传 .md/.txt/.json 到知识库收件箱，并自动挂到本工作流"
+                title="上传 .md/.txt/.json 文件并自动挂到本工作流"
               >
                 上传文件
                 <input type="file" accept=".md,.txt,.json" className="hidden" onChange={(e) => onPickUploadFile(e, kind)} disabled={uploading} />

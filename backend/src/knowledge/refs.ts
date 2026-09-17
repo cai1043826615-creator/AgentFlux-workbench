@@ -32,6 +32,17 @@ export class KbRefInvalidError extends Error {
   }
 }
 
+/**
+ * 关联资料条目缺 docPath（修 D-19：接口收到含条目但缺路径的 refs 时返回 400，
+ * 不再被 normalizeRefs 静默跳过——那会把「本应新增」误当成「全部清空」并 200 返回）。
+ */
+export class KbRefMissingPathError extends Error {
+  constructor() {
+    super('关联资料缺少 docPath（每条资料必须提供文档路径）');
+    this.name = 'KbRefMissingPathError';
+  }
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -83,7 +94,7 @@ function normalizeRefs(refs: TaskKbRefInput[]): { docPath: string; title: string
   const normalized: { docPath: string; title: string; anchor: string | null; note: string }[] = [];
   for (const r of input) {
     const docPath = normalizeRel(r?.docPath ?? '');
-    if (!docPath) continue;
+    if (!docPath) throw new KbRefMissingPathError();
     const anchor = r.anchor && String(r.anchor).trim() ? String(r.anchor).trim() : null;
     const key = `${docPath}#${anchor ?? ''}`;
     if (seen.has(key)) continue;

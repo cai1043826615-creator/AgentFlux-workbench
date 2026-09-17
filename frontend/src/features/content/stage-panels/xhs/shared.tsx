@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Deliverable } from '@workbench/shared';
+import { stagesOf } from '@workbench/shared';
 import { Badge, Btn, Card, Empty, Spinner } from '../../../../components/ui.tsx';
 import { parseImages } from '../../../../lib/api.ts';
 
@@ -20,8 +21,32 @@ export interface ParsedImg {
 /** 与后端 MAX_IMAGE_ATTEMPTS 对齐 */
 export const MAX_IMAGE_ATTEMPTS = 3;
 
-/** 取某阶段全部 image 交付物中的图片条目（同阶段可能多个交付物/多版本） */
-export function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] {
+/**
+ * 按工作流声明的并行分组顺序重排图片（D-22）：
+ * 后端交付物内的图片数组按「并行完成先后」push，顺序不稳定；这里按该阶段
+ * groups 声明顺序（组序 + 组内 items 顺序）重排，未声明的条目保持原相对顺序（稳定排序）。
+ * 图片 name 与 groups items 同名（后端 produceImages 用 itemId 作为图片名）。
+ */
+export function sortImagesByDeclaredOrder(imgs: ParsedImg[], workflowId: string | undefined, stage: string): ParsedImg[] {
+  const node = stagesOf(workflowId).find((n) => n.id === stage);
+  const declared: string[] = [];
+  node?.parallelGroups?.forEach((g) => declared.push(...g.items));
+  if (declared.length === 0) return imgs;
+  const out = [...imgs];
+  const rank = (name: string) => declared.indexOf(name);
+  out.sort((a, b) => {
+    const ai = rank(a.name);
+    const bi = rank(b.name);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+  return out;
+}
+
+/** 取某阶段全部 image 交付物中的图片条目（同阶段可能多个交付物/多版本），按 groups 声明顺序重排 */
+export function imagesForStage(dels: Deliverable[], stage: string, workflowId?: string): ParsedImg[] {
   const out: ParsedImg[] = [];
   for (const d of dels) {
     if (d.stage === stage && d.kind === 'image') {
@@ -29,7 +54,7 @@ export function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] 
       if (list) out.push(...list);
     }
   }
-  return out;
+  return sortImagesByDeclaredOrder(out, workflowId, stage);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { KnowledgePresetEntry, KnowledgeStatus } from '@workbench/shared';
-import { Btn, Field } from '../../components/ui.tsx';
+import { Btn, Field, Modal } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 
 /** 逗号 / 换行分隔 → 去空数组 */
@@ -24,6 +24,7 @@ const DEFAULT_EXCLUDES = ['.git', '.obsidian', '.trash', 'node_modules', '.pnpm-
  *   ③ 索引     —— 重建索引
  *
  * 只读承诺：文案保持「只读接入本地 Markdown 目录，工作台不会修改、删除或移动 Vault 内任何文件」。
+ * （report-driven-fixes 0.1：改为「只新增于 知识库/灵感库/」+ 明示写入目录，消除「只读=完全不写」的误导。）
  */
 export function VaultConfigModal({
   open,
@@ -55,8 +56,6 @@ export function VaultConfigModal({
     setEntries(status?.presetEntries ?? []);
     setError(null);
   }, [open, status]);
-
-  if (!open) return null;
 
   const patchEntry = (id: string, next: Partial<KnowledgePresetEntry>) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...next } : e)));
@@ -93,14 +92,17 @@ export function VaultConfigModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 pt-[8vh]" onClick={onClose}>
-      <div className="qs-card flex max-h-[84vh] w-full flex-col p-5" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
-        <div className="font-display mb-1 text-[15px] font-semibold">知识库设置</div>
-        <p className="qs-meta mb-4" style={{ color: 'var(--color-ink-faint)' }}>
-          只读接入本地 Markdown 目录，工作台不会修改、删除或移动 Vault 内任何文件。
-        </p>
+    /* report-driven-fixes 2.5（D-08）：自建弹窗改为复用统一 Modal（ui.tsx；overlay 滚动保证小视口按钮可达，
+       Esc/遮罩点击关闭由 Modal 内置），不再自造 fixed inset-0 弹层 */
+    <Modal open={open} title="知识库设置" onClose={onClose} width={560}>
+      <p className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
+        只读接入本地 Markdown 目录：只会在「知识库/灵感库/」下新增小助理整理产出的文件，绝不修改、删除或移动你原有的任何文件。
+      </p>
+      <p className="qs-meta mb-4" style={{ color: 'var(--color-ink-faint)' }}>
+        小助理整理产出统一写入：<span className="font-mono" style={{ color: 'var(--color-ink-soft)' }}>知识库/灵感库/</span>
+      </p>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+      <div className="space-y-5">
           {/* ① 接入 */}
           <section>
             <div className="qs-meta mb-2 font-medium" style={{ color: 'var(--color-ink-soft)' }}>
@@ -199,7 +201,6 @@ export function VaultConfigModal({
             保存并索引
           </Btn>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

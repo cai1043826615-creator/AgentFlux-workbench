@@ -43,9 +43,12 @@ export const HOT_REQUEST_TIMEOUT_MS = 12_000;
 export const DEFAULT_MIN_KEYWORD_HITS = 2;
 
 /**
- * 内置默认源列表（hot-intel B10，按 docs/设计/05_热点多信息源调研_0911.md 的 P0/P1 公开源）：
- * 本期只接公开源（无需凭据、无需企业资质）；需资质/合规高风险源不接，仅预留 enterpriseCredentialRequired 配置项。
- * 覆盖 平台规则 / 促销节点 / 品类趋势 / 竞品动态 中的 ≥2 类（电商垂直源 ×2 + 政府数据源 ×1 + AI 行业聚合可选 ×1）。
+ * 内置默认源列表（report-driven-fixes 3.3/3.7 定案）：
+ * - 保留电商垂直源：电商派 / 网经社（对工作台价值最高）；
+ * - AI HOT 源关闭（disabled，保留条目便于恢复；适配器仍在注册表）；
+ * - 新增 4 热榜源（百度/60s·微博/60s·抖音/头条，公开匿名 JSON，全部 enabled）；
+ * - 官方规则源（淘宝/天猫/小红书）为「待人工维护摘要文档」骨架，默认 disabled（见 rule-sources.ts 实测结论）。
+ * 覆盖 平台规则 / 促销节点 / 品类趋势 / 竞品动态 中的 ≥2 类。
  */
 export const DEFAULT_SOURCES: HotSourceConfig[] = [
   {
@@ -67,13 +70,36 @@ export const DEFAULT_SOURCES: HotSourceConfig[] = [
     tierCap: 'mustRead',
   },
   {
-    id: 'stats-sjjd',
-    adapter: 'stats-sjjd',
-    label: '国家统计局数据解读',
-    endpoint: 'https://www.stats.gov.cn/sj/sjjd/',
-    vertical: 'gov-stats',
+    id: 'baidu-hot',
+    adapter: 'baidu-hot',
+    label: '百度实时热点',
+    endpoint: 'https://top.baidu.com/api/board?platform=wise&tab=realtime',
+    vertical: 'hot-trend',
     enabled: true,
-    tierCap: 'browse',
+  },
+  {
+    id: '60s-weibo',
+    adapter: '60s-weibo',
+    label: '微博热搜(60s)',
+    endpoint: 'https://60s.viki.moe/v2/weibo',
+    vertical: 'hot-trend',
+    enabled: true,
+  },
+  {
+    id: '60s-douyin',
+    adapter: '60s-douyin',
+    label: '抖音热榜(60s)',
+    endpoint: 'https://60s.viki.moe/v2/douyin',
+    vertical: 'hot-trend',
+    enabled: true,
+  },
+  {
+    id: 'toutiao-hot',
+    adapter: 'toutiao-hot',
+    label: '头条热榜',
+    endpoint: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
+    vertical: 'hot-trend',
+    enabled: true,
   },
   {
     id: 'aihot',
@@ -81,8 +107,34 @@ export const DEFAULT_SOURCES: HotSourceConfig[] = [
     label: 'AI HOT（行业聚合）',
     endpoint: DEFAULT_SOURCE_BASE_URL,
     vertical: 'AI 行业聚合',
-    enabled: true,
+    // 3.3 定案：AI HOT 源关闭（保留条目与适配器，便于后续恢复）
+    enabled: false,
     tierCap: 'browse',
+  },
+  {
+    id: 'taobao-rule',
+    adapter: 'taobao-rule',
+    label: '淘宝规则中心',
+    endpoint: 'https://rule.taobao.com/',
+    vertical: 'official-rules',
+    // 待人工维护摘要文档（见 rule-sources.ts 实测结论），默认不启用
+    enabled: false,
+  },
+  {
+    id: 'tmall-rule',
+    adapter: 'tmall-rule',
+    label: '天猫规则中心',
+    endpoint: 'https://rule.tmall.com/',
+    vertical: 'official-rules',
+    enabled: false,
+  },
+  {
+    id: 'xhs-rule',
+    adapter: 'xhs-rule',
+    label: '小红书规则公告',
+    endpoint: 'https://www.xiaohongshu.com/protocols/about/terms',
+    vertical: 'official-rules',
+    enabled: false,
   },
 ];
 
@@ -146,13 +198,30 @@ function limitOf(v: unknown, fallback: number, max = 50): number {
   return Number.isInteger(n) && n >= 0 && n <= max ? n : fallback;
 }
 
-/** 归一化关注域：排除词/多词阈值缺省回退（排除词空、阈值默认 2）；非法阈值回退默认 */
-function normalizeDomain(raw: unknown, i: number): AttentionDomain {
+/**
+ * 关注域扩展类型（report-driven-fixes 3.8「源管理」降级的兜底闸门）：
+ * `applyToSourceIds` / `applyToSourceTiers` 为可选「源作用域」字段——关键词仅对指定源生效。
+ * shared 类型不改（前端该区块已隐藏），后端在此透传并随配置持久化，数据不删。
+ */
+export interface AttentionDomainScoped extends AttentionDomain {
+  /** 本域关键词仅对指定源 id 生效（缺省=全部源） */
+  applyToSourceIds?: string[];
+  /** 本域关键词仅对指定源层级（1/2/3）生效（缺省=全部层级） */
+  applyToSourceTiers?: number[];
+}
+
+/** 归一化关注域：排除词/多词阈值缺省回退（排除词空、阈值默认 2）；非法阈值回退默认；源作用域字段透传 */
+function normalizeDomain(raw: unknown, i: number): AttentionDomainScoped {
   const d = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const keywords = (Array.isArray(d.keywords) ? d.keywords : []).map((k) => String(k ?? '').trim()).filter(Boolean);
   const excludeKeywords = (Array.isArray(d.excludeKeywords) ? d.excludeKeywords : []).map((k) => String(k ?? '').trim()).filter(Boolean);
   const minRaw = Number(d.minKeywordHits);
   const minKeywordHits = Number.isInteger(minRaw) && minRaw >= 1 && minRaw <= 20 ? minRaw : DEFAULT_MIN_KEYWORD_HITS;
+  const strArray = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.map((x) => String(x ?? '').trim()).filter(Boolean) : undefined);
+  const numArray = (v: unknown): number[] | undefined =>
+    Array.isArray(v)
+      ? v.map((x) => Number(x)).filter((n): n is number => Number.isInteger(n) && n >= 1 && n <= 3)
+      : undefined;
   return {
     id: String(d.id ?? `domain-${i + 1}`),
     label: String(d.label ?? d.id ?? `关注域${i + 1}`),
@@ -160,6 +229,8 @@ function normalizeDomain(raw: unknown, i: number): AttentionDomain {
     excludeKeywords,
     minKeywordHits,
     enabled: d.enabled !== false,
+    applyToSourceIds: strArray(d.applyToSourceIds),
+    applyToSourceTiers: numArray(d.applyToSourceTiers),
   };
 }
 

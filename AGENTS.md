@@ -37,7 +37,7 @@
 | 页面底 / 卡片 | `--color-canvas` / `--color-surface` | `#fafafa` / `#ffffff` |
 | **反色前景**（深底上的白字） | `--color-inverse` | `#ffffff` |
 | 内收区 | `--color-sunken` | `#f4f4f5` |
-| 文字三级 | `--color-ink` / `--color-ink-soft` / `--color-ink-faint` | `#0a0a0a` / `#52525b` / `#a1a1aa` |
+| 文字三级 | `--color-ink` / `--color-ink-soft` / `--color-ink-faint` | `#0a0a0a` / `#52525b` / `#71717a` |
 | 描边两级 | `--color-line` / `--color-line-strong` | `#ececee` / `#dcdce0` |
 | **主色（紫，稀疏用）** | `--color-signal` / `--color-signal-strong` / `--color-signal-soft` | `#7c3aed` / `#6d28d9` / `#f3effe` |
 | 状态 | `--color-ok` / `--color-warn` / `--color-danger` | `#15803d` / `#b45309` / `#b91c1c` |
@@ -130,6 +130,7 @@ const TOKEN = { signal: cssVar('--color-signal') /* ... */ };  // 集中在文�
 
 10. **知识库与多 Agent 工作流是平行独立板块**，互不阻塞、互不影响。
     - 唯一耦合点 = 任务关联资料（新建任务时从知识库勾选，板块 A 对板块 B **只读消费**）。
+    - **只读承诺**：知识库只读接入本地目录，唯一新增点是 `知识库/灵感库/`（小助理整理产出统一落盘于此），绝不修改、删除或移动 Vault 内原有文件。
     - 知识库未配置/异常 → 工作流照常；知识库独立表，不触碰工作流状态机。
 11. **代码不得持续拥有运行期配置**。任何「按代码里的权威表覆盖用户配置」的启动迁移，**必须写成一次性迁移并在 `settings` 写标记**。
     - 反例：`repairBuiltinAgentMounts` 曾挂在 `ensureSchema()` 里每次启动覆盖用户挂载 → 用户改完重启就被打回。

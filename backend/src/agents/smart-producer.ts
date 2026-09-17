@@ -13,8 +13,10 @@ import { buildHotContext, buildKnowledgeContext } from '../knowledge/refs.ts';
 import { assembleReworkText, getPendingRework } from '../engine/rework.ts';
 import * as delivery from '../delivery/store.ts';
 
-/** 上传目录（与 routes/tasks.ts UPLOAD_DIR 一致） */
-const UPLOAD_DIR = join(import.meta.dirname, '..', '..', 'data', 'uploads');
+/** 上传目录（与 routes/tasks.ts / delivery/image-file.ts 同源；可用 WORKBENCH_UPLOAD_DIR 覆盖，测试隔离用） */
+const UPLOAD_DIR = process.env.WORKBENCH_UPLOAD_DIR?.trim()
+  ? process.env.WORKBENCH_UPLOAD_DIR.trim()
+  : join(import.meta.dirname, '..', '..', 'data', 'uploads');
 
 /** 单张图片累计生图尝试上限（含自动重试与手动重试；B11 规格：不超过 3 次，抽为常量供测试断言） */
 export const MAX_IMAGE_ATTEMPTS = 3;
@@ -90,14 +92,16 @@ async function resolveReferenceImage(task: Task, isMain: boolean): Promise<strin
   try {
     const items = JSON.parse(d.content) as ImageItem[];
     const main = items.find((i) => i.kind === 'main' || i.id === '主图1') ?? items[0];
-    return main?.url && main.url.startsWith('data:') ? main.url : undefined;
+    // D-03：主图 url 可能是 dataURL 或 /uploads/<file>，统一转 dataURL 作详情图基准
+    return main?.url ? await toDataUrl(main.url) : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** 收集任务已产出的全部图片（主图 + 详情图，跳过 failed），供波波视觉审阅 */
-function collectStageImages(taskId: number): { stage: 'main-image' | 'detail-image'; name: string; url: string }[] {
+/** 收集任务已产出的全部图片（主图 + 详情图，跳过 failed），供波波视觉审阅。
+ *  D-03 后图片 url 可能是 /uploads/<file> 或 dataURL：统一转成 dataURL 再交给 LLM 视觉通道。 */
+async function collectStageImages(taskId: number): Promise<{ stage: 'main-image' | 'detail-image'; name: string; url: string }[]> {
   const out: { stage: 'main-image' | 'detail-image'; name: string; url: string }[] = [];
   for (const stage of ['main-image', 'detail-image'] as const) {
     const d = delivery.getDeliverable(taskId, stage, 'image');
@@ -105,7 +109,9 @@ function collectStageImages(taskId: number): { stage: 'main-image' | 'detail-ima
     try {
       const items = JSON.parse(d.content) as ImageItem[];
       for (const it of items) {
-        if (it.url && it.url.startsWith('data:') && it.status !== 'failed') out.push({ stage, name: it.name || it.id, url: it.url });
+        if (!it.url || it.status === 'failed') continue;
+        const url = it.url.startsWith('data:') ? it.url : (await toDataUrl(it.url)) ?? '';
+        if (url) out.push({ stage, name: it.name || it.id, url });
       }
     } catch {
       /* ignore */
@@ -414,7 +420,7 @@ export class SmartProducer implements StageProducer {
       );
 
     const baseline = (await resolveReferenceImage(task, false)) || (await resolveReferenceImage(task, true)) || task.referenceImage;
-    const targets = collectStageImages(task.id);
+    const targets = await collectStageImages(task.id);
     if (!baseline || targets.length === 0) {
       // 无图可审（纯文案链路或图片缺失）→ 文本校对
       return fallbackTextReview();

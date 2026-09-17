@@ -2,10 +2,31 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 /* ===== Quiet Signal 风格轻量 UI 基座（design.md D6.1：大结构直角、4px 小控件、无阴影、衬线标题） ===== */
 
-export function Btn({ children, onClick, variant = 'default', size, disabled, title, loading = false, className = '' }: { children: ReactNode; onClick?: () => void; variant?: 'default' | 'primary' | 'ghost' | 'danger' | 'signal'; size?: 'sm'; disabled?: boolean; title?: string; loading?: boolean; className?: string }) {
+export function Btn({
+  children,
+  onClick,
+  variant = 'default',
+  size,
+  disabled,
+  title,
+  loading = false,
+  className = '',
+  'aria-label': ariaLabel,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  variant?: 'default' | 'primary' | 'ghost' | 'danger' | 'signal';
+  size?: 'sm';
+  disabled?: boolean;
+  title?: string;
+  loading?: boolean;
+  className?: string;
+  /** 图标类按钮（无可读文本内容）的辅助可访问名（D-14） */
+  'aria-label'?: string;
+}) {
   const cls = ['qs-btn', variant === 'primary' ? 'primary' : variant === 'ghost' ? 'ghost' : variant === 'signal' ? 'signal' : '', variant === 'danger' ? 'danger' : '', size === 'sm' ? 'sm' : '', loading ? 'is-loading' : '', className].filter(Boolean).join(' ');
   return (
-    <button type="button" className={cls} onClick={onClick} disabled={disabled || loading} title={title} aria-busy={loading || undefined}>
+    <button type="button" className={cls} onClick={onClick} disabled={disabled || loading} title={title} aria-busy={loading || undefined} aria-label={ariaLabel}>
       {loading ? (
         <>
           <span className="qs-btn-spinner" aria-hidden="true" />
@@ -48,11 +69,17 @@ export function Modal({ open, title, onClose, children, width = 520 }: { open: b
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 pt-[10vh]" onClick={onClose}>
+    /**
+     * 可滚动弹层（核验 D-02）：内容高于视口时必须能滚到「下一步 / 确认」等底部按钮。
+     * 原先 overlay 为 overflow: visible、面板无 max-height，在 1366×768 等可视高度约 657px 的屏幕上
+     * 「新建任务」第 1 步的底部按钮被挤出视口且无法滚动 → 按钮完全不可达。
+     * 现在由 overlay 承担滚动（面板整体参与滚动，不用内部滚动，避免头部与正文脱节）。
+     */
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/25 py-[5vh]" onClick={onClose}>
       <div className="qs-card w-full" style={{ maxWidth: width }} onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: 'var(--color-line)' }}>
           <h3 className="font-display text-base font-semibold">{title}</h3>
-          <Btn variant="ghost" size="sm" onClick={onClose}>
+          <Btn variant="ghost" size="sm" onClick={onClose} aria-label="关闭">
             ✕
           </Btn>
         </header>

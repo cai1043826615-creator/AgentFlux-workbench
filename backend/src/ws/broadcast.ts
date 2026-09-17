@@ -4,6 +4,7 @@ import { USER_NAME } from '@workbench/shared';
 import { bus } from '../engine/bus.ts';
 import { handleAgentReply } from '../agents/chat-reply.ts';
 import { sendChatMessage } from '../routes/chat.ts';
+import { get } from '../db/client.ts';
 
 /** 已连接的 WS 客户端集合（v1 单用户，全量广播） */
 const clients = new Set<WebSocket>();
@@ -18,6 +19,16 @@ export function broadcast(msg: WSServerMessage): void {
   for (const c of clients) {
     if (c.readyState === c.OPEN) c.send(data);
   }
+}
+
+/**
+ * ownerName 口径与 engine 一致（读 agents 表显示名；无负责人 → 待分配）。
+ * 广播负载补 ownerName（D-09）：前端 taskMerge 可拿到权威显示名，不再 `?? prev` 锁死旧值。
+ */
+function ownerNameOf(agentId: string | null): string {
+  if (!agentId) return '待分配';
+  const row = get<{ name: string }>('SELECT name FROM agents WHERE id = ?', [agentId]);
+  return row?.name ?? agentId;
 }
 
 /**
@@ -52,7 +63,11 @@ export function handleWsClientMessage(raw: unknown): void {
 
 /** 订阅引擎总线 → WS 广播 */
 export function wireBroadcast(): void {
-  bus.on('task', (e: { kind: 'task'; task: Task }) => broadcast({ type: 'task:update', task: e.task }));
+  bus.on('task', (e: { kind: 'task'; task: Task }) => {
+    // D-09：task:update 负载补 ownerName（避免前端 taskMerge `?? prev` 锁死旧显示名）
+    const task = { ...e.task, ownerName: ownerNameOf(e.task.ownerAgentId) } as Task;
+    broadcast({ type: 'task:update', task });
+  });
   bus.on('event', (e: { kind: 'event'; event: TaskEvent }) => broadcast({ type: 'event:new', event: e.event }));
   bus.on('deliverable', (e: { kind: 'deliverable'; deliverable: Deliverable }) =>
     broadcast({ type: 'deliverable:update', deliverable: e.deliverable }),

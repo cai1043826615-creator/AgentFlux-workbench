@@ -10,6 +10,7 @@ import type { HotEvidenceLevel, HotItem, HotPanel, HotSourceStatus } from '@work
 import { get, run } from '../db/client.ts';
 import { HOT_CACHE_TTL_MS, HOT_REQUEST_TIMEOUT_MS, classifyHot, loadAttentionConfig, type RawHotItem } from './attention.ts';
 import { instantiateAdapters, type HotSourceFetchResult, type RawSourceItem } from './hot-sources/index.ts';
+import { tagHotItems, type AiTagResult } from './hot-tagging.ts';
 import { KT, ensureKnowledgeSchema } from './schema.ts';
 
 /** 缓存 key 版本（D8：源集合变化 → 指纹变化 → 旧缓存作废重取） */
@@ -44,18 +45,87 @@ function cacheKey(cfg: ReturnType<typeof loadAttentionConfig>): string {
   return `daily-hot:${CACHE_VERSION}:${cacheFingerprint(cfg)}`;
 }
 
-/** 去重（按 id 与标题，保留首个） */
-function dedupe<T extends { id: string; title: string }>(items: T[]): T[] {
-  const seenId = new Set<string>();
-  const seenTitle = new Set<string>();
-  return items.filter((it) => {
-    const k = it.id || it.title;
-    const t = it.title.toLocaleLowerCase('zh-CN');
-    if (seenId.has(k) || seenTitle.has(t)) return false;
-    seenId.add(k);
-    seenTitle.add(t);
-    return true;
-  });
+/* ===== 三层去重（3.6，docs/设计/05 §5.3）===== */
+
+/** L1 URL 规范化：去 #fragment、去跟踪参数（utm_ 系列 / from / spm / source）、小写 host、去末尾 / */
+function normalizeUrl(url: string | null): string {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    for (const k of [...u.searchParams.keys()]) {
+      const lk = k.toLowerCase();
+      if (lk.startsWith('utm_') || lk === 'from' || lk === 'spm' || lk === 'source') u.searchParams.delete(k);
+    }
+    u.hostname = u.hostname.toLowerCase();
+    const p = u.pathname.replace(/\/+$/, '');
+    u.pathname = p || '/';
+    return u.href;
+  } catch {
+    return url.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+/** L2 标题归一：去空白、全角转半角、去中英文标点、去「独家｜重磅」等前缀 */
+function normalizeTitle(title: string): string {
+  let s = String(title ?? '').toLowerCase();
+  s = s.replace(/[\u3000\s]+/g, '');
+  s = s.replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
+  s = s.replace(/[，。！？；：、（）《》〈〉【】「」『』"'`.,!?;:()\[\]{}<>_\-—–·•|]/g, '');
+  s = s.replace(/^(独家|重磅|突发|快讯|最新|官方|刚刚|热评|速报|首发|紧急|热搜)[|｜:：\s]*/, '');
+  return s;
+}
+
+/** 3-gram 字符集合（短串退化为整串） */
+function trigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  if (s.length <= 3) {
+    if (s) out.add(s);
+    return out;
+  }
+  for (let i = 0; i + 3 <= s.length; i++) out.add(s.slice(i, i + 3));
+  return out;
+}
+
+/** Jaccard 相似度 */
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  const union = a.size + b.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+/**
+ * 三层去重（3.6）：
+ * 1) URL 规范化精确去重；2) 标题归一后精确去重；3) 归一标题 3-gram Jaccard ≥ 0.8 视为同一事件，
+ * 合并为一条并累加 sourceCount（sources[] 结构为远期演进，暂以 sourceCount 近似多源证据）。
+ */
+function dedupe<T extends { id: string; title: string; url: string | null; sourceCount: number }>(items: T[]): T[] {
+  const out: T[] = [];
+  const norms: string[] = [];
+  const seenUrl = new Set<string>();
+  const seenNorm = new Set<string>();
+  for (const it of items) {
+    const nu = normalizeUrl(it.url);
+    if (nu && seenUrl.has(nu)) continue;
+    const nt = normalizeTitle(it.title);
+    if (nt && seenNorm.has(nt)) continue;
+    let merged = false;
+    for (let i = 0; i < out.length; i++) {
+      if (jaccard(trigrams(nt), trigrams(norms[i])) >= 0.8) {
+        out[i] = { ...out[i], sourceCount: (out[i].sourceCount ?? 1) + (it.sourceCount ?? 1) };
+        merged = true;
+        break;
+      }
+    }
+    if (merged) continue;
+    out.push(it);
+    if (nu) seenUrl.add(nu);
+    if (nt) seenNorm.add(nt);
+    norms.push(nt);
+  }
+  return out;
 }
 
 /** 证据等级判定（3.7）：≥2 独立信源 multi-source；1 信源且有原文外链 traceable；否则 single-source */
@@ -90,7 +160,7 @@ function writeCache(key: string, panel: HotPanel, ttlMs: number): void {
 }
 
 /** 无缓存且源全部不可用时的面板（板块 B 显示明确提示，不抛错） */
-function unavailablePanel(sourceNames: string[], code: string, message: string): HotPanel {
+function unavailablePanel(sourceNames: string[], code: string, message: string): HotPanelWithTags {
   return {
     status: 'unavailable',
     fetchedAt: null,
@@ -102,14 +172,29 @@ function unavailablePanel(sourceNames: string[], code: string, message: string):
     error: { code, message },
     counts: { upstream: 0, mustRead: 0, browse: 0, other: 0, selected24h: 0 },
     tiers: { mustRead: [], browse: [], other: [] },
+    aiTags: {},
+    aiTagged: false,
+    aiDegraded: true,
   };
 }
 
 /**
- * 拉取热点面板（多源聚合 + 单源降级）。
+ * AI 批量打标结果随面板一起返回/缓存（3.4）：
+ * - aiTags：条目 id → {cls, tag, use}；LLM 失败为空对象；
+ * - aiTagged：本次是否成功打标（false = 全批降级「可参考」）；
+ * - aiDegraded：LLM 通道降级标记（前端据此显示「AI 识别暂不可用」）。
+ */
+export interface HotPanelWithTags extends HotPanel {
+  aiTags: Record<string, AiTagResult>;
+  aiTagged: boolean;
+  aiDegraded: boolean;
+}
+
+/**
+ * 拉取热点面板（多源聚合 + 单源降级 + 三层去重 + AI 批量打标）。
  * @param force 忽略 TTL 强制刷新（手动刷新按钮）
  */
-export async function loadHotPanel(force = false): Promise<HotPanel> {
+export async function loadHotPanel(force = false): Promise<HotPanelWithTags> {
   ensureKnowledgeSchema();
   const cfg = loadAttentionConfig();
   const key = cacheKey(cfg);
@@ -121,7 +206,8 @@ export async function loadHotPanel(force = false): Promise<HotPanel> {
     const expiresAt = Date.parse(cached.expires_at);
     if (Number.isFinite(expiresAt) && Date.now() < expiresAt) {
       try {
-        const panel = JSON.parse(cached.payload) as HotPanel;
+        // 命中缓存：AI 打标结果随 payload 复用（第二次 GET /api/hot 不触发 LLM）
+        const panel = JSON.parse(cached.payload) as HotPanelWithTags;
         return { ...panel, status: 'live' };
       } catch {
         /* 缓存损坏 → 继续走实时拉取 */
@@ -161,7 +247,7 @@ export async function loadHotPanel(force = false): Promise<HotPanel> {
     const messages = sourceStatus.map((s) => `${s.label}: ${s.error}`).join('；') || '全部热点源拉取失败';
     if (cached) {
       try {
-        const panel = JSON.parse(cached.payload) as HotPanel;
+        const panel = JSON.parse(cached.payload) as HotPanelWithTags;
         return { ...panel, status: 'stale', error: { code: 'HOT_UNAVAILABLE', message: messages } };
       } catch {
         /* 缓存损坏 */
@@ -188,6 +274,12 @@ export async function loadHotPanel(force = false): Promise<HotPanel> {
   const tiers = classifyHot(unified, cfg);
   const now = Date.now();
 
+  // 3.4：去重后单次 LLM 批量打标（失败 → null → 全批降级「可参考」；结果随缓存 TTL 复用）。
+  // 只对最终展示条目（三层合计）打标，避免把全部去重上游条目（可达数百条）一次喂给 LLM 导致超长截断降级。
+  const tieredItems = [...tiers.mustRead, ...tiers.browse, ...tiers.other];
+  const tagMap = await tagHotItems(tieredItems.map((i) => ({ id: i.id, title: i.title })));
+  const aiTags: Record<string, AiTagResult> = tagMap ? Object.fromEntries(tagMap) : {};
+
   // 证据等级回填（classifyHot 输出 HotItem，附 evidence）
   const applyEvidence = (list: HotItem[]): HotItem[] =>
     list.map((it) => ({ ...it, evidence: evidenceOf({ sourceCount: it.sourceCount, url: it.url }), sourceName: it.source, latest: it.latest ?? null }));
@@ -197,7 +289,7 @@ export async function loadHotPanel(force = false): Promise<HotPanel> {
   const other = applyEvidence(tiers.other);
   const allTiered = [...mustRead, ...browse, ...other];
 
-  const panel: HotPanel = {
+  const panel: HotPanelWithTags = {
     status: 'live',
     fetchedAt: new Date(now).toISOString(),
     expiresAt: new Date(now + HOT_CACHE_TTL_MS).toISOString(),
@@ -214,6 +306,9 @@ export async function loadHotPanel(force = false): Promise<HotPanel> {
       selected24h: allTiered.filter((it) => isWithin24h(it.latestAt, now)).length,
     },
     tiers: { mustRead, browse, other },
+    aiTags,
+    aiTagged: tagMap !== null,
+    aiDegraded: tagMap === null,
   };
   writeCache(key, panel, HOT_CACHE_TTL_MS);
   return panel;

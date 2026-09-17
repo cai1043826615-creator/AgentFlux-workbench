@@ -195,7 +195,7 @@ function TaskCard({
           </span>
         ) : null}
         <div className="relative" ref={menuRef}>
-          <Btn size="sm" variant="ghost" className="outline" title="更多操作" onClick={() => setMenuOpen((v) => !v)}>
+          <Btn size="sm" variant="ghost" className="outline" title="更多操作" aria-label="更多操作" onClick={() => setMenuOpen((v) => !v)}>
             ⋯
           </Btn>
           {menuOpen ? (

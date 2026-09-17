@@ -13,6 +13,18 @@ import { before, describe, test } from 'node:test';
 
 const dir = mkdtempSync(join(tmpdir(), 'workbench-kbctx-'));
 process.env.WORKBENCH_DB = join(dir, 'ctx.db');
+// 5.1 热点的 fetch 桩只服务 aihot 源；3.3 起默认源为电商派/网经社/热榜（aihot 默认关闭），
+// 故注入「仅启用 aihot」的临时关注域配置，保证本文件热点相关用例不随默认源变化而失效。
+const attnDir = mkdtempSync(join(tmpdir(), 'workbench-ctx-attn-'));
+process.env.WORKBENCH_ATTENTION_CONFIG = join(attnDir, 'attention.json');
+writeFileSync(
+  process.env.WORKBENCH_ATTENTION_CONFIG,
+  JSON.stringify({
+    sources: [
+      { id: 'aihot', adapter: 'aihot', label: 'AI HOT（行业聚合）', endpoint: 'https://aihot.virxact.com', vertical: 'AI 行业聚合', enabled: true, tierCap: 'browse' },
+    ],
+  }),
+);
 delete process.env.WORKBENCH_VAULT_ROOT;
 
 const { ensureSchema } = await import('../../db/ensure.ts');

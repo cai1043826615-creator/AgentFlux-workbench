@@ -55,8 +55,8 @@ function TopBar() {
         任务
       </Btn>
       {pendingCount > 0 ? (
-        <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-signal-strong)' }} title="等待你确认的任务数">
-          <span className="tabular font-semibold">{pendingCount}</span> 待确认
+        <span className="qs-meta inline-flex items-center gap-1.5" style={{ color: 'var(--color-signal-strong)' }} title="全部工作流的待确认任务数（含当前看板列，口径与看板列一致）">
+          <span className="tabular font-semibold">{pendingCount}</span> 待确认（全部工作流）
         </span>
       ) : null}
       {/* 连接状态：Connected 时只留安静的状态点；断开才升级为可点击的重连徽章（与聊天框共用同一状态） */}
@@ -94,7 +94,7 @@ function RailIcon({ glyph, title, active, disabled, onClick }: { glyph: GlyphNam
   );
 }
 
-/** 新建任务：三步弹窗（第1步 表单 → 第2步 关联知识库资料 → 第3步 确认摘要 → 确认并开工）
+/** 新建任务：三步弹窗（第1步 表单 → 第2步 关联知识库资料 → 第3步 确认摘要 → 确认创建任务）
  *  第2步是板块 A/B 的唯一耦合点；知识库未连接时该步骤仅提示并可跳过，流程与既有完全一致。 */
 function NewTaskModal() {
   const { createTask, newTask, closeNewTask, workflows, currentWorkflowId } = useWorkbench();
@@ -178,12 +178,15 @@ function NewTaskModal() {
     setBusy(true);
     try {
       let referenceImage: string | undefined = refDataUrl ?? undefined;
-      // 优先上传换取 /uploads 地址；后端未实现（404 等）时回退为直接存 dataURL
-      try {
-        const { url } = await api.uploadImage(refDataUrl as string);
-        if (url) referenceImage = url;
-      } catch (err) {
-        console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
+      // 优先上传换取 /uploads 地址；后端未实现（404 等）时回退为直接存 dataURL。
+      // report-driven-fixes 1.5（D-06）：未选参考图（小红书工作流允许无图）时不发带空图的 400 请求。
+      if (refDataUrl) {
+        try {
+          const { url } = await api.uploadImage(refDataUrl);
+          if (url) referenceImage = url;
+        } catch (err) {
+          console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
+        }
       }
       // 仅在小红书工作流带 brief；电商固定为 null，后端链路不变
       const brief = isXhs ? { contentType, audience: audience.trim() || undefined, product: product.trim() || undefined, imageCount } : null;
@@ -308,7 +311,9 @@ function NewTaskModal() {
             {touched && !canNext ? (
               `● ${!title.trim() ? (isXhs ? '请先填写笔记主题' : '请先填写任务标题') : !isXhs && platforms.length === 0 ? '请至少选择一个目标平台' : '请上传参考图'}，方可进入下一步`
             ) : (
-              <>提交后将展示任务内容摘要，<b>确认后 AI 才开工</b></>
+              /* report-driven-fixes 1.4（D-05）：建单行为 = 任务进入「规划中」待确认，并非立即开工；
+                 文案与行为对齐，不再说「确认后 AI 才开工」 */
+              <>提交后将展示任务内容摘要，<b>确认创建后进入「规划中」</b></>
             )}
           </p>
           <ModalFooter>
@@ -371,12 +376,14 @@ function NewTaskModal() {
               )}
             </div>
           </div>
+          {/* report-driven-fixes 1.4（D-05）：建单行为 = 任务进入「规划中」列待确认（POST /api/tasks 建 planned 列，
+              仅看板「确认开工」才真正启动 Agent）；文案与行为对齐 */}
           <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
-            确认后 AI 将开始工作（未确认前不会启动任何 Agent）
+            确认后任务将进入「规划中」，需在任务看板点击「确认开工」后 AI 才会开始工作
           </p>
           <ModalFooter>
             <Btn onClick={() => setStep('kb')}>返回修改</Btn>
-            <Btn variant="primary" onClick={submit} disabled={busy}>{busy ? '开工中…' : '确认并开工'}</Btn>
+            <Btn variant="primary" onClick={submit} disabled={busy}>{busy ? '创建中…' : '确认创建任务'}</Btn>
           </ModalFooter>
         </>
       )}
@@ -385,7 +392,7 @@ function NewTaskModal() {
 }
 
 function Shell() {
-  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask, workflows, currentWorkflowId } = useWorkbench();
+  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask, workflows, currentWorkflowId, setCurrentWorkflowId } = useWorkbench();
   const [showLeft, setShowLeft] = useState(true);
   // 右栏聊天面板默认收起：首屏把横向空间让给主视图（可随时展开）
   const [showRight, setShowRight] = useState(false);
@@ -424,7 +431,6 @@ function Shell() {
   };
 
   const workflowActive = view === 'board' || view === 'task';
-  const currentWorkflowName = workflows.find((w) => w.id === currentWorkflowId)?.name ?? '工作流';
   const isGroupChat = chatTarget.kind === 'group';
 
   /** 左栏折叠态图标：跳转/行为 + 同时展开左栏 */
@@ -492,10 +498,20 @@ function Shell() {
               <RailIcon glyph="graph" title="知识库 · 知识星图" active={view === 'knowledge-graph'} onClick={openLeftKnowledgeGraph} />
               <RailIcon glyph="trend" title="知识库 · 每日热点" active={view === 'hot'} onClick={openLeftHot} />
               <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
-              {/* 工作流分区（占位项展示但不可点，与展开态一致） */}
-              <RailIcon glyph="flow" title={`工作流 · ${currentWorkflowName}看板`} active={workflowActive} onClick={openLeftFlow} />
-              <RailIcon glyph="box" title="工作流 · 直播带货上架（占位）" disabled />
-              <RailIcon glyph="box" title="工作流 · 跨境选品（占位）" disabled />
+              {/* 工作流分区（report-driven-fixes 2.12 D-30：不再硬编码占位，由 workflows.map() 派生，与展开态同源；
+                  首个=当前工作流看板，其余=点击直接切到该工作流并回到看板） */}
+              {workflows.map((wf, i) => (
+                <RailIcon
+                  key={wf.id}
+                  glyph="flow"
+                  title={i === 0 ? `工作流 · ${wf.name}看板` : `工作流 · ${wf.name}`}
+                  active={workflowActive && wf.id === currentWorkflowId}
+                  onClick={() => {
+                    if (wf.id !== currentWorkflowId) setCurrentWorkflowId(wf.id);
+                    openLeftFlow();
+                  }}
+                />
+              ))}
               <div className="my-1.5 w-6 border-t" style={{ borderColor: 'var(--color-line-strong)' }} />
               <RailIcon glyph="pulse" title="通用 · Agent 状态" active={view === 'observability'} onClick={openLeftObservability} />
               <RailIcon glyph="gear" title="通用 · 设置 · 编排模式" onClick={openLeftSettings} />

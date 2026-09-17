@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Deliverable, Task, TopicOption, XhsNote } from '@workbench/shared';
-import { WORKFLOW_STAGE_LABELS, XHS_STAGE_COPY, XHS_STAGE_COVER, XHS_STAGE_DELIVER, XHS_STAGE_INNER, XHS_STAGE_REVIEW, XHS_STAGE_TOPIC, stageIndexOf, stageKeysOf } from '@workbench/shared';
+import { XHS_STAGE_COPY, XHS_STAGE_COVER, XHS_STAGE_DELIVER, XHS_STAGE_INNER, XHS_STAGE_REVIEW, XHS_STAGE_TOPIC, stageIndexOf, stageKeysOf } from '@workbench/shared';
+import { stageDisplayName } from '../../../../lib/stage-names.ts';
 import { Btn, Empty, Spinner } from '../../../../components/ui.tsx';
 import { ImagePreview } from '../../../../components/ImagePreview.tsx';
 import { useWorkbench } from '../../../../store/useWorkbench.tsx';
@@ -64,8 +65,8 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
     return { title: raw.title, body: raw.outline ?? '', tags: raw.keywords ?? [] };
   }, [delivered]);
 
-  const coverImgs = useMemo(() => imagesForStage(delivered, XHS_STAGE_COVER), [delivered]);
-  const innerImgs = useMemo(() => imagesForStage(delivered, XHS_STAGE_INNER), [delivered]);
+  const coverImgs = useMemo(() => imagesForStage(delivered, XHS_STAGE_COVER, wfId), [delivered, wfId]);
+  const innerImgs = useMemo(() => imagesForStage(delivered, XHS_STAGE_INNER, wfId), [delivered, wfId]);
   /** 合规审核结果（主管校对报告；shared 解析口径与任务详情一致） */
   const compliance = useMemo(() => parseCompliance(delivered), [delivered]);
   /** 信息条参考图：上传图优先，无则回退 AI 生成的首图（与电商逻辑统一） */
@@ -104,14 +105,8 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
   const stCopy = stateOf(task, XHS_STAGE_COPY);
   const stCover = stateOf(task, XHS_STAGE_COVER);
   const stInner = stateOf(task, XHS_STAGE_INNER);
-  /** 阶段的中文名（优先用共享标签，避免旧阶段 key 显示英文） */
-  const stageLabelOf: Record<string, string> = {
-    ...WORKFLOW_STAGE_LABELS,
-    // 历史任务可能停在已废弃的 xhs-image / xhs-package（结构变更前创建）
-    'xhs-image': '封面配图（旧）',
-    'xhs-package': '发布包装（旧）',
-  };
-  const stageName = stageLabelOf[task.stage] ?? task.stage;
+  // 阶段显示名统一走别名表（D-12/D-13）：历史废弃阶段也有用户可见名，不暴露内部 id
+  const stageName = stageDisplayName(task.stage);
   /**
    * 一键采纳 = 快捷操作，不替代内容卡内的原有逐项操作（用户定案）。
    * 显示条件：任务待确认且非交付阶段。
@@ -151,7 +146,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
   if (!task) return <Empty text="任务不存在" />;
 
   /**
-   * 历史任务降级（用户截图反馈）：任务停在结构变更前的废弃阶段（如 xhs-image）时，
+   * 历史任务降级（用户截图反馈）：任务停在结构变更前的废弃阶段（如「首图设计（旧）」）时，
    * stageIdx=-1，面板网格对它全部显示灰态、一键采纳也无从操作——整体降级为提示，
    * 不再渲染四张空卡（避免「模拟占位/未产出」等误导内容）。
    */

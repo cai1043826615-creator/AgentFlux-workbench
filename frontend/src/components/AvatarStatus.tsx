@@ -65,6 +65,10 @@ export function AvatarStatus({
           boxShadow: `0 0 0 ${ringWidth}px ${ringColor}`,
         }}
         title={title}
+        /* D-14：状态点是有语义的状态指示（title 提供文案）；纯装饰（无 title）时对读屏隐藏 */
+        role={title ? 'img' : undefined}
+        aria-label={title}
+        aria-hidden={title ? undefined : true}
       />
     </span>
   );

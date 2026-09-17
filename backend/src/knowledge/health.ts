@@ -76,8 +76,44 @@ function parseTags(raw: string): string[] {
 }
 
 /**
+ * 解析 Agent 挂载 JSON（skills / files 为 JSON 数组，workflow_* 为 JSON 对象；
+ * 坏 JSON 容错为空），并把其中的字符串值归一化为 token 集合。
+ * 只读 agents 表（板块 A 挂载列）；表/列缺失或异常时返回空集，不影响孤岛判定。
+ */
+function mountedTokens(): Set<string> {
+  const tokens = new Set<string>();
+  try {
+    const rows = all<{ workflow_skills: string; workflow_files: string; skills: string; files: string }>(
+      'SELECT workflow_skills, workflow_files, skills, files FROM agents',
+    );
+    for (const r of rows) {
+      for (const raw of [r.workflow_skills, r.workflow_files, r.skills, r.files]) {
+        let v: unknown = null;
+        try {
+          v = JSON.parse(raw);
+        } catch {
+          continue;
+        }
+        const collect = (x: unknown): void => {
+          if (typeof x === 'string' && x.trim()) tokens.add(normalizeRel(x.trim()));
+          else if (Array.isArray(x)) x.forEach(collect);
+          else if (x && typeof x === 'object') Object.values(x as Record<string, unknown>).forEach(collect);
+        };
+        collect(v);
+      }
+    }
+  } catch {
+    /* agents 表缺失/无挂载列：通道②空，不影响其余通道 */
+  }
+  return tokens;
+}
+
+/**
  * 孤岛文档相对路径集合（按路径排序）。
- * 孤岛 = 无任何文档间链接边（kind='link' 的入边/出边均为空）且无共享标签（其任一标签被 ≥2 篇文档声明；无标签亦满足）。
+ * 孤岛 = 同时不满足三通道「已使用」判定：① 被任务关联（task_kb_refs）
+ * ② 被 Agent 挂载（workflow_skills / workflow_files / skills / files 并集）
+ * ③ 被其他文档 wiki 引用（kind='link' 的入边/出边）；且无共享标签（其任一标签被 ≥2 篇文档声明）。
+ * 三通道合并（修 D-25）：避免把已挂载/已引用的资产误判为孤岛。
  */
 export function islandDocPaths(): string[] {
   ensureKnowledgeSchema();
@@ -85,12 +121,31 @@ export function islandDocPaths(): string[] {
   if (docs.length === 0) return [];
   const docPaths = new Set(docs.map((d) => d.path));
 
-  // 有文档间链接的文档集合（link 边的 source/target 并集；仅统计仍在索引内的路径，与 graphData 语义一致）
-  const linked = new Set<string>();
+  // 三通道「已使用」并集
+  const used = new Set<string>();
+  // ① 被任务关联
+  try {
+    const refPaths = all<{ doc_path: string }>(`SELECT DISTINCT doc_path FROM ${KT.taskRefs}`);
+    for (const r of refPaths) {
+      const p = normalizeRel(r.doc_path);
+      if (docPaths.has(p)) used.add(p);
+    }
+  } catch {
+    /* task_kb_refs 缺失不阻塞 */
+  }
+  // ② 被 Agent 挂载（精确路径 + 按文件名/basename 匹配：技能名「小红书合规违禁词清单」命中「技能库/…/小红书合规违禁词清单.md」）
+  const mounted = mountedTokens();
+  for (const t of mounted) if (docPaths.has(t)) used.add(t);
+  for (const d of docs) {
+    if (used.has(d.path)) continue;
+    const base = (d.path.split('/').pop() ?? '').replace(/\.md$/i, '');
+    if (base && mounted.has(base)) used.add(d.path);
+  }
+  // ③ 有文档间链接的文档集合（link 边的 source/target 并集；仅统计仍在索引内的路径，与 graphData 语义一致）
   const linkRows = all<{ source_path: string; target: string }>(`SELECT source_path, target FROM ${KT.links} WHERE kind = 'link'`);
   for (const r of linkRows) {
-    if (docPaths.has(r.source_path)) linked.add(r.source_path);
-    if (docPaths.has(r.target)) linked.add(r.target);
+    if (docPaths.has(r.source_path)) used.add(r.source_path);
+    if (docPaths.has(r.target)) used.add(r.target);
   }
 
   // 标签 → 声明该标签的文档数（trim 后原字符串精确匹配）
@@ -102,7 +157,7 @@ export function islandDocPaths(): string[] {
 
   const islands: string[] = [];
   for (const d of docs) {
-    if (linked.has(d.path)) continue;
+    if (used.has(d.path)) continue;
     if (parseTags(d.tags).some((t) => sharedTags.has(t))) continue;
     islands.push(d.path);
   }

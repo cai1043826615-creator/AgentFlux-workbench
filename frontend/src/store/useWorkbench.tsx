@@ -25,6 +25,12 @@ export interface ActionToast {
   onAction?: () => void;
   /** 自动消失毫秒；不传则常驻，需手动关闭 */
   duration?: number;
+  /**
+   * 同 key 替换键（D-07 审批 Toast 同 key 清理）：
+   * 同一语义的连续提示（如连续采纳多个交付物）只保留最新一条，
+   * 新提示替换旧提示而非堆积。传同 key 的新条目会先移除旧条目再入栈。
+   */
+  key?: string;
 }
 
 /** 新建任务弹窗状态（打开/关闭；表单内容由弹窗内部管理，无外部预填） */
@@ -58,6 +64,9 @@ interface WorkbenchState {
   setCurrentWorkflowId: (id: string) => void;
   /** 知识库阅读定位（星图/任务详情跳转原文用） */
   kbDocPath: string | null;
+  /** 知识库目录定位信号（report-driven-fixes 0.8：非 null 时 KnowledgeView 切到该目录浏览，消费后清空） */
+  kbDir: string | null;
+  openKbDir: (dir: string | null) => void;
   /** P2·F1：文档预览弹窗（叠加层，不产生路由变化；与 kbDocPath 并列，不替换） */
   docPreviewPath: string | null;
   openDocPreview: (path: string) => void;
@@ -131,6 +140,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [currentWorkflowId, setCurrentWorkflowId] = useState<string>(WORKFLOW_ID);
   const [kbDocPath, setKbDocPath] = useState<string | null>(null);
+  const [kbDir, setKbDir] = useState<string | null>(null);
   const [kbNodeId, setKbNodeId] = useState<string | null>(null);
   const [focusPackageSignal, setFocusPackageSignal] = useState(0);
   const requestFocusPackage = useCallback(() => {
@@ -261,7 +271,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [actionToasts, setActionToasts] = useState<ActionToast[]>([]);
   const pushToast = useCallback((t: Omit<ActionToast, 'id'>): string => {
     const id = `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setActionToasts((prev) => [...prev, { ...t, id }].slice(-4));
+    // D-07：同 key 替换——同语义新提示先移除旧条目，再入栈（不占上限名额，不堆积）
+    setActionToasts((prev) => {
+      const rest = t.key ? prev.filter((x) => x.key !== t.key) : prev;
+      return [...rest, { ...t, id }].slice(-4);
+    });
     return id;
   }, []);
   const dismissToast = useCallback((id: string) => {
@@ -421,6 +435,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     [setView],
   );
 
+  /** 打开知识库并切换到指定目录浏览（report-driven-fixes 0.8：灵感库入口等） */
+  const openKbDir = useCallback(
+    (dir: string | null) => {
+      setKbDir(dir);
+      setView('knowledge');
+    },
+    [setView],
+  );
+
   // P2·F1：文档预览弹窗（叠加层，不产生路由变化）
   const [docPreviewPath, setDocPreviewPath] = useState<string | null>(null);
   const openDocPreview = useCallback((path: string) => {
@@ -497,6 +520,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       selectChat,
       setView,
       openKbDoc,
+      kbDir,
+      openKbDir,
       setKbNodeId,
       openNewTask,
       closeNewTask,
@@ -510,7 +535,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       pushToast,
       dismissToast,
     }),
-    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, workflows, currentWorkflowId, kbDocPath, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, focusPackageSignal, requestFocusPackage, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
+    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, workflows, currentWorkflowId, kbDocPath, kbDir, openKbDir, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, focusPackageSignal, requestFocusPackage, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

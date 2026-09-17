@@ -12,7 +12,7 @@ import { graphData, nodeDetail } from '../knowledge/graph.ts';
 import { knowledgeHealth } from '../knowledge/health.ts';
 import { loadHotPanel } from '../knowledge/hot.ts';
 import { rebuildIndexInBackground } from '../knowledge/indexer.ts';
-import { HotRefInvalidError, HotRefLimitError, KbRefInvalidError, KbRefLimitError, listTaskHotRefs, listTaskKbRefs, setTaskHotRefs, setTaskKbRefs } from '../knowledge/refs.ts';
+import { HotRefInvalidError, HotRefLimitError, KbRefInvalidError, KbRefLimitError, KbRefMissingPathError, listTaskHotRefs, listTaskKbRefs, setTaskHotRefs, setTaskKbRefs } from '../knowledge/refs.ts';
 import { searchDocs } from '../knowledge/search.ts';
 import { ensureKnowledgeSchema } from '../knowledge/schema.ts';
 import { createDraft, deleteDraft, getDraft, listDrafts } from '../knowledge/drafts.ts';
@@ -121,7 +121,7 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
       const refs = setTaskKbRefs(taskId, req.body?.refs ?? []);
       return { refs };
     } catch (err) {
-      if (err instanceof KbRefLimitError || err instanceof KbRefInvalidError) {
+      if (err instanceof KbRefLimitError || err instanceof KbRefInvalidError || err instanceof KbRefMissingPathError) {
         return reply.code(400).send({ error: err.message });
       }
       throw err;

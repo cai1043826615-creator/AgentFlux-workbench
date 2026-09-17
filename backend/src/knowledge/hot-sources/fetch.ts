@@ -59,3 +59,14 @@ export async function fetchJson(url: string, timeoutMs: number): Promise<unknown
 export function compact(v: unknown): string {
   return String(v ?? '').replace(/\s+/g, ' ').trim();
 }
+
+/** 简单哈希（FNV-1a 32 位，零依赖；用于无稳定 id 的热榜条目生成稳定 id） */
+export function hashText(s: string): string {
+  let h = 0x811c9dc5;
+  const str = String(s ?? '');
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}

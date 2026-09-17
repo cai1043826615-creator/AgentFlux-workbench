@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CopyPackage, Deliverable, DeliverableDiff, DeliverableVersion, ProvenanceResult, Task } from '@workbench/shared';
-import { BOARD_COLUMNS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
+import { BOARD_COLUMNS } from '@workbench/shared';
+import { stageDisplayName } from '../../lib/stage-names.ts';
 import { Badge, Btn, Card, Empty, SectionTitle, Spinner, Tabs } from '../../components/ui.tsx';
 import { ImagePreview, deliverableStatusLabel } from '../../components/ImagePreview.tsx';
 import { fmtTime } from '../../lib/format.ts';
-import { MutedPlaceholder, resolveInfoBarRef } from './stage-panels/xhs/shared.tsx';
+import { MutedPlaceholder, resolveInfoBarRef, sortImagesByDeclaredOrder } from './stage-panels/xhs/shared.tsx';
 import { TaskInfoBar } from './stage-panels/xhs/TaskInfoBar.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
@@ -75,8 +76,9 @@ interface ParsedImg {
 /** 生图失败最大尝试次数（与后端 MAX_IMAGE_ATTEMPTS 对齐；界面据此决定是否还可重试） */
 const MAX_IMAGE_ATTEMPTS = 3;
 
-/** 合并某阶段全部 image 交付物中的图片条目（同一阶段可能多个交付物/多版本） */
-function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] {
+/** 合并某阶段全部 image 交付物中的图片条目（同一阶段可能多个交付物/多版本），
+ *  按工作流 groups 声明顺序重排（D-22，不依赖并行完成先后顺序） */
+function imagesForStage(dels: Deliverable[], stage: string, workflowId?: string): ParsedImg[] {
   const out: ParsedImg[] = [];
   for (const d of dels) {
     if (d.stage === stage && d.kind === 'image') {
@@ -84,7 +86,7 @@ function imagesForStage(dels: Deliverable[], stage: string): ParsedImg[] {
       if (list) out.push(...list);
     }
   }
-  return out;
+  return sortImagesByDeclaredOrder(out, workflowId, stage);
 }
 
 /** 缩略图：dataURL 加载完成前显示 Spinner；hover 出现「放大」按钮（几何符号 + 文字）
@@ -185,8 +187,8 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const copy = parseCopy(copyDeliverable);
   const copyState = copyBlockState(task, copyDeliverable);
 
-  const mainImages = useMemo(() => imagesForStage(deliverables, 'main-image'), [deliverables]);
-  const detailImages = useMemo(() => imagesForStage(deliverables, 'detail-image'), [deliverables]);
+  const mainImages = useMemo(() => imagesForStage(deliverables, 'main-image', task?.workflowId), [deliverables, task?.workflowId]);
+  const detailImages = useMemo(() => imagesForStage(deliverables, 'detail-image', task?.workflowId), [deliverables, task?.workflowId]);
   const imgState = imgBlockState(task);
 
   /** 信息条参考图来源（shared 统一逻辑）：上传图优先，无则回退 AI 生成主图（main-image 第一张已生成/已采纳） */
@@ -202,18 +204,19 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
     setBusy(true);
     try {
       await decide(task.id, kind, decision, imageId, note || undefined);
+      // D-07：审批 Toast 同 key 清理——连续采纳/打回多条时新提示替换旧提示，不堆积
       if (decision === 'approve') {
-        pushToast({ message: kind === 'copy' ? '文案已采纳，已推进下一阶段' : '图片已采纳', tone: 'ok', duration: 4000 });
+        pushToast({ message: kind === 'copy' ? '文案已采纳，已推进下一阶段' : '图片已采纳', tone: 'ok', duration: 4000, key: `decide-${kind}-approve` });
       } else if (decision === 'reject') {
-        pushToast({ message: kind === 'copy' ? '文案已打回，返工中' : '图片已打回，返工中', tone: 'no', duration: 5000 });
+        pushToast({ message: kind === 'copy' ? '文案已打回，返工中' : '图片已打回，返工中', tone: 'no', duration: 5000, key: `decide-${kind}-reject` });
       } else if (decision === 'skip') {
-        pushToast({ message: '已跳过该图，不触发返工', tone: 'default', duration: 4000 });
+        pushToast({ message: '已跳过该图，不触发返工', tone: 'default', duration: 4000, key: `decide-${kind}-skip` });
       }
       if (kind === 'copy') setRejectingCopy(false);
       else setRejectingImg(null);
     } catch (err) {
       console.warn('[内容交付] decide 失败', err);
-      pushToast({ message: '操作失败，请重试', tone: 'no', duration: 5000 });
+      pushToast({ message: '操作失败，请重试', tone: 'no', duration: 5000, key: `decide-${kind}-error` });
     } finally {
       setBusy(false);
     }
@@ -259,7 +262,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
       <div className="flex items-center gap-3 rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
         <div className="min-w-0 flex-1">
           <div className="mb-1 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
-            审批 · 待确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
+            审批 · 待确认 {stageDisplayName(task.stage)} #{task.id}
           </div>
           <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
             {pendingKind === 'copy'
@@ -343,8 +346,10 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
           </div>
         </div>
 
-        {/* B3 · 3.8：版本切换与差异对照（追加式）。P0-4.1/4.2：移至当前正文之后且默认收起，避免与当前版本混淆 */}
-        {task ? <CopyVersionPanel taskId={task.id} /> : null}
+        {/* B3 · 3.8：版本切换与差异对照（追加式）。P0-4.1/4.2：移至当前正文之后且默认收起，避免与当前版本混淆
+            report-driven-fixes 0.10：历史版本入口界面隐藏（CopyVersionPanel 代码保留，仅不再渲染入口） */}
+        {/* 恒 false 死代码：TS 不在此传播窄化，task! 仅为类型检查通过（该分支永不执行） */}
+        {false ? (task ? <CopyVersionPanel taskId={task!.id} /> : null) : null}
 
         {copyState === 'pending' ? (
           <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
@@ -576,7 +581,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                 <select className="qs-input" style={{ width: 'auto' }} value={rollbackStage} onChange={(e) => setRollbackStage(e.target.value)}>
                   {ROLLBACK_TARGETS.map((s) => (
                     <option key={s} value={s}>
-                      {WORKFLOW_STAGE_LABELS[s] ?? s}
+                      {stageDisplayName(s)}
                     </option>
                   ))}
                 </select>

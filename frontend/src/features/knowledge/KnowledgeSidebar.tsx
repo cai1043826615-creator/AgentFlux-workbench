@@ -50,7 +50,9 @@ export function KnowledgeSidebar({
   }
 
   return (
-    <aside className="qs-card flex shrink-0 flex-col self-start p-3" style={{ width }}>
+    /* report-driven-fixes 2.11/2.14：去掉 self-start，改由行容器拉伸（items-stretch）+ min-h-0 内部滚动，
+       左栏自身内容超高时滚动而不撑高页面（知识库页与知识星图页共用） */
+    <aside className="qs-card flex min-h-0 shrink-0 flex-col overflow-y-auto p-3" style={{ width }}>
       {/* 标题栏：折叠控件紧邻其控制的对象（意见 #6） */}
       <div className="mb-2 flex items-center justify-between">
         <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>

@@ -1,17 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { AttentionConfig, AttentionDomain, HotDailyInfo, HotEvidenceLevel, HotItem, HotPanel, HotSourceConfig, HotTier, TaskHotRefInput, TaskListItem } from '@workbench/shared';
-import { Badge, Btn, Empty, Modal, ModalFooter, Spinner } from '../../components/ui.tsx';
+import type { AttentionConfig, AttentionDomain, HotDailyInfo, HotEvidenceLevel, HotItem, HotPanel, HotSourceConfig, HotTier } from '@workbench/shared';import { Badge, Btn, Empty, Modal, ModalFooter, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { fmtTime } from '../../lib/format.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
-
-const TIER_LABEL: Record<HotTier, string> = { mustRead: '今日必看', browse: '浏览', other: '其他' };
-const TIER_HINT: Record<HotTier, string> = {
-  mustRead: '命中关注域且多信源跟进',
-  browse: '命中关注域，信源较少',
-  other: '未命中关注域',
-};
 
 /** 证据等级中文映射（5.4：多源事件 / 单源 / 可回查原文） */
 const EVIDENCE_LABEL: Record<HotEvidenceLevel, string> = {
@@ -28,15 +20,8 @@ const TIER_CAP_OPTIONS: { value: '' | HotTier; label: string }[] = [
   { value: 'other', label: '其他' },
 ];
 
-/** 已知适配器 id（注册表后端可扩展；新增源无需改聚合代码） */
-const KNOWN_ADAPTERS = ['pai-news', '100ec-24h', 'stats-sjjd', 'aihot'];
-
-/** 内容类型中文枚举（仅 UI 层统一展示；存储值保持不变，以免破坏后端 isEcommerceVertical() 判定） */
-const VERTICAL_OPTIONS: { value: string; label: string }[] = [
-  { value: 'ecommerce-news', label: '电商资讯' },
-  { value: 'gov-stats', label: '政府统计' },
-  { value: 'AI 行业聚合', label: 'AI 行业' },
-];
+/* report-driven-fixes 3.8：源管理降级——adapter/vertical 编辑界面已隐藏，
+   KNOWN_ADAPTERS / VERTICAL_OPTIONS 常量随之移除（适配器注册表以后端为准，新增源无需改聚合代码） */
 
 /** 5.2 信息条：新鲜度 + 源状态摘要 + 上游日报外链（无日报时退化为仅新鲜度） */
 function InfoBar({ panel }: { panel: HotPanel }) {
@@ -118,13 +103,39 @@ function DegradeNotice({ panel, onRetry, loading }: { panel: HotPanel; onRetry: 
   );
 }
 
-/** 单条热点卡片：只读情报 + 挂到工作流（5.3/5.4/5.5 + 2.8） */
-function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAttach: (item: HotItem) => void }) {
+/** 单条热点卡片：只读情报 + 收进灵感库（5.3/5.4/5.5；report-driven-fixes 0.5：主操作唯一化为「收进灵感库」，移除「挂到工作流」） */
+function HotCard({ item, index }: { item: HotItem; index: number }) {
+  const { pushToast } = useWorkbench();
   const seq = String(index + 1).padStart(2, '0');
   const evidence = item.evidence;
   const hasLatest = item.latest && item.latest.trim().length > 0;
   /** P1·8.4：摘要默认截断 4 行，可展开查看全文 */
   const [expanded, setExpanded] = useState(false);
+  const [collecting, setCollecting] = useState(false);
+
+  /** 收进灵感库：小助理整理单条热点，产出落盘 知识库/灵感库/（0.1 只读承诺的「唯一新增点」） */
+  const collect = async () => {
+    if (collecting) return;
+    setCollecting(true);
+    try {
+      const r = await api.kbOrganize({
+        kind: 'hot',
+        item: {
+          id: item.id,
+          title: item.title,
+          summary: item.summary ?? undefined,
+          sourceName: item.sourceName ?? item.source ?? undefined,
+          source: item.source ?? undefined,
+          url: item.url ?? undefined,
+        },
+      });
+      pushToast({ message: `已收进灵感库：${r.title ?? item.title}`, tone: 'ok', duration: 6000, key: 'kb-organize' });
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : '收进灵感库失败', tone: 'no', duration: 8000, key: 'kb-organize' });
+    } finally {
+      setCollecting(false);
+    }
+  };
   return (
     <div className="qs-card flex h-full flex-col p-3" data-hot-card>
       <div className="flex items-start justify-between gap-3">
@@ -196,8 +207,8 @@ function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAt
           {item.reason}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Btn size="sm" variant="ghost" title="挂到工作流（选择已存在任务，不产生新任务）" onClick={() => onAttach(item)}>
-            挂到工作流
+          <Btn size="sm" variant="primary" loading={collecting} onClick={() => void collect()} title="小助理整理后写入 知识库/灵感库/">
+            收进灵感库
           </Btn>
           {item.url ? (
             <a href={item.url} target="_blank" rel="noreferrer" className="qs-meta hover:underline" style={{ color: 'var(--color-signal)' }}>
@@ -210,122 +221,7 @@ function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAt
   );
 }
 
-/** 2.8 挂到工作流：选择已存在任务（不产生新任务），PUT 追加该热点 */
-function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: () => void; item: HotItem | null; onDone: () => void }) {
-  const [tasks, setTasks] = useState<TaskListItem[] | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    setTasks(null);
-    setSelected(null);
-    setError(null);
-    setSearch('');
-    void api
-      .listTasks()
-      .then((r) => setTasks(r.tasks))
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [open]);
-
-  if (!open || !item) return null;
-
-  const kw = search.trim().toLowerCase();
-  const filteredTasks = (tasks ?? []).filter((t) => t.title.toLowerCase().includes(kw));
-
-  const attach = async () => {
-    if (selected == null) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const { refs } = await api.taskHotRefs(selected);
-      const next: TaskHotRefInput = {
-        hotId: item.id,
-        title: item.title,
-        sourceId: item.sourceId ?? '',
-        sourceName: item.sourceName ?? item.source ?? '',
-        evidence: item.evidence ?? 'single-source',
-        url: item.url,
-        latestAt: item.latestAt,
-      };
-      const existing: TaskHotRefInput[] = refs.map((r) => ({
-        hotId: r.hotId,
-        title: r.title,
-        sourceId: r.sourceId,
-        sourceName: r.sourceName,
-        evidence: r.evidence,
-        url: r.url,
-        latestAt: r.latestAt,
-      }));
-      await api.saveTaskHotRefs(selected, [...existing, next]);
-      onDone();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal open={open} title="挂到工作流" onClose={onClose} width={520}>
-      <p className="qs-meta mb-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
-        将「{item.title}」挂到已存在任务的背景情报中（作为外部环境参考，不产生新任务）。
-      </p>
-      {!tasks ? (
-        <Spinner label="任务列表加载中…" />
-      ) : tasks.length === 0 ? (
-        <Empty text="暂无任务" />
-      ) : (
-        <>
-          {/* 43：任务数 > 8 时提供搜索，避免靠肉眼在长列表里找 */}
-          {tasks.length > 8 ? (
-            <input
-              className="qs-input mb-2"
-              placeholder="搜索任务（按标题）…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-            />
-          ) : null}
-          <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-1">
-            {filteredTasks.length === 0 ? (
-              <div className="qs-meta px-2 py-3 text-center" style={{ color: 'var(--color-ink-faint)' }}>
-                无匹配任务 · 可调整搜索关键字
-              </div>
-            ) : (
-              filteredTasks.map((t) => (
-                <label
-                  key={t.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-[4px] border px-2.5 py-2 text-[13px]"
-                  style={{ borderColor: selected === t.id ? 'var(--color-signal)' : 'var(--color-line)', background: selected === t.id ? 'var(--color-signal-soft)' : 'transparent' }}
-                >
-                  <input type="radio" className="accent-[var(--color-signal)]" checked={selected === t.id} onChange={() => setSelected(t.id)} />
-                  <span className="min-w-0 truncate">#{t.id} {t.title}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </>
-      )}
-      {error ? (
-        <p className="qs-meta mt-2" style={{ color: 'var(--color-danger)' }}>
-          ● {error}
-        </p>
-      ) : null}
-      <ModalFooter>
-        <Btn size="sm" onClick={onClose}>
-          取消
-        </Btn>
-        <Btn size="sm" variant="primary" loading={busy} disabled={selected == null} onClick={() => void attach()}>
-          挂到该任务
-        </Btn>
-      </ModalFooter>
-    </Modal>
-  );
-}
+/** 2.8 挂到工作流已移除（report-driven-fixes 0.5：热点卡片主操作唯一化为「收进灵感库」，挂到工作流入口迁至知识库文档行 0.9） */
 
 /**
  * 热点源配置编辑器（P1·8.1：原「关注域与数据源配置」统一更名为「热点源配置」，
@@ -367,11 +263,8 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
 
   const save = async () => {
     if (!config) return;
-    // 守卫：禁止落库永远无法命中的空域（8.6）
-    if (config.domains.some((d) => (d.keywords?.length ?? 0) === 0)) {
-      setError('有未配置关键词的关注域，请至少填写 1 个关键词再保存');
-      return;
-    }
+    // report-driven-fixes 3.8：关注域界面已隐藏（数据保留），空域守卫不再阻断保存——
+    // 否则用户无法修复隐藏字段、源配置将永远无法落库；空域由后端自行处理。
     setBusy(true);
     setError(null);
     try {
@@ -394,7 +287,9 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         <Spinner label="配置加载中…" />
       ) : (
         <div className="max-h-[52vh] space-y-4 overflow-y-auto pr-1">
-          {/* 关注域：摘要 + 展开（域名称作为可见标题，不再用空白输入框） */}
+          {/* report-driven-fixes 3.8：关注域界面隐藏（数据保留，代码保留）——域关键词编辑不再提供 UI，
+              保存时 domains 原样提交后端 */}
+          {false && (
           <section>
             <div className="flex items-center justify-between">
               <div className="qs-meta font-medium" style={{ color: 'var(--color-ink-soft)' }}>我关心什么（关注域）</div>
@@ -411,7 +306,8 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               </Btn>
             </div>
             <div className="mt-2 space-y-1.5">
-              {config.domains.map((d) => {
+              {/* 恒 false 死代码：TS 不会在此传播 else 分支的 config 窄化，需非空断言（该分支永不执行） */}
+              {config!.domains.map((d) => {
                 const open = expandedDomains[d.id] ?? false;
                 return (
                   <div key={d.id} className="rounded-[4px] border" style={{ borderColor: 'var(--color-line)' }}>
@@ -478,6 +374,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
               </p>
             ) : null}
           </section>
+          )}
 
           {/* 分层规则：阈值归拢，界面即规则（补回缺失的三档上限） */}
           <section>
@@ -581,24 +478,8 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                           <span className="qs-meta w-[64px] shrink-0">抓取地址</span>
                           <input className="qs-input flex-1" value={s.endpoint} onChange={(e) => patchSource(s.id, { endpoint: e.target.value })} placeholder="抓取地址 URL" />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="qs-meta w-[64px] shrink-0">抓取方式</span>
-                          <input className="qs-input flex-1" value={s.adapter} onChange={(e) => patchSource(s.id, { adapter: e.target.value })} placeholder="填写抓取方式" list="hot-adapters" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="qs-meta w-[64px] shrink-0">内容类型</span>
-                          <select
-                            className="qs-input flex-1"
-                            value={s.vertical ?? ''}
-                            onChange={(e) => patchSource(s.id, { vertical: e.target.value || 'ecommerce-news' })}
-                          >
-                            {VERTICAL_OPTIONS.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        {/* report-driven-fixes 3.8：源管理降级——展开区仅保留 显示名称 / 抓取地址；
+                            抓取方式(adapter)与内容类型(vertical)的编辑界面隐藏（数据保留在 config，保存时原样提交） */}
                         {s.enterpriseCredentialRequired ? (
                           <div className="qs-meta" style={{ color: 'var(--color-warn)' }}>
                             ⚠ 该源标记为需企业资质/账号（本期预留，未提供凭据时该源降级）
@@ -610,11 +491,6 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                 );
               })}
             </div>
-            <datalist id="hot-adapters">
-              {KNOWN_ADAPTERS.map((a) => (
-                <option key={a} value={a} />
-              ))}
-            </datalist>
           </section>
         </div>
       )}
@@ -627,7 +503,8 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         <Btn size="sm" onClick={onClose}>
           取消
         </Btn>
-        <Btn size="sm" variant="primary" loading={busy} disabled={!config || domainInvalid} onClick={() => void save()}>
+        {/* 3.8：关注域界面隐藏后 domainInvalid 不再禁用保存（见 save() 注释） */}
+        <Btn size="sm" variant="primary" loading={busy} disabled={!config} onClick={() => void save()}>
           保存
         </Btn>
       </ModalFooter>
@@ -637,12 +514,18 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
 
 /** 每日热点视图：只读情报面板（多源 / 三态降级 / 电商化分层 / A4 排版） */
 export function HotView() {
-  const [panel, setPanel] = useState<HotPanel | null>(null);
+  // report-driven-fixes 3.5：后端在 panel 上扩展 aiTags（条目 id → AI 打标分组），类型对齐 api.hotPanel 返回
+  const [panel, setPanel] = useState<
+    | (HotPanel & {
+        aiTags?: Record<string, { cls?: 'dir' | 'ref' | 'none'; tag?: string; use?: string }>;
+        aiTagged?: boolean;
+        aiDegraded?: boolean;
+      })
+    | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
-  const [attachItem, setAttachItem] = useState<HotItem | null>(null);
-  const [attachedTip, setAttachedTip] = useState<string | null>(null);
   // 37：「其他」分组默认折叠，避免大量未命中关注域的信息抢占首屏
   const [collapsedOther, setCollapsedOther] = useState(true);
 
@@ -663,13 +546,28 @@ export function HotView() {
     void load(false);
   }, [load]);
 
-  const tiers: HotTier[] = ['mustRead', 'browse', 'other'];
+  // report-driven-fixes 3.5：三分组（产出方向 / 可参考 / 无关），按后端 AI 打标结果（panel.aiTags[id].cls）归类。
+  // 后端 hot-tagging 未下发 cls（LLM 失败降级）时该条目兜底进「可参考」。
+  const TIER_KEYS = ['mustRead', 'browse', 'other'] as const;
+  const GROUPS: { key: 'dir' | 'ref' | 'none'; label: string; hint: string }[] = [
+    { key: 'dir', label: '产出方向', hint: '与当前工作直接相关、可作产出依据' },
+    { key: 'ref', label: '可参考', hint: '作为行业背景参考' },
+    { key: 'none', label: '无关', hint: '与当前工作无关，默认折叠' },
+  ];
+  const aiTags = panel?.aiTags ?? {};
+  const clsOf = (item: HotItem): 'dir' | 'ref' | 'none' => aiTags[item.id]?.cls ?? 'ref';
+  const groups = GROUPS.map((g) => ({
+    ...g,
+    items: TIER_KEYS.flatMap((t) => panel?.tiers[t] ?? []).filter((item) => clsOf(item) === g.key),
+  }));
+  const groupTotal = groups.reduce((n, g) => n + g.items.length, 0);
+  const groupCount = (key: 'dir' | 'ref' | 'none') => groups.find((g) => g.key === key)?.items.length ?? 0;
 
   // 37：卡片序号跨分组全局连续（不受分组折叠影响）
   const seqById = new Map<string, number>();
   {
     let n = 0;
-    for (const t of tiers) for (const item of panel?.tiers[t] ?? []) seqById.set(item.id, n++);
+    for (const g of groups) for (const item of g.items) seqById.set(item.id, n++);
   }
 
   return (
@@ -709,12 +607,6 @@ export function HotView() {
       {panel ? <InfoBar panel={panel} /> : null}
       {panel ? <DegradeNotice panel={panel} loading={loading} onRetry={() => void load(true)} /> : null}
 
-      {attachedTip ? (
-        <p className="qs-meta" style={{ color: 'var(--color-ok)' }}>
-          ✓ {attachedTip}
-        </p>
-      ) : null}
-
       {loading && !panel ? (
         <Spinner label="热点加载中…" />
       ) : !panel || panel.status === 'unavailable' ? (
@@ -723,43 +615,42 @@ export function HotView() {
         <Empty text={KB_EMPTY_STATES.hotEmptyNone.text} hint={KB_EMPTY_STATES.hotEmptyNone.hint} emptyKey={KB_EMPTY_STATES.hotEmptyNone.key} />
       ) : (
         <>
-          {/* 统计区（P1-14 验收打回后重梳理）：
-              原「多源热点 92」是从上游抓到的原始条数，但界面只展示分层后的少量条目 →
-              数字与列表对不上，属口径失真。改为讲「抓了多少 / 现在能看多少」：
-              · 上游抓取 = 原始条数（并注明来源数，解释 92 从哪来）
-              · 今日必看 / 今日精选 = 实际可读的分层计数
-              · 刷新时间 = 让「点刷新」有可见反馈（此前刷新成功也看不出变化） */}
+          {/* 统计区（report-driven-fixes 3.5 重构口径）：
+              原「上游抓取 / 今日必看 / 今日精选」与分层展示口径不一致；
+              改为与列表同源的三分组计数：今日收集（全部条目）· 产出方向 · 可参考
+              刷新时间保留 = 让「点刷新」有可见反馈 */}
           <div className="qs-card flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5" data-hot-pills>
             <span className="inline-flex items-baseline gap-1.5">
               <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
                 今日收集
               </span>
-              <span className="font-display tabular text-[15px] font-bold">{panel.counts.upstream}</span>
+              <span className="font-display tabular text-[15px] font-bold">{groupTotal}</span>
               <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                条 · 来自 {panel.sources.filter((s) => s.status === 'ok').length} 个源
+                条
               </span>
             </span>
             <span className="inline-flex items-baseline gap-1.5">
               <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                今日必看
+                产出方向
               </span>
-              <span className="font-display tabular text-[15px] font-bold">{panel.counts.mustRead}</span>
+              <span className="font-display tabular text-[15px] font-bold">{groupCount('dir')}</span>
             </span>
             <span className="inline-flex items-baseline gap-1.5">
               <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                今日精选
+                可参考
               </span>
-              <span className="font-display tabular text-[15px] font-bold">{panel.counts.selected24h}</span>
+              <span className="font-display tabular text-[15px] font-bold">{groupCount('ref')}</span>
             </span>
             <span className="qs-meta ml-auto" style={{ color: 'var(--color-ink-faint)' }} title="最近一次抓取完成时间；点右上「刷新」可立即重抓">
               更新于 {fmtTime(panel.fetchedAt)}
             </span>
           </div>
 
-          {tiers.map((tier) => {
-            const list = panel.tiers[tier];
+          {groups.map((g) => {
+            const list = g.items;
             if (list.length === 0) return null;
-            const collapsible = tier === 'other';
+            /* report-driven-fixes 3.5：「无关」分组默认折叠（承接原「其他」分组的折叠行为）；其余常开 */
+            const collapsible = g.key === 'none';
             const collapsed = collapsible && collapsedOther;
             /* 意见 #11 / P1：标题行本身即可双向切换（▸ 折叠 / ▾ 展开），不再另挂「收起」按钮。
                折叠态与展开态共用同一标题行，保证任何状态下都能收能展。 */
@@ -767,7 +658,7 @@ export function HotView() {
               <div
                 className={`flex w-full items-baseline gap-2 border-b pb-1.5 ${collapsible ? 'qs-clickable' : ''}`}
                 style={{ borderColor: 'var(--color-line)' }}
-                title={TIER_HINT[tier]}
+                title={g.hint}
                 onClick={collapsible ? () => setCollapsedOther((p) => !p) : undefined}
                 role={collapsible ? 'button' : undefined}
                 aria-expanded={collapsible ? !collapsed : undefined}
@@ -783,7 +674,7 @@ export function HotView() {
                   className="font-display text-[15px] font-semibold leading-6"
                   style={{ fontFamily: 'var(--font-display)', color: collapsed ? 'var(--color-ink-soft)' : undefined }}
                 >
-                  {TIER_LABEL[tier]}
+                  {g.label}
                 </h3>
                 <span className="qs-meta leading-6" style={{ color: 'var(--color-ink-faint)' }}>
                   {list.length} 条
@@ -792,13 +683,13 @@ export function HotView() {
             );
 
             return (
-              <section key={tier} className={collapsed ? '' : 'space-y-2.5'} data-hot-tier={tier} data-collapsed={collapsed ? '1' : '0'}>
+              <section key={g.key} className={collapsed ? '' : 'space-y-2.5'} data-hot-tier={g.key} data-collapsed={collapsed ? '1' : '0'}>
                 {header}
                 {collapsed ? null : (
                   /* 5.6 响应式多栏网格（37：序号全局连续） */
                   <div className="hot-grid">
                     {list.map((item) => (
-                      <HotCard key={item.id} item={item} index={seqById.get(item.id) ?? 0} onAttach={setAttachItem} />
+                      <HotCard key={item.id} item={item} index={seqById.get(item.id) ?? 0} />
                     ))}
                   </div>
                 )}
@@ -809,12 +700,6 @@ export function HotView() {
       )}
 
       <AttentionModal open={configOpen} onClose={() => setConfigOpen(false)} onSaved={() => void load(true)} />
-      <AttachModal
-        open={attachItem != null}
-        item={attachItem}
-        onClose={() => setAttachItem(null)}
-        onDone={() => setAttachedTip(`已挂到任务背景：${attachItem?.title}`)}
-      />
     </div>
   );
 }

@@ -250,6 +250,10 @@ export function DeliverableSearch() {
       </div>
       {hits !== null ? (
         <div className="qs-card absolute right-0 top-full z-30 mt-1 max-h-[360px] w-[440px] overflow-y-auto p-2" style={{ background: 'var(--color-surface)' }}>
+          {/* D-27：搜索作用域说明——交付物搜索范围是全部任务，不是当前看板/工作流 */}
+          <div className="qs-meta mb-1 px-2 text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>
+            作用域：全部任务的交付物（标题 / 卖点 / 关键词 / 图片名）
+          </div>
           {hits.length === 0 ? (
             <div className="qs-meta px-2 py-3 text-center" style={{ color: 'var(--color-ink-faint)' }}>
               {hint}

@@ -101,21 +101,22 @@ cd frontend && npx vite --port 4310 --host 127.0.0.1
 ## 测试
 
 ```bash
+# 冒烟脚本（可直接运行）：
 # 图引擎 smoke（11 项：列映射/拍板/采纳/打回/逐张联动/校对回退/全链路/编排开关/并行事件）
 cd backend && node src/engine/__tests__/executor.smoke.ts
-
-# Agent 运行时 / 执行日志 / 统计（10 项断言）
-cd backend && node scripts/smoke-agents.ts
 
 # 聊天 + 事件播报
 cd backend && node scripts/smoke-chat.ts
 
-# 聊天对话链路（Agent 回复 / 回执 / 主管记忆 / LLM 降级，4 段断言）
-cd backend && node scripts/smoke-chat-reply.ts
-
-# 技能挂载（技能扫描 / 内容读取 / System Prompt 注入，6 项断言）
-cd backend && node scripts/smoke-skills.ts
+# 正式测试链（推荐，持续全绿）：后端单元与集成测试
+cd backend && pnpm test
 ```
+
+> ⚠️ 以下历史冒烟脚本**断言基于早期版本（3 工位时代 / 旧技能分类 / 旧降级回复模板），
+> 当前会因断言过时失败，待后端侧同步断言后恢复**（不在本仓库冒烟清单中保证可运行）：
+> - `node scripts/smoke-agents.ts`——seed 后工位已从 3 个增至 4 个（含小助理依依），脚本断言仍写死 3 个；
+> - `node scripts/smoke-skills.ts`——技能 `电商文案模板` 分类已由「文案」调整为「电商」，脚本断言仍写死「文案」；
+> - `node scripts/smoke-chat-reply.ts`——降级回复模板已改版，不再以「我是波波」开头，脚本断言过时。
 
 前端验收请见 `docs/验收/04_验收清单-大白话版_0910.md`（逐步操作 + 预期表现）与 `docs/验收/02_前端UI验证清单_0910.md`、`docs/验收/01_前端操作测试清单_0910.md`。
 

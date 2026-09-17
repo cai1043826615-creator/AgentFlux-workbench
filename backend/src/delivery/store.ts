@@ -36,6 +36,24 @@ export function listDeliverables(taskId: number): Deliverable[] {
   return all<DeliverableRow>('SELECT * FROM deliverables WHERE task_id = ? ORDER BY id ASC', [taskId]).map(toDeliverable);
 }
 
+/**
+ * D-04：全量重建某交付物的图片元信息索引（image 交付物每次 content 写入后调用）。
+ * 搜索走 deliverable_images（name LIKE），不再全表读 content 做 JSON.parse。
+ */
+function syncImageMeta(deliverableId: number, content: CopyPackage | ImageItem[] | ProvenanceResult): void {
+  const items = Array.isArray(content) ? (content as ImageItem[]) : [];
+  run('DELETE FROM deliverable_images WHERE deliverable_id = ?', [deliverableId]);
+  for (const img of items) {
+    run('INSERT INTO deliverable_images (deliverable_id, image_id, name, status, url) VALUES (?,?,?,?,?)', [
+      deliverableId,
+      img.id ?? '',
+      img.name ?? img.id ?? '',
+      img.status ?? 'pending',
+      img.url ?? '',
+    ]);
+  }
+}
+
 /** 保存交付物（文案包/图片集/溯源结果），同一 (任务,阶段,种类) 重复产出时版本递增；
  *  覆盖前把上一版快照写入 deliverable_versions（同一事务：留档失败则覆盖也不发生） */
 export function saveDeliverable(taskId: number, stage: string, kind: DeliverableKind, content: CopyPackage | ImageItem[] | ProvenanceResult): Deliverable {
@@ -62,6 +80,7 @@ export function saveDeliverable(taskId: number, stage: string, kind: Deliverable
         updatedAt,
         existing.id,
       ]);
+      if (kind === 'image') syncImageMeta(existing.id, content);
       trimVersions(existing.id);
     });
     const row = get<DeliverableRow>('SELECT * FROM deliverables WHERE id = ?', [existing.id])!;
@@ -81,6 +100,7 @@ export function saveDeliverable(taskId: number, stage: string, kind: Deliverable
       updatedAt,
     ]);
     id = res.lastInsertRowid;
+    if (kind === 'image') syncImageMeta(id, content);
     // 首次产出同时写 v1 历史（与交付物同一事务）
     archiveVersion({ deliverableId: id, taskId, stage, kind, version: 1, content: JSON.stringify(content), status: 'pending' });
   });
@@ -129,6 +149,7 @@ export function updateDeliverableStatus(
     // 全部决策仅指「不存在待确认（pending）图」；failed（生成失败）不参与判定：等待打回/重试/跳过，但不阻塞拍板点推进
     const allDecided = !images.some((i) => i.status === 'pending');
     run('UPDATE deliverables SET content = ?, status = ? WHERE id = ?', [JSON.stringify(images), allDecided ? status : 'pending', existing.id]);
+    syncImageMeta(existing.id, images);
   }
   const row = get<DeliverableRow>('SELECT * FROM deliverables WHERE id = ?', [existing.id])!;
   const updated = toDeliverable(row);
@@ -167,6 +188,7 @@ export function updateImageItems(taskId: number, stage: string, images: ImageIte
   // 与 allImagesDecided 一致：pending 才算未决策；failed 不阻塞推进
   const allDecided = !images.some((i) => i.status === 'pending');
   run('UPDATE deliverables SET content = ?, status = ? WHERE id = ?', [JSON.stringify(images), allDecided ? existing.status : 'pending', existing.id]);
+  syncImageMeta(existing.id, images);
   const row = get<DeliverableRow>('SELECT * FROM deliverables WHERE id = ?', [existing.id])!;
   const updated = toDeliverable(row);
   bus.emitDeliverable(updated);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KnowledgeDirInfo, KnowledgeDoc, KnowledgeDocSummary, KnowledgeHealth, KnowledgeSearchHit, KnowledgeStats, KnowledgeStatus, KnowledgeTagInfo } from '@workbench/shared';
-import { Badge, Btn, Empty, Glyph, Spinner } from '../../components/ui.tsx';
+import type { KnowledgeDirInfo, KnowledgeDoc, KnowledgeDocSummary, KnowledgeHealth, KnowledgeSearchHit, KnowledgeStats, KnowledgeStatus, KnowledgeTagInfo, TaskKbRefInput } from '@workbench/shared';
+import { Badge, Btn, Empty, Glyph, Modal, ModalFooter, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { fmtFull } from '../../lib/format.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
@@ -70,9 +70,126 @@ function DirTree({ dirs, active, onPick }: { dirs: KnowledgeDirInfo[]; active: s
   );
 }
 
+/**
+ * 【新增组件前置声明】（report-driven-fixes 0.9「挂到工作流」任务选择弹窗）
+ * 1. 现有组件为何不行：查过注册表（docs/规范/01 §3），无「选任务」类组件；
+ *    KbRefPicker 是「选资料」不是「选任务」，且被固定复用为任务侧编辑弹窗。
+ * 2. 复用范围：仅知识库文档行一处（0.5 移除热点卡的挂到工作流后，挂到工作流的唯一入口），无第二处复用。
+ * 3. 是否应提升为通用组件：否（单处使用；按 G2 第 2 问规则写内联，若未来出现第二处再抽出）。
+ */
+function AttachDocToTaskModal({ open, docPath, docTitle, onClose, onDone }: { open: boolean; docPath: string | null; docTitle: string; onClose: () => void; onDone: (taskId: number) => void }) {
+  const { tasks, pushToast } = useWorkbench();
+  const [selected, setSelected] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [prevOpen, setPrevOpen] = useState(false);
+
+  // 打开时重置本地状态（open 由父组件控制；docPath 变化即视为新开）
+  useEffect(() => {
+    if (!open) {
+      setPrevOpen(false);
+      return;
+    }
+    if (prevOpen) return;
+    setPrevOpen(true);
+    setSelected(null);
+    setError(null);
+    setSearch('');
+  }, [open, prevOpen]);
+
+  if (!open || !docPath) return null;
+
+  /** 可执行任务 = 未归档且未完成（已完成任务不再消费新资料；planned 待确认也可挂） */
+  const candidates = tasks
+    .filter((t) => !t.archived && t.column !== 'done')
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+    .map((t) => ({ id: t.id, title: t.title }));
+  const kw = search.trim().toLowerCase();
+  const filtered = kw ? candidates.filter((t) => t.title.toLowerCase().includes(kw)) : candidates;
+
+  const attach = async () => {
+    if (selected == null || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { refs } = await api.taskKbRefs(selected);
+      const existing: TaskKbRefInput[] = refs.map((r) => ({ docPath: r.docPath, anchor: r.anchor ?? undefined, note: r.note }));
+      if (existing.some((r) => r.docPath === docPath)) {
+        pushToast({ message: `任务 #${selected} 已关联过这篇文档`, tone: 'default', duration: 5000, key: 'kb-attach' });
+        onDone(selected);
+        onClose();
+        return;
+      }
+      await api.putTaskKbRefs(selected, [...existing, { docPath }]);
+      pushToast({ message: `已挂到 #${selected}`, tone: 'ok', duration: 5000, key: 'kb-attach' });
+      onDone(selected);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} title="挂到工作流" onClose={onClose} width={520}>
+      <p className="qs-meta mb-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
+        将「{docTitle}」挂到已存在任务的关联资料（作为只读事实参考，不产生新任务）。
+      </p>
+      {candidates.length === 0 ? (
+        <Empty text="暂无未完成的任务" hint="可先到任务看板新建任务，再回来挂这篇文档" />
+      ) : (
+        <>
+          {candidates.length > 8 ? (
+            <input
+              className="qs-input mb-2"
+              placeholder="搜索任务（按标题）…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+            />
+          ) : null}
+          <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-1">
+            {filtered.length === 0 ? (
+              <div className="qs-meta px-2 py-3 text-center" style={{ color: 'var(--color-ink-faint)' }}>
+                无匹配任务 · 可调整搜索关键字
+              </div>
+            ) : (
+              filtered.map((t) => (
+                <label
+                  key={t.id}
+                  className="flex cursor-pointer items-center gap-2 rounded-[4px] border px-2.5 py-2 text-[13px]"
+                  style={{ borderColor: selected === t.id ? 'var(--color-signal)' : 'var(--color-line)', background: selected === t.id ? 'var(--color-signal-soft)' : 'transparent' }}
+                >
+                  <input type="radio" className="accent-[var(--color-signal)]" checked={selected === t.id} onChange={() => setSelected(t.id)} />
+                  <span className="min-w-0 truncate">#{t.id} {t.title}</span>
+                </label>
+              ))
+            )}
+          </div>
+        </>
+      )}
+      {error ? (
+        <p className="qs-meta mt-2" style={{ color: 'var(--color-danger)' }}>
+          ● {error}
+        </p>
+      ) : null}
+      <ModalFooter>
+        <Btn size="sm" onClick={onClose}>
+          取消
+        </Btn>
+        <Btn size="sm" variant="primary" loading={busy} disabled={selected == null} onClick={() => void attach()}>
+          挂到该任务
+        </Btn>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
 /** 知识库视图：总览统计 + 目录/标签浏览 + 全文搜索 + Markdown 原文阅读 */
 export function KnowledgeView() {
-  const { kbDocPath, openKbDoc, setView } = useWorkbench();
+  const { kbDocPath, openKbDoc, kbDir, openKbDir } = useWorkbench();
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [health, setHealth] = useState<KnowledgeHealth | null>(null);
@@ -91,8 +208,13 @@ export function KnowledgeView() {
   const [catalogOpen, setCatalogOpen] = useState(true);
   /** P1·意见#7：搜索候选需要**全量**文档标题（不受当前目录/标签筛选影响），单独拉一份 */
   const [allDocs, setAllDocs] = useState<KnowledgeDocSummary[]>([]);
+  /** report-driven-fixes 2.14（D-32）：知识库标签区默认收起（折叠控件在标题栏），避免长标签云撑高左栏 */
+  const [tagsOpen, setTagsOpen] = useState(false);
   /** 候选浮层是否展开（输入时展开，选中/失焦/按 Esc 收起） */
   const [suggestOpen, setSuggestOpen] = useState(false);
+  /** report-driven-fixes 0.9：挂到工作流——待挂载文档 + 已挂结果（会话内回显「已挂到 #N」） */
+  const [attachDoc, setAttachDoc] = useState<{ path: string; title: string } | null>(null);
+  const [attachedTo, setAttachedTo] = useState<Record<string, number>>({});
   const pollRef = useRef<number | null>(null);
 
   const loadMeta = useCallback(async () => {
@@ -177,6 +299,14 @@ export function KnowledgeView() {
       cancelled = true;
     };
   }, [kbDocPath]);
+
+  // 目录定位（report-driven-fixes 0.8）：灵感库入口等 → 切到指定目录浏览；消费后清空信号
+  useEffect(() => {
+    if (!kbDir) return;
+    void pick({ dir: kbDir, tag: null });
+    openKbDir(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kbDir, openKbDir]);
 
   const pick = async (f: { dir: string | null; tag: string | null }) => {
     setFilter(f);
@@ -322,7 +452,9 @@ export function KnowledgeView() {
   if (!status) return <Spinner label="知识库加载中…" />;
 
   return (
-    <div className="space-y-4">
+    /* report-driven-fixes 2.11（D-29）：知识库页撑满视口、无页面级滚动——
+       根容器改 flex 列，三栏行 flex-1 + min-h-0，仅文档列表 / 目录树（左栏内部）保留滚动 */
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {/* 头部：状态 + 索引范围 + 操作 */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -435,9 +567,13 @@ export function KnowledgeView() {
             </Btn>
           ) : null}
         </div>
+        {/* report-driven-fixes 2.10（D-27）：搜索作用域说明——全文检索不受当前目录/标签筛选影响 */}
+        <p className="qs-meta mt-1.5" style={{ color: 'var(--color-ink-faint)' }}>
+          搜索范围：知识库全部已索引文档（标题与正文全文匹配），不受当前目录 / 标签筛选影响
+        </p>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex min-h-0 flex-1 gap-4">
         {/* 左：公共侧栏（P1·5.5：容器 + 标题栏折叠控件抽出共用；过滤控件由本页自定） */}
         <KnowledgeSidebar
           open={catalogOpen}
@@ -447,34 +583,50 @@ export function KnowledgeView() {
           onExpand={() => setCatalogOpen(true)}
           footer={
             <>
+              {/* report-driven-fixes 2.14（D-32）：标签区标题栏自带折叠控件，默认收起 */}
               <div className="qs-card mt-4 p-3">
-                <div className="qs-meta mb-2" style={{ color: 'var(--color-ink-faint)' }}>
-                  标签
-                </div>
-                {tags.length === 0 ? (
-                  <Empty text={KB_EMPTY_STATES.kbNoTags.text} hint={KB_EMPTY_STATES.kbNoTags.hint} emptyKey={KB_EMPTY_STATES.kbNoTags.key} />
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {tags.map((t) => {
-                      const active = filter.tag === t.tag;
-                      return (
-                        <button
-                          key={t.tag}
-                          type="button"
-                          className="cursor-pointer rounded-[4px] border px-1.5 py-0.5 text-[11px] transition-colors"
-                          style={{
-                            borderColor: active ? 'var(--color-signal)' : 'var(--color-line-strong)',
-                            background: active ? 'var(--color-signal-soft)' : 'transparent',
-                            color: active ? 'var(--color-signal)' : 'var(--color-ink-soft)',
-                          }}
-                          onClick={() => void pick({ dir: null, tag: active ? null : t.tag })}
-                        >
-                          {t.tag} <span className="tabular">{t.count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  className="qs-clickable flex w-full items-center justify-between"
+                  onClick={() => setTagsOpen((p) => !p)}
+                  aria-expanded={tagsOpen}
+                  title={tagsOpen ? '收起标签' : '展开标签'}
+                >
+                  <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+                    标签
+                  </span>
+                  <span aria-hidden="true" className="qs-meta shrink-0" style={{ color: 'var(--color-ink-soft)', width: 12, display: 'inline-block' }}>
+                    {tagsOpen ? '▾' : '▸'}
+                  </span>
+                </button>
+                {tagsOpen ? (
+                  tags.length === 0 ? (
+                    <div className="mt-2">
+                      <Empty text={KB_EMPTY_STATES.kbNoTags.text} hint={KB_EMPTY_STATES.kbNoTags.hint} emptyKey={KB_EMPTY_STATES.kbNoTags.key} />
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {tags.map((t) => {
+                        const active = filter.tag === t.tag;
+                        return (
+                          <button
+                            key={t.tag}
+                            type="button"
+                            className="cursor-pointer rounded-[4px] border px-1.5 py-0.5 text-[11px] transition-colors"
+                            style={{
+                              borderColor: active ? 'var(--color-signal)' : 'var(--color-line-strong)',
+                              background: active ? 'var(--color-signal-soft)' : 'transparent',
+                              color: active ? 'var(--color-signal)' : 'var(--color-ink-soft)',
+                            }}
+                            onClick={() => void pick({ dir: null, tag: active ? null : t.tag })}
+                          >
+                            {t.tag} <span className="tabular">{t.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : null}
               </div>
             </>
           }
@@ -486,9 +638,9 @@ export function KnowledgeView() {
           )}
         </KnowledgeSidebar>
 
-        {/* 中：文档列表 / 搜索结果 */}
-        <div className="w-[300px] shrink-0">
-          <div className="qs-card max-h-[62vh] overflow-y-auto p-2">
+        {/* 中：文档列表 / 搜索结果（2.11：列内滚动，撑满剩余高度） */}
+        <div className="flex w-[300px] shrink-0 min-h-0 flex-col">
+          <div className="qs-card min-h-0 flex-1 overflow-y-auto p-2">
             {hits ? (
               hits.length === 0 ? (
                 <Empty text={KB_EMPTY_STATES.searchEmpty.text} hint={KB_EMPTY_STATES.searchEmpty.hint} emptyKey={KB_EMPTY_STATES.searchEmpty.key} />
@@ -547,29 +699,52 @@ export function KnowledgeView() {
                     </button>
                   ) : null}
                 </div>
-                {docs.map((d) => (
-                  <button
-                    key={d.path}
-                    type="button"
-                    className={`qs-nav-item w-full text-left ${doc?.path === d.path ? 'active' : ''}`}
-                    onClick={() => void openDoc(d.path)}
-                    title={d.path}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{d.title}</span>
-                    <span className="qs-meta shrink-0 tabular">{d.mtime ? d.mtime.slice(5, 10) : ''}</span>
-                  </button>
-                ))}
+                {docs.map((d) => {
+                  const attached = attachedTo[d.path];
+                  return (
+                    /* report-driven-fixes 0.9：文档行加「挂到工作流」（选任务 → 追加为任务关联资料），
+                       已挂过则回显「已挂到 #N」并隐藏按钮（会话内持久） */
+                    <div key={d.path} className={`qs-nav-item gap-1.5 ${doc?.path === d.path ? 'active' : ''}`}>
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate text-left"
+                        onClick={() => void openDoc(d.path)}
+                        title={d.path}
+                      >
+                        {d.title}
+                      </button>
+                      {attached != null ? (
+                        <span className="qs-meta shrink-0 whitespace-nowrap text-[11px]" style={{ color: 'var(--color-ok)' }}>
+                          已挂到 #{attached}
+                        </span>
+                      ) : (
+                        <Btn
+                          size="sm"
+                          variant="ghost"
+                          className="shrink-0"
+                          onClick={() => setAttachDoc({ path: d.path, title: d.title })}
+                          title="挂到工作流（选择已存在任务，将本篇作为关联资料）"
+                        >
+                          挂到工作流
+                        </Btn>
+                      )}
+                      <span className="qs-meta shrink-0 tabular">{d.mtime ? d.mtime.slice(5, 10) : ''}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
 
-        {/* 右：阅读区 */}
-        <div className="min-w-0 flex-1">
-          <div className="qs-card max-h-[62vh] overflow-y-auto p-5">
+        {/* 右：阅读区（2.11：列内滚动，撑满剩余高度） */}
+        <div className="flex min-w-0 min-h-0 flex-1 flex-col">
+          <div className="qs-card min-h-0 flex-1 overflow-y-auto p-5">
             {!doc ? (
               /* 阅读区空态（意见 N6）：不只是一行「从左侧选择」，而是承担「引导下一步」的职责：
-                 最近阅读 3 篇 + 每日热点入口 + 健康度一行摘要，把 2/3 屏空间用起来 */
+                 最近阅读 3 篇 + 健康度一行摘要，把 2/3 屏空间用起来
+                 （report-driven-fixes 0.10/2.10：移除孤岛计数；「打开每日热点」入口收敛——
+                 每日热点模块只保留左栏入口，总览带「灵感库」入口直达真实目录，消除多入口冗余） */
               <div data-qs-empty={KB_EMPTY_STATES.kbNoDocSelected.key} className="space-y-4">
                 <div>
                   <h3 className="font-display text-[17px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
@@ -606,28 +781,11 @@ export function KnowledgeView() {
                   </div>
                 ) : null}
 
-                {/* 下一步入口：每日热点 → 收进灵感库 */}
-                <button
-                  type="button"
-                  className="qs-clickable flex w-full items-center gap-3 rounded-[4px] border px-3 py-2.5 text-left transition-colors hover:border-[var(--color-line-strong)]"
-                  style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}
-                  onClick={() => setView('hot')}
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-medium">打开每日热点</span>
-                    <span className="qs-meta block text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
-                      把值得留的素材收进灵感库
-                    </span>
-                  </span>
-                  <span className="qs-meta shrink-0" style={{ color: 'var(--color-signal)' }}>
-                    →
-                  </span>
-                </button>
+                {/* report-driven-fixes 2.10 入口收敛：每日热点模块入口只保留左栏，「打开每日热点」按钮已移除 */}
 
-                {/* 健康度一行摘要 */}
+                {/* 健康度一行摘要（report-driven-fixes 0.10：孤岛计数界面隐藏，接口保留） */}
                 <p className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
                   知识库共 {stats?.docCount ?? 0} 篇 · {stats?.tagCount ?? 0} 个标签 · {stats?.dirCount ?? 0} 个目录
-                  {health?.islands ? ` · 孤岛 ${health.islands.count} 篇` : ''}
                 </p>
               </div>
             ) : (
@@ -666,6 +824,17 @@ export function KnowledgeView() {
           setDoc(null);
           setHits(null);
           void reloadAll();
+        }}
+      />
+
+      {/* report-driven-fixes 0.9：挂到工作流（选择已存在任务 → 追加为任务关联资料） */}
+      <AttachDocToTaskModal
+        open={attachDoc != null}
+        docPath={attachDoc?.path ?? null}
+        docTitle={attachDoc?.title ?? ''}
+        onClose={() => setAttachDoc(null)}
+        onDone={(taskId) => {
+          if (attachDoc) setAttachedTo((prev) => ({ ...prev, [attachDoc.path]: taskId }));
         }}
       />
     </div>

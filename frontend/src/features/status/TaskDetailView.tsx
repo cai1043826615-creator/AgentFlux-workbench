@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { WORKFLOW_STAGE_LABELS, isXhsWorkflow, nodeOfStage, stageKeysOf, approvalPointsOf, type Agent, type Deliverable, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef, type TaskKbRefInput } from '@workbench/shared';
+import { isXhsWorkflow, nodeOfStage, stageKeysOf, approvalPointsOf, type Agent, type Deliverable, type KnowledgeDocSummary, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef, type TaskKbRefInput } from '@workbench/shared';
+import { stageDisplayName } from '../../lib/stage-names.ts';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Modal, ModalFooter, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
@@ -50,7 +51,8 @@ function stageKeyOf(ev: TaskEvent): string {
 
 function stageLabelOf(ev: TaskEvent): string {
   const s = stageKeyOf(ev);
-  return s ? (WORKFLOW_STAGE_LABELS[s] ?? s) : '';
+  // report-driven-fixes 1.9（D-12）：阶段显示名统一走 stageDisplayName（shared 现行 + 历史别名表）
+  return s ? stageDisplayName(s) : '';
 }
 
 function eventNote(ev: TaskEvent): string {
@@ -216,7 +218,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                     }}
                   >
                     {state !== 'todo' && owner ? (
-                      <Avatar name={owner.name} id={owner.id} size={24} title={`${owner.name}（${owner.role}）· ${WORKFLOW_STAGE_LABELS[k]}`} />
+                      <Avatar name={owner.name} id={owner.id} size={24} title={`${owner.name}（${owner.role}）· ${stageDisplayName(k)}`} />
                     ) : state === 'done' ? (
                       '✓'
                     ) : (
@@ -248,7 +250,7 @@ function StageStepper({ task, agents }: { task: TaskWithMeta; agents: Agent[] })
                     transition: 'color var(--dur-standard) var(--ease-standard)',
                   }}
                 >
-                  {WORKFLOW_STAGE_LABELS[k]}
+                  {stageDisplayName(k)}
                 </span>
               </div>
               {/* 弹簧进度线（self-start + mt 17px 对齐指示器圆心，h-9=36px → 中心 18px） */}
@@ -299,6 +301,7 @@ function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) 
 function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: string }) {
   const { openDocPreview } = useWorkbench();
   const [refs, setRefs] = useState<TaskKbRef[] | null>(null);
+  const [allDocs, setAllDocs] = useState<KnowledgeDocSummary[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<TaskKbRefInput[]>([]);
@@ -319,6 +322,42 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
       cancelled = true;
     };
   }, [taskId, reloadKey]);
+
+  // report-driven-fixes 2.9（D-26）：后端 kb-refs 不返回 effectivePath（仅精确命中/唯一同名回退算 valid），
+  // 前端拉全量文档列表，对「原路径未命中但唯一同名」的 ref 推断实际生效路径，并给轻提示。
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .kbDocs({})
+      .then((r) => {
+        if (!cancelled) setAllDocs(r.docs);
+      })
+      .catch(() => {
+        if (!cancelled) setAllDocs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  /** 同名推断：精确命中 → 原路径；唯一同名 → 推断路径 + 提示；否则维持原路径（后端已标失效） */
+  const resolvePath = useMemo(() => {
+    const byPath = new Set(allDocs.map((d) => d.path));
+    const byBase = new Map<string, string[]>();
+    for (const d of allDocs) {
+      const base = d.path.split('/').pop() ?? d.path;
+      const arr = byBase.get(base) ?? [];
+      arr.push(d.path);
+      byBase.set(base, arr);
+    }
+    return (p: string): { effective: string; hint: string | null } => {
+      if (byPath.has(p)) return { effective: p, hint: null };
+      const base = p.split('/').pop() ?? p;
+      const matches = byBase.get(base) ?? [];
+      if (matches.length === 1) return { effective: matches[0], hint: `原路径 ${p}，已按同名匹配到 ${matches[0]}` };
+      return { effective: p, hint: null };
+    };
+  }, [allDocs]);
 
   const openEditor = () => {
     setDraft((refs ?? []).map((r) => ({ docPath: r.docPath, anchor: r.anchor ?? undefined, note: r.note })));
@@ -354,42 +393,60 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
               {refs.length > 0 ? `${refs.length} 份${invalidCount > 0 ? ` · ${invalidCount} 份已失效` : ''}` : '未关联'}
             </span>
             <Btn size="sm" variant="ghost" className="outline" onClick={openEditor} title="关联或修改本任务引用的知识库资料">
-              {refs.length > 0 ? '编辑' : '＋ 关联资料'}
+              {refs.length > 0 ? '编辑' : '＋ 添加'}
             </Btn>
           </div>
         </div>
         {refs.length === 0 ? (
-          /* 空态不再整块消失（核验 D-19）：给出「能做什么」与入口，而不是留白 */
-          <p className="qs-meta leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
-            尚未关联任何知识库资料，产出中的参数将由模型生成、需人工核对。点右上角「＋ 关联资料」从知识库挑选事实来源（产品资料 / 品牌规范等），保存后在后续生成中作为只读参考注入。
-          </p>
+          /* 空态引导卡（report-driven-fixes 0.3）：明确「参数将由模型生成」的风险 + 主操作入口，替代原先纯段落文字 */
+          <div className="rounded-[4px] border px-3 py-3" style={{ borderColor: 'var(--color-line)', background: 'var(--color-sunken)' }}>
+            <div className="text-[13px] font-medium">尚未关联资料 · 参数将由模型生成</div>
+            <p className="qs-meta mt-1 leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
+              从知识库挑选事实来源（产品资料 / 品牌规范等）关联到本任务，生成时作为只读参考注入，关键参数不再靠模型凭空生成。
+            </p>
+            <div className="mt-2">
+              <Btn size="sm" variant="primary" onClick={openEditor}>
+                ＋ 关联知识库资料
+              </Btn>
+            </div>
+          </div>
         ) : (
           <div className="space-y-1.5">
-            {refs.map((r) => (
-              <div key={r.id} className="rounded-[4px] border px-2.5 py-2" style={{ borderColor: r.valid ? 'var(--color-line)' : 'var(--color-danger-soft)', background: r.valid ? 'transparent' : 'var(--color-danger-soft)' }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium" style={{ color: r.valid ? 'var(--color-ink)' : 'var(--color-danger)' }}>
-                      {r.title}
-                      {!r.valid ? <span className="qs-meta ml-1.5">失效（Vault 中已不存在）</span> : null}
+            {refs.map((r) => {
+              // report-driven-fixes 2.9（D-26）：有效但原路径未精确命中 → 展示推断的实际生效路径 + 轻提示
+              const resolved = resolvePath(r.docPath);
+              const shownPath = r.valid ? resolved.effective : r.docPath;
+              return (
+                <div key={r.id} className="rounded-[4px] border px-2.5 py-2" style={{ borderColor: r.valid ? 'var(--color-line)' : 'var(--color-danger-soft)', background: r.valid ? 'transparent' : 'var(--color-danger-soft)' }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium" style={{ color: r.valid ? 'var(--color-ink)' : 'var(--color-danger)' }}>
+                        {r.title}
+                        {!r.valid ? <span className="qs-meta ml-1.5">失效（Vault 中已不存在）</span> : null}
+                      </div>
+                      <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
+                        {shownPath}
+                        {r.anchor ? ` · 片段「${r.anchor}」` : ' · 整篇'}
+                      </div>
+                      {resolved.hint ? (
+                        <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-warn)' }} title={resolved.hint}>
+                          {resolved.hint}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
-                      {r.docPath}
-                      {r.anchor ? ` · 片段「${r.anchor}」` : ' · 整篇'}
-                    </div>
+                    <button
+                      type="button"
+                      className="shrink-0 cursor-pointer text-[12px] hover:underline"
+                      style={{ color: r.valid ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}
+                      onClick={() => openDocPreview(resolved.effective)}
+                      title="预览全文（弹窗，不离开任务详情）"
+                    >
+                      查看原文 ↗
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="shrink-0 cursor-pointer text-[12px] hover:underline"
-                    style={{ color: r.valid ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}
-                    onClick={() => openDocPreview(r.docPath)}
-                    title="预览全文（弹窗，不离开任务详情）"
-                  >
-                    查看原文 ↗
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
@@ -400,8 +457,8 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
       <Modal open={editing} title="关联知识库资料" onClose={() => setEditing(false)} width={560}>
         <KbRefPicker value={draft} onChange={setDraft} />
         <p className="qs-meta mt-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
-          保存后在后续阶段的生成中作为只读事实参考注入。
-          {taskColumn === 'progress' ? '本任务正处于「进行中」：已产出阶段需先打回重做，才会使用新资料。' : ''}
+          新资料将在后续阶段的生成中生效
+          {taskColumn === 'progress' ? '；已产出阶段需先打回重做，才会使用新资料。' : '。'}
         </p>
         {error ? (
           <p className="mt-2 text-[13px]" style={{ color: 'var(--color-danger)' }}>
@@ -525,7 +582,7 @@ export function TaskDetailView({
   onBack: () => void;
   onNotFound: () => void;
 }) {
-  const { tasks, agents, eventsByTask, deliverablesByTask, openTask, taskTab, setTaskTab } = useWorkbench();
+  const { tasks, agents, workflows, eventsByTask, deliverablesByTask, openTask, taskTab, setTaskTab } = useWorkbench();
   const [descExpanded, setDescExpanded] = useState(false);
 
   // 新打开任务时默认落在「内容交付」tab（key=taskId 重挂载时执行一次）
@@ -669,7 +726,7 @@ export function TaskDetailView({
             >
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <span className={columnDot} />
-                <span className="font-display text-[15px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>当前阶段：{task.stageLabel || WORKFLOW_STAGE_LABELS[task.stage]}</span>
+                <span className="font-display text-[15px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>当前阶段：{task.stageLabel || stageDisplayName(task.stage)}</span>
                 <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>负责人 {task.ownerName || '—'}</span>
               </div>
               <div className="text-[13px] leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
@@ -714,8 +771,9 @@ export function TaskDetailView({
             <h3 className="font-display mb-3 text-[15px] font-semibold">属性</h3>
             <div className="space-y-2.5">
               {[
-                ['类型', '电商新品上架'],
-                ['当前阶段', WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage],
+                // report-driven-fixes 1.8（D-10）：类型不再硬编码「电商新品上架」，按任务所属工作流派生
+                ['类型', workflows.find((w) => w.id === task.workflowId)?.name ?? '—'],
+                ['当前阶段', stageDisplayName(task.stage)],
                 ['进度', progressText],
                 ['负责人', task.ownerName || '—'],
                 ['创建人', task.createdBy || '—'],
@@ -862,7 +920,7 @@ function ReworkPanel({ taskId }: { taskId: number }) {
               </span>
             </div>
             <div className="qs-meta mt-1 text-[11px]" style={{ color: 'var(--color-ink-faint)' }}>
-              {WORKFLOW_STAGE_LABELS[r.stage] ?? r.stage} · {fmtFull(r.at)}
+              {stageDisplayName(r.stage)} · {fmtFull(r.at)}
             </div>
           </div>
         ))}

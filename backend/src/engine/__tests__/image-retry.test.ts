@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 
 const dir = mkdtempSync(join(tmpdir(), 'workbench-imgretry-'));
 process.env.WORKBENCH_DB = join(dir, 'retry.db');
+// D-03 生图落盘：测试隔离上传目录（同 WORKBENCH_DB 模式，避免写真实 backend/data/uploads）
+process.env.WORKBENCH_UPLOAD_DIR = join(dir, 'uploads');
 
 const { ensureSchema } = await import('../../db/ensure.ts');
 const { seed } = await import('../../db/seed.ts');
@@ -258,7 +260,8 @@ describe('4.8 单张重试接口', () => {
     const beforeImages = JSON.parse(before.content) as { id: string; status: string; url: string }[];
     const { image } = await service.retryImage(taskId, '图2');
     assert.equal(image.status, 'pending');
-    assert.equal(image.url, 'data:image/png;base64,retry-ok');
+    // D-03 生图落盘：重试成功的新图 url 应为 /uploads/<uuid>.png（非 base64）
+    assert.match(image.url, /^\/uploads\/[0-9a-f-]{36}\.png$/, `重试成功图片应落盘为 /uploads/<uuid>.png，实际 ${image.url}`);
     assert.equal(image.attempts, 3, 'attempts 递增');
     const after = getDeliverable(taskId, 'main-image', 'image')!;
     const afterImages = JSON.parse(after.content) as { id: string; status: string; url: string }[];

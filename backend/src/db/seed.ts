@@ -1,8 +1,37 @@
-import { ECOM_WORKFLOW, WORKFLOW_ID, WORKFLOW_NAME, XHS_WORKFLOW, XHS_WORKFLOW_ID, XHS_WORKFLOW_NAME } from '@workbench/shared';
+import { ECOM_WORKFLOW, WORKFLOW_ID, WORKFLOW_NAME, XHS_WORKFLOW, XHS_WORKFLOW_ID, XHS_WORKFLOW_NAME, type WorkflowDefinition } from '@workbench/shared';
 import { CHANNEL } from '../config.ts';
 import { get, run, tx } from './client.ts';
 import { BUILTIN_AGENT_MOUNTS } from './agent-mounts.ts';
 import { ensureSchema } from './ensure.ts';
+
+/**
+ * 工作流定义阶段存在性自检（D-01 补齐：同步前校验内部一致性，启动日志可见）。
+ * 检查项：阶段 id 非空且唯一；每条边（next/approval/rollback）的 from/to 都指向已存在的阶段；
+ * 并行分组 items 非空（items 是子任务 id，不要求等于阶段 id）。
+ * 校验失败 → 打强告警日志并拒绝覆盖（保留库内既有定义），
+ * 避免把「悬空边 / 重复阶段」的坏定义写入运行时权威表导致阶段推进静默找不到节点。
+ */
+function validateWorkflowDefinition(def: WorkflowDefinition): boolean {
+  const ids = (def.nodes ?? []).map((n) => n.id);
+  const idSet = new Set(ids);
+  const problems: string[] = [];
+  if (ids.length === 0) problems.push('nodes 为空（工作流没有任何阶段）');
+  if (idSet.size !== ids.length) problems.push('存在重复的阶段 id');
+  for (const e of def.edges ?? []) {
+    if (!e.from || !idSet.has(e.from)) problems.push(`边起点阶段不存在：${e.from ?? '(空)'}`);
+    if (!e.to || !idSet.has(e.to)) problems.push(`边目标阶段不存在：${e.to ?? '(空)'}`);
+  }
+  for (const n of def.nodes ?? []) {
+    for (const g of n.parallelGroups ?? []) {
+      if (!Array.isArray(g.items) || g.items.length === 0) problems.push(`阶段「${n.id}」存在空并行分组`);
+    }
+  }
+  if (problems.length === 0) return true;
+  console.error(
+    `[workbench] 工作流「${def.name ?? def.id}」定义自检未通过（${problems.length} 处），已拒绝同步覆盖：\n- ${problems.slice(0, 8).join('\n- ')}`,
+  );
+  return false;
+}
 
 /**
  * 内置工作流同步（启动自检）：
@@ -11,8 +40,10 @@ import { ensureSchema } from './ensure.ts';
  * 原 if(!wf) 幂等插入不覆盖已有记录，导致「代码改了却不生效」。
  * 这里改为：内置工作流以代码常量为准强制同步，不一致时覆盖并打日志。
  * （自定义工作流 id 不在内置表里，不受影响。）
+ * 同步前先做阶段存在性校验（validateWorkflowDefinition）：定义损坏时拒绝覆盖，保留库内旧定义。
  */
 function syncBuiltinWorkflow(id: string, name: string, def: unknown): void {
+  if (!validateWorkflowDefinition(def as WorkflowDefinition)) return;
   const row = get<{ name: string; stages_json: string }>('SELECT name, stages_json FROM workflows WHERE id = ?', [id]);
   const json = JSON.stringify(def);
   if (!row) {

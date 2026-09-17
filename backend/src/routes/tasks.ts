@@ -18,8 +18,8 @@ import type {
   TaskListItem,
   TaskListQuery,
 } from '@workbench/shared';
-import { service, RetryLimitError, RetryNotAllowedError } from '../engine/service.ts';
-import { KbRefInvalidError, KbRefLimitError, countKbRefsByTask, setTaskKbRefs, validateTaskKbRefs } from '../knowledge/refs.ts';
+import { service, RetryLimitError, RetryNotAllowedError, StageNotFoundError } from '../engine/service.ts';
+import { KbRefInvalidError, KbRefLimitError, KbRefMissingPathError, countKbRefsByTask, setTaskKbRefs, validateTaskKbRefs } from '../knowledge/refs.ts';
 import { cleanTaskDescription } from '../knowledge/description-clean.ts';
 import { all } from '../db/client.ts';
 import type { TaskRow } from '../db/schema.ts';
@@ -28,8 +28,10 @@ import { diffDeliverableVersions, noPreviousDiff } from '../delivery/diff.ts';
 import { buildTaskPackage, hasAnySettledDeliverable } from '../delivery/package.ts';
 import { fullVersionHistory } from '../delivery/versions.ts';
 
-/** 上传图片存放目录（gitignore 的 backend/data/ 下） */
-const UPLOAD_DIR = join(import.meta.dirname, '..', '..', 'data', 'uploads');
+/** 上传图片存放目录（gitignore 的 backend/data/ 下）；可用 WORKBENCH_UPLOAD_DIR 覆盖（测试隔离，与 image-file.ts 同源） */
+const UPLOAD_DIR = process.env.WORKBENCH_UPLOAD_DIR?.trim()
+  ? process.env.WORKBENCH_UPLOAD_DIR.trim()
+  : join(import.meta.dirname, '..', '..', 'data', 'uploads');
 
 type SqlParam = string | number | null;
 
@@ -59,8 +61,17 @@ function toTaskFromRow(row: TaskRow): Task {
   };
 }
 
-/** 任务最近更新时刻：tasks.created_at 与 deliverables.updated_at、task_events.created_at 的较新者（相关子查询） */
-const UPDATED_AT_EXPR = `MAX(t.created_at, COALESCE((SELECT MAX(d.updated_at) FROM deliverables d WHERE d.task_id = t.id), t.created_at), COALESCE((SELECT MAX(e.created_at) FROM task_events e WHERE e.task_id = t.id), t.created_at))`;
+/**
+ * 任务最近更新时刻：tasks.created_at 与 deliverables.updated_at、task_events.created_at 的较新者。
+ * D-03 列表优化：由「每任务两个相关子查询」改为 LEFT JOIN 聚合（配合
+ * deliverables(task_id, updated_at) / task_events(task_id, created_at) 复合索引，
+ * 列表 N 个任务只扫两遍索引，耗时不再随任务数线性膨胀）。
+ */
+const UPDATED_JOINS = `
+  LEFT JOIN (SELECT task_id, MAX(updated_at) AS max_updated FROM deliverables GROUP BY task_id) d ON d.task_id = t.id
+  LEFT JOIN (SELECT task_id, MAX(created_at) AS max_created FROM task_events GROUP BY task_id) e ON e.task_id = t.id
+`;
+const UPDATED_AT_EXPR = `MAX(t.created_at, COALESCE(d.max_updated, t.created_at), COALESCE(e.max_created, t.created_at))`;
 
 const SORT_COLUMNS: Record<string, string> = { created: 't.created_at', updated: UPDATED_AT_EXPR, progress: 't.progress' };
 
@@ -108,7 +119,7 @@ export function queryTaskRows(query: TaskListQuery = {}): (TaskRow & { updated_a
   const sortCol = SORT_COLUMNS[query.sort ?? 'created'] ?? SORT_COLUMNS.created;
   const order = query.order === 'asc' ? 'ASC' : 'DESC';
   return all<TaskRow & { updated_at_derived: string }>(
-    `SELECT t.*, ${UPDATED_AT_EXPR} AS updated_at_derived FROM tasks t ${whereSql} ORDER BY ${sortCol} ${order}, t.id DESC`,
+    `SELECT t.*, ${UPDATED_AT_EXPR} AS updated_at_derived FROM tasks t ${UPDATED_JOINS} ${whereSql} ORDER BY ${sortCol} ${order}, t.id DESC`,
     params,
   );
 }
@@ -128,7 +139,7 @@ function kindValid(kind: string): kind is 'copy' | 'image' {
   return kind === 'copy' || kind === 'image';
 }
 
-/** 交付物搜索命中（B5 · 7.6：copy 匹配标题/卖点/关键词；image 匹配图片名） */
+/** 交付物搜索命中（B5 · 7.6 + D-04：copy 匹配标题/卖点/关键词；image 由 deliverable_images 索引表查询，不再全表 JSON.parse） */
 function matchDeliverable(
   row: { id: number; task_id: number; stage: string; kind: string; version: number; content: string },
   lq: string,
@@ -140,11 +151,8 @@ function matchDeliverable(
       if ((cp.title ?? '').toLowerCase().includes(lq)) return { ...hitBase, field: 'title', snippet: cp.title };
       for (const p of cp.points ?? []) if (p.toLowerCase().includes(lq)) return { ...hitBase, field: 'point', snippet: p };
       for (const k of cp.keywords ?? []) if (k.toLowerCase().includes(lq)) return { ...hitBase, field: 'keyword', snippet: k };
-      return null;
     }
-    const items = JSON.parse(row.content) as ImageItem[];
-    for (const it of items) if ((it.name ?? '').toLowerCase().includes(lq)) return { ...hitBase, field: 'imageName', snippet: it.name };
-    return null;
+    return null; // image 命中由搜索路由走 deliverable_images（D-04）
   } catch {
     return null;
   }
@@ -201,7 +209,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       try {
         validateTaskKbRefs(refs);
       } catch (err) {
-        if (err instanceof KbRefLimitError || err instanceof KbRefInvalidError) return reply.code(400).send({ error: err.message });
+        if (err instanceof KbRefLimitError || err instanceof KbRefInvalidError || err instanceof KbRefMissingPathError) return reply.code(400).send({ error: err.message });
         throw err;
       }
     }
@@ -286,8 +294,14 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const { kind, imageId, decision, note } = req.body ?? {};
     if (!kind || !decision) return reply.code(400).send({ error: 'kind and decision required' });
     if (decision === 'skip' && (!imageId || kind !== 'image')) return reply.code(400).send({ error: 'skip 仅支持逐张图片（需指定 imageId）' });
-    const task = await service.decideDeliverable({ taskId: Number(req.params.id), kind, imageId, decision, note });
-    return { task, deliverables: service.deliverables(Number(req.params.id)) };
+    try {
+      const task = await service.decideDeliverable({ taskId: Number(req.params.id), kind, imageId, decision, note });
+      return { task, deliverables: service.deliverables(Number(req.params.id)) };
+    } catch (err) {
+      // 历史遗留阶段（阶段已作废）→ 可解释的 400，而不是静默 200（核验 D-01）
+      if (err instanceof StageNotFoundError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
   });
 
   // 单张图片重试（B11 · 4.8/4.9：只重新生成该图；非失败图/超上限返回可见错误）
@@ -391,15 +405,29 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     if (!q) return { query: '', hits: [] as DeliverableSearchHit[], truncated: false, hint: '请输入关键字' } satisfies DeliverableSearchResult;
 
     const lq = q.toLowerCase();
-    const rows = all<{ id: number; task_id: number; stage: string; kind: string; version: number; content: string }>('SELECT id, task_id, stage, kind, version, content FROM deliverables');
     const hits: Omit<DeliverableSearchHit, 'taskTitle'>[] = [];
     const taskIds = new Set<number>();
-    for (const r of rows) {
+    // copy：只扫 kind='copy' 交付物（D-04：不再全表扫 image 的 content 巨串）
+    const copyRows = all<{ id: number; task_id: number; stage: string; kind: string; version: number; content: string }>(
+      "SELECT id, task_id, stage, kind, version, content FROM deliverables WHERE kind = 'copy'",
+    );
+    for (const r of copyRows) {
       const hit = matchDeliverable(r, lq);
       if (hit) {
         hits.push(hit);
         taskIds.add(hit.taskId);
       }
+    }
+    // image：走 deliverable_images 元信息索引表（name LIKE，不读 content）
+    const imgRows = all<{ deliverable_id: number; image_id: string; name: string; task_id: number; stage: string; kind: string; version: number }>(
+      `SELECT di.deliverable_id, di.image_id, di.name, d.task_id, d.stage, d.kind, d.version
+       FROM deliverable_images di JOIN deliverables d ON d.id = di.deliverable_id
+       WHERE LOWER(di.name) LIKE ? ORDER BY di.id ASC`,
+      [`%${lq}%`],
+    );
+    for (const r of imgRows) {
+      hits.push({ taskId: r.task_id, stage: r.stage, kind: 'image', version: r.version, field: 'imageName', snippet: r.name });
+      taskIds.add(r.task_id);
     }
     const titles = new Map<number, string>();
     if (taskIds.size > 0) {

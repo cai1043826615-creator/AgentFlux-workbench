@@ -5,8 +5,10 @@
  * 本文件已全部压掉，只留：
  * - 核心指标：被任务引用的资料数（`health.usage.linkedDocs`）
  * - 3 个入口：灵感库 / 小助理 / 全部文档
- *   其中「灵感库」是**知识库内的目录/入口名**（用户定案）；它跳转到的模块页叫「每日热点」。
- *   入口名不得自造（我曾误写成「今日灵感」），新增文案前先查 docs/验收/03_命名对照表与原型核对清单_0912.md
+ *   其中「灵感库」是**知识库内的目录/入口名**（用户定案）。
+ *   （report-driven-fixes 0.8：灵感库入口不再跳「每日热点」模块页，而是直接打开真实目录 `知识库/灵感库/`，
+ *    计数=该目录实际文档数；「每日热点」模块页只保留左栏入口，消除 D-28 的多入口冗余。）
+ * - 小助理右侧 3 个整理动作按钮（report-driven-fixes 0.7）：整理热点素材 / 整理文档 / 知识库体检
  *
  * 被移除内容的去向：
  * - 「星图缩略预览」→ 已删（星图入口在左栏「知识星图」，无需重复占位）
@@ -15,7 +17,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { Agent, KnowledgeHealth, KnowledgeStats, KnowledgeStatus } from '@workbench/shared';
-import { Avatar, Badge } from '../../components/ui.tsx';
+import { Avatar, Badge, Btn } from '../../components/ui.tsx';
 import { AvatarStatus } from '../../components/AvatarStatus.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
@@ -145,6 +147,25 @@ function OverviewEntry({
 }
 
 
+/** 灵感库真实目录（report-driven-fixes 0.1/0.8：小助理整理产出的唯一落盘目录） */
+const INSPIRATION_DIR = '知识库/灵感库';
+
+/**
+ * 【新增组件前置声明】
+ * 1. 现有组件为何不行：总览带需要「一行一个、带 loading、可禁用」的纵向小按钮组，
+ *    查过注册表（docs/规范/01 §3）——Btn 是通用按钮但无纵向组容器语义，且三枚按钮共享同一
+ *    organizing 状态互斥；内联三份重复 JSX 违反 DRY，故抽一个极小的本地动作按钮。
+ * 2. 复用范围：本文件内 3 处（整理热点素材 / 整理文档 / 知识库体检），共用一个弹窗后不扩散。
+ * 3. 是否应提升为通用组件：否（仅总览带使用；Btn 已是通用按钮，本组件只是「标签 + loading」薄封装）。
+ */
+function OrganizeBtn({ label, active, busy, onClick }: { label: string; active?: boolean; busy?: boolean; onClick: () => void }) {
+  return (
+    <Btn size="sm" variant={active ? 'primary' : 'ghost'} loading={busy} disabled={busy} onClick={onClick} className="justify-start">
+      {label}
+    </Btn>
+  );
+}
+
 export interface KnowledgeOverviewBarProps {
   status: KnowledgeStatus;
   stats: KnowledgeStats | null;
@@ -156,12 +177,14 @@ export interface KnowledgeOverviewBarProps {
  * 高度由紧凑内边距控制，约 120–140px。
  */
 export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOverviewBarProps) {
-  const { setView } = useWorkbench();
+  const { setView, openKbDir, pushToast } = useWorkbench();
   const usage = health?.usage;
   /** 文档使用率口径（2.5）：百分比（分子/分母）；ratio 为 null（未连接/0 篇文档）显示「—」 */
   const usageText = usage && usage.ratio !== null ? `${Math.round(usage.ratio * 100)}%（${usage.linkedDocs}/${usage.totalDocs}）` : '—';
-  /** 灵感库待整理条数（入口①的数量；取自热点面板上游总数） */
-  const [panelCount, setPanelCount] = useState(0);
+  /** 灵感库真实目录的文档数（入口①的数量；report-driven-fixes 0.8：不再取热点面板上游总数） */
+  const [inspirationCount, setInspirationCount] = useState(0);
+  /** 正在执行的整理动作（三按钮互斥） */
+  const [organizing, setOrganizing] = useState<'hot' | 'doc' | 'audit' | null>(null);
   /** 小助理（依依）入口位：P1·5.4 预留，P2·F3 实体已存在即命中 */
   const assistant = useFirstAssistantAgent();
   /** 依依设置弹窗（P2·F3：与工位卡同一配置弹窗） */
@@ -170,17 +193,35 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
   useEffect(() => {
     let cancelled = false;
     api
-      .hotPanel()
+      .kbDocs({ dir: INSPIRATION_DIR })
       .then((r) => {
-        if (!cancelled) setPanelCount(r.panel?.counts?.upstream ?? 0);
+        if (!cancelled) setInspirationCount(r.docs.length);
       })
       .catch(() => {
-        if (!cancelled) setPanelCount(0);
+        if (!cancelled) setInspirationCount(0);
       });
     return () => {
       cancelled = true;
     };
   }, [stats?.indexedAt]);
+
+  /** 整理动作（report-driven-fixes 0.7）：对应 kb-assistant organize 三型，产出统一落盘 知识库/灵感库/ */
+  const runOrganize = async (kind: 'hot' | 'doc' | 'audit') => {
+    if (organizing) return;
+    setOrganizing(kind);
+    try {
+      const r = await api.kbOrganize({ kind });
+      const doneLabel = kind === 'hot' ? '热点素材整理完成' : kind === 'doc' ? '文档整理完成' : '知识库体检完成';
+      pushToast({ message: `${doneLabel}：${r.title ?? '已写入 知识库/灵感库/'}`, tone: 'ok', duration: 6000, key: 'kb-organize' });
+      // 灵感库目录计数可能变化，整理成功后刷新
+      const docs = await api.kbDocs({ dir: INSPIRATION_DIR });
+      setInspirationCount(docs.docs.length);
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : '整理失败，请重试', tone: 'no', duration: 8000, key: 'kb-organize' });
+    } finally {
+      setOrganizing(null);
+    }
+  };
 
   return (
     <div className="qs-card flex flex-wrap items-stretch gap-3 p-3" data-qs-overview>
@@ -197,14 +238,15 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
 
       {/* 两个入口（灵感库 / 全部文档）——依依位按用户定案移到总览带最右侧 */}
       <div className="flex min-w-0 flex-1 flex-wrap items-stretch gap-2">
-        {/* 命名边界（用户定案）：此入口**位于知识库内**，指知识库里的「灵感库」目录，故叫「灵感库」；
-            它跳转到的模块页仍叫「每日热点」。两者是两个东西，不要互相改名。 */}
+        {/* 命名边界（用户定案）：此入口**位于知识库内**，指知识库里的「灵感库」目录，故叫「灵感库」。
+            report-driven-fixes 0.8：点击直接打开真实目录 `知识库/灵感库/`（D-28 入口收敛），
+            不再跳「每日热点」模块页（该模块只保留左栏入口）。 */}
         <OverviewEntry
           title="灵感库"
-          count={panelCount}
-          countLabel="条可收"
-          hint="把每日热点的素材收进这里"
-          onClick={() => setView('hot')}
+          count={inspirationCount}
+          countLabel="篇"
+          hint="小助理整理产出所在目录"
+          onClick={() => openKbDir(INSPIRATION_DIR)}
         />
         <OverviewEntry
           title="全部文档"
@@ -216,8 +258,14 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
       </div>
 
       {/* 小助理（依依）位：总览带最右侧（用户定案③）；支持收起/展开（用户定案④，与工位栏一致语义）。
-          实体存在 → 真实 Agent 卡 + 配置入口；不存在（异常）→ 紧凑占位而非死链。 */}
+          实体存在 → 真实 Agent 卡 + 配置入口；不存在（异常）→ 紧凑占位而非死链。
+          report-driven-fixes 0.7：小助理卡右侧并列三枚整理动作按钮（整理热点素材 / 整理文档 / 知识库体检）。 */}
       <AssistantSpot assistant={assistant} onConfigure={() => assistant && setSettingsAgent(assistant)} />
+      <div className="flex shrink-0 flex-col gap-1.5">
+        <OrganizeBtn label="整理热点素材" active={organizing === 'hot'} busy={organizing === 'hot'} onClick={() => void runOrganize('hot')} />
+        <OrganizeBtn label="整理文档" active={organizing === 'doc'} busy={organizing === 'doc'} onClick={() => void runOrganize('doc')} />
+        <OrganizeBtn label="知识库体检" active={organizing === 'audit'} busy={organizing === 'audit'} onClick={() => void runOrganize('audit')} />
+      </div>
 
       {status.indexing ? <Badge tone="signal">索引中…</Badge> : null}
       {settingsAgent ? <AgentSettingsModal agent={settingsAgent} open onClose={() => setSettingsAgent(null)} /> : null}

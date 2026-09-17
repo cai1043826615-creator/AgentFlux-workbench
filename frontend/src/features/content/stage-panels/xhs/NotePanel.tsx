@@ -16,7 +16,7 @@ export function NotePanel({ note, state, busy, onDecide }: PanelCommon & { note:
       footer={
         state === 'pending' ? (
           <div className="space-y-2">
-            <div className="qs-meta">打回将重置本阶段产出 · 采纳后进入「封面配图」</div>
+            <div className="qs-meta">打回将重置本阶段产出 · 采纳后进入「首图设计」</div>
             {rejecting ? (
               <>
                 <input

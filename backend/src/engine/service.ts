@@ -10,6 +10,7 @@ import { buildProvenanceResult, getProvenanceResult } from '../delivery/provenan
 import { getReworkInfo } from './rework.ts';
 import { get, run } from '../db/client.ts';
 import { ensureSchema } from '../db/ensure.ts';
+import { persistImageDataUrl } from '../delivery/image-file.ts';
 import { bus } from './bus.ts';
 import { TaskExecutor } from './executor.ts';
 import { loadAllWorkflows } from './graph.ts';
@@ -31,6 +32,20 @@ export class RetryNotAllowedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'RetryNotAllowedError';
+  }
+}
+
+/**
+ * 任务所处阶段不属于其工作流定义（历史遗留阶段，如 xhs-note 早期的 xhs-image）。
+ *
+ * 背景（核验 D-01）：这类任务原先走 `if (!this.isApprovalPoint(task)) return task` 的静默分支，
+ * 用户点「采纳」拿到 200 但状态零变化、无任何提示，任务永久卡在「待确认」。
+ * 现在改为抛出可解释错误，由路由层转 400，前端展示可读提示。
+ */
+export class StageNotFoundError extends Error {
+  constructor(workflowId: string, stage: string) {
+    super(`该任务的阶段「${stage}」已不在工作流「${workflowId}」中（阶段已作废），无法继续推进；请归档或删除该任务`);
+    this.name = 'StageNotFoundError';
   }
 }
 
@@ -299,7 +314,8 @@ export class WorkflowService {
       id: r.itemId,
       name: r.itemId,
       kind: r.itemId.includes('首图') ? 'main' : 'sub',
-      url: r.dataUrl ?? '',
+      // D-03：最终成图落盘为 /uploads/<file>（png/jpg/webp）；mock SVG 占位图不落盘保持原值
+      url: persistImageDataUrl(r.dataUrl ?? ''),
       status: r.ok ? 'pending' : 'failed',
       note: r.error,
       error: r.ok ? undefined : r.error,
@@ -324,7 +340,8 @@ export class WorkflowService {
       id: r.itemId,
       name: r.itemId,
       kind: stageId === 'main-image' ? (r.itemId.includes('主图1') ? 'main' : 'sub') : 'detail',
-      url: r.dataUrl ?? '',
+      // D-03：最终成图落盘为 /uploads/<file>；mock SVG 占位图不落盘保持原值（见注释：不存 svg 占位图当成品）
+      url: persistImageDataUrl(r.dataUrl ?? ''),
       // 生图异常（真实渠道失败）标记 failed，与用户打回 rejected 区分；不存 svg 占位图当成品
       status: r.ok ? 'pending' : 'failed',
       note: r.error,
@@ -424,6 +441,12 @@ export class WorkflowService {
     const task0 = this.getTask(taskId)!;
     const stage = task0?.stage ?? '';
 
+    // 阶段必须属于该任务的工作流定义（核验 D-01）：历史遗留阶段不再静默 no-op，
+    // 否则用户点「采纳」会拿到 200 但零变化，任务永久卡在待确认且无任何提示。
+    if (!nodeOfStage(task0.workflowId, stage)) {
+      throw new StageNotFoundError(task0.workflowId, stage);
+    }
+
     if (kind === 'copy') {
       delivery.updateDeliverableStatus(taskId, stage, 'copy', undefined, decision === 'approve' ? 'approved' : 'rejected');
       const task = this.getTask(taskId)!;
@@ -496,7 +519,7 @@ export class WorkflowService {
       const newAttempts = attempts + 1;
       if (r.ok) {
         img.status = 'pending';
-        img.url = r.dataUrl ?? '';
+        img.url = persistImageDataUrl(r.dataUrl ?? '');
         img.error = undefined;
         img.note = undefined;
         img.attempts = newAttempts;
@@ -517,7 +540,7 @@ export class WorkflowService {
     const newAttempts = attempts + 1;
     if (r.ok) {
       img.status = 'pending';
-      img.url = r.dataUrl ?? '';
+      img.url = persistImageDataUrl(r.dataUrl ?? '');
       img.error = undefined;
       img.note = undefined;
       img.attempts = newAttempts;

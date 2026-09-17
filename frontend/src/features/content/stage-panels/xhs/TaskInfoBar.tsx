@@ -16,6 +16,7 @@ function RefThumb({ src, name, onZoom }: { src: string; name: string; onZoom?: (
       className="h-14 w-14 shrink-0 overflow-hidden border transition-colors hover:border-[var(--color-signal)]"
       style={{ borderColor: 'var(--color-line-strong)', cursor: onZoom ? 'pointer' : 'default' }}
       title={onZoom ? '点击放大参考图' : undefined}
+      aria-label={onZoom ? '点击放大参考图' : undefined}
       onClick={onZoom}
     >
       <img src={src} alt={name} onError={() => setFailed(true)} className="h-full w-full object-cover" />

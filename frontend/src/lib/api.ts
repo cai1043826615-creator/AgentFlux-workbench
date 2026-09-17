@@ -142,12 +142,29 @@ export const api = {
   /** 知识健康度（文档使用率 + 孤岛文件；只读） */
   kbHealth: () => j<{ health: KnowledgeHealth }>(fetch('/api/knowledge/health')),
 
-  // ===== 收件箱（助理收件箱产出；原「草稿区」，P2-5 改名）=====
+  // ===== 小助理整理（kb-assistant）=====
+  /** 整理产出统一落盘 知识库/灵感库/（report-driven-fixes 0.1/0.5/0.7：总览三按钮与热点「收进灵感库」共用） */
+  kbOrganize: (input: {
+    kind: 'doc' | 'hot' | 'audit';
+    /** 整理文档时指明目标文档路径（可选，供批量场景使用） */
+    ref?: string;
+    /** 整理热点素材时携带单条热点（收进灵感库） */
+    item?: { id?: string; title?: string; summary?: string; sourceName?: string; source?: string; url?: string };
+    note?: string;
+  }) =>
+    j<{ ok: boolean; draftId?: number; title?: string; structured?: boolean }>(
+      fetch('/api/kb-assistant/organize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }),
+    ),
+  /** 小助理整理写入日志（kb_drafts，界面不可见；供调用方排查） */
   kbDrafts: () => j<{ drafts: unknown[] }>(fetch('/api/kb-drafts')),
   kbDraftDelete: (id: number) => j<{ deleted: boolean }>(fetch(`/api/kb-drafts/${id}`, { method: 'DELETE' })),
 
   // ===== 每日热点 =====
-  hotPanel: (refresh = false) => j<{ panel: HotPanel }>(fetch(`/api/hot${refresh ? '?refresh=1' : ''}`)),
+  /** AI 打标分组结果（report-driven-fixes 3.5）：条目 id → {cls,tag,use}；LLM 失败为空对象 */
+  hotPanel: (refresh = false) =>
+    j<{ panel: HotPanel & { aiTags?: Record<string, { cls?: 'dir' | 'ref' | 'none'; tag?: string; use?: string }>; aiTagged?: boolean; aiDegraded?: boolean } }>(
+      fetch(`/api/hot${refresh ? '?refresh=1' : ''}`),
+    ),
   hotAttention: () => j<{ config: AttentionConfig }>(fetch('/api/hot/attention')),
   hotSaveAttention: (config: AttentionConfig) =>
     j<{ config: AttentionConfig }>(fetch('/api/hot/attention', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })),

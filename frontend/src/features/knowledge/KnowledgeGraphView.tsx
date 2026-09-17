@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { type KnowledgeDirInfo, type KnowledgeGraphData, type KnowledgeGraphEdge, type KnowledgeNodeDetail, type KnowledgePresetEntry, type KnowledgeStatus, type KnowledgeTagInfo } from '@workbench/shared';
 import { VaultConfigModal } from './VaultConfigModal.tsx';
 import { KnowledgeSidebar } from './KnowledgeSidebar.tsx';
-import { Badge, Btn, Empty, Spinner } from '../../components/ui.tsx';
+import { Badge, Btn, Empty, Modal, ModalFooter, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
@@ -133,6 +133,8 @@ export function KnowledgeGraphView() {
   const [kbStatus, setKbStatus] = useState<KnowledgeStatus | null>(null);
   /** P1·5.7：左树折叠（与知识库页同一交互） */
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  /** report-driven-fixes 2.13（D-31）：标签多选弹窗开关 */
+  const [tagModalOpen, setTagModalOpen] = useState(false);
   /** 目录树展开状态（目录路径 → 是否展开；默认展开所有含子目录的节点） */
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   /**
@@ -594,7 +596,7 @@ export function KnowledgeGraphView() {
   }, [kbNodeId, getVisibleNodes, graph]);
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           {/* 新3：页面大标题字号统一为 22px（与知识库页 / 每日热点页一致） */}
@@ -640,14 +642,12 @@ export function KnowledgeGraphView() {
           {filters.tags.map((t) => (
             <FilterChip key={t} label={`标签：${t}`} onRemove={() => updateFilters({ tags: filters.tags.filter((x) => x !== t) })} />
           ))}
-          {filters.islandOnly ? (
-            <FilterChip label="仅孤岛" onRemove={() => updateFilters({ islandOnly: false })} />
-          ) : null}
+          {/* report-driven-fixes 0.10：孤岛筛选的「仅孤岛」chip 界面隐藏（逻辑保留，UI 已无入口可触发） */}
           <Btn size="sm" variant="ghost" onClick={clearFilters}>清除全部</Btn>
         </div>
       ) : null}
 
-      <div className="flex gap-4">
+      <div className="flex min-h-0 flex-1 gap-4">
         {/* 左树：目录树 + 重点目录 + 标签多选 + 孤岛开关（7b）
             P1·5.7：容器与折叠控件改用公共 KnowledgeSidebar（与知识库页同一位置与交互） */}
         <KnowledgeSidebar
@@ -698,39 +698,29 @@ export function KnowledgeGraphView() {
             )}
           </div>
 
+          {/* report-driven-fixes 2.13（D-31）：标签多选从内嵌 max-h 长列表改为弹窗选择，左栏不再被长列表撑高 */}
           <div className="qs-meta mb-1">标签（多选）</div>
-          <div className="mb-3 flex max-h-[180px] flex-col gap-0.5 overflow-y-auto">
-            {tagInfos.map((t) => {
-              const on = filters.tags.includes(t.tag);
-              return (
-                <label key={t.tag} className={`qs-nav-item cursor-pointer select-none ${on ? 'active' : ''}`}>
-                  <input
-                    type="checkbox"
-                    className="h-3 w-3 shrink-0 accent-[var(--color-signal)]"
-                    checked={on}
-                    onChange={() => updateFilters({ tags: on ? filters.tags.filter((x) => x !== t.tag) : [...filters.tags, t.tag] })}
-                  />
-                  <span className="flex-1 truncate">{t.tag}</span>
-                  <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{t.count}</span>
-                </label>
-              );
-            })}
-          </div>
+          <button
+            type="button"
+            className="qs-nav-item"
+            onClick={() => setTagModalOpen(true)}
+            aria-expanded={false}
+            title="在弹窗中勾选标签过滤"
+          >
+            <span className="flex-1 truncate">
+              {filters.tags.length > 0 ? `已选 ${filters.tags.length} 个标签` : '选择标签'}
+            </span>
+            <span aria-hidden="true" className="qs-meta shrink-0" style={{ color: 'var(--color-ink-faint)' }}>
+              编辑 ▸
+            </span>
+          </button>
 
-          <label className="qs-nav-item cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="h-3 w-3 shrink-0 accent-[var(--color-signal)]"
-              checked={filters.islandOnly}
-              onChange={(e) => updateFilters({ islandOnly: e.target.checked })}
-            />
-            <span className="flex-1 truncate">只显示孤岛</span>
-            <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{islandCount}</span>
-          </label>
+          {/* report-driven-fixes 0.10：孤岛开关界面隐藏（代码保留——filters.islandOnly 逻辑与 islandCount 仍保留，
+              仅不再提供 UI 入口；过滤已激活条里若出现孤岛维度也不会再显示「仅孤岛」chip） */}
         </KnowledgeSidebar>
 
-        <div className="min-w-0 flex-1">
-          <div ref={wrapRef} className="qs-card relative h-[62vh] overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
+        <div className="flex min-w-0 min-h-0 flex-1 flex-col">
+          <div ref={wrapRef} className="qs-card relative min-h-0 flex-1 overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
             {loading && !graph ? (
               <div className="flex h-full items-center justify-center">
                 <Spinner label="知识星图加载中…" />
@@ -892,6 +882,44 @@ export function KnowledgeGraphView() {
         onSaved={() => void load()}
         onReindex={() => void load()}
       />
+
+      {/* report-driven-fixes 2.13（D-31）：标签多选弹窗（复用统一 Modal，替代左栏内嵌长列表） */}
+      <Modal open={tagModalOpen} title="按标签筛选（多选）" onClose={() => setTagModalOpen(false)} width={420}>
+        <p className="qs-meta mb-3" style={{ color: 'var(--color-ink-faint)' }}>
+          勾选多个标签，与目录过滤取交集；已选 {filters.tags.length} 个
+        </p>
+        <div className="flex max-h-[45vh] flex-col gap-0.5 overflow-y-auto pr-1">
+          {tagInfos.length === 0 ? (
+            <div className="qs-meta px-2 py-3 text-center" style={{ color: 'var(--color-ink-faint)' }}>
+              暂无标签
+            </div>
+          ) : (
+            tagInfos.map((t) => {
+              const on = filters.tags.includes(t.tag);
+              return (
+                <label key={t.tag} className={`qs-nav-item cursor-pointer select-none ${on ? 'active' : ''}`}>
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3 shrink-0 accent-[var(--color-signal)]"
+                    checked={on}
+                    onChange={() => updateFilters({ tags: on ? filters.tags.filter((x) => x !== t.tag) : [...filters.tags, t.tag] })}
+                  />
+                  <span className="flex-1 truncate">{t.tag}</span>
+                  <span className="qs-meta tabular shrink-0" style={{ color: 'var(--color-ink-faint)' }}>{t.count}</span>
+                </label>
+              );
+            })
+          )}
+        </div>
+        <ModalFooter>
+          <Btn size="sm" variant="ghost" disabled={filters.tags.length === 0} onClick={() => updateFilters({ tags: [] })}>
+            清除标签
+          </Btn>
+          <Btn size="sm" variant="primary" onClick={() => setTagModalOpen(false)}>
+            完成
+          </Btn>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 }
