@@ -17,6 +17,16 @@ import { KT, META, ensureKnowledgeSchema, getMeta } from './schema.ts';
 import { normalizeRel, readVaultFile, resolveVaultConfig } from './vault.ts';
 import type { KnowledgeDocRow } from './schema.ts';
 
+/**
+ * Q4/Q7（复核定案 §8.3）：`kb_drafts` 降级为**不可见的写入日志**，「助理收件箱/」的所有用户可见形态一律取消。
+ * 这 9 篇是被 `indexer` 以虚拟目录形式写进 `knowledge_docs` 索引表的（索引器不在本次可改范围），
+ * 因此统一在**读侧**屏蔽：目录树、文档列表、标签、统计、按路径摘要一律不再返回它们。
+ * 表本身与 `/api/kb-drafts` 写入日志保留不变。
+ */
+export const INBOX_DIR = '助理收件箱';
+/** 排除收件箱虚拟目录的 SQL 条件（LIKE 前缀匹配，覆盖其下所有文档） */
+const NOT_INBOX = `path NOT LIKE '助理收件箱/%'`;
+
 /** 索引条目 → 文档摘要 */
 export function rowToSummary(row: Pick<KnowledgeDocRow, 'path' | 'title' | 'dir_path' | 'tags' | 'mtime' | 'size'>): KnowledgeDocSummary {
   let tags: string[] = [];
@@ -49,9 +59,9 @@ export function knowledgeStatus(): KnowledgeStatus {
 /** 知识库总览统计 */
 export function knowledgeStats(): KnowledgeStats {
   ensureKnowledgeSchema();
-  const docCount = Number((get<{ c: number }>(`SELECT count(*) c FROM ${KT.docs}`)?.c ?? 0));
+  const docCount = Number((get<{ c: number }>(`SELECT count(*) c FROM ${KT.docs} WHERE ${NOT_INBOX}`)?.c ?? 0));
   const edgeCount = Number((get<{ c: number }>(`SELECT count(*) c FROM ${KT.links}`)?.c ?? 0));
-  const tagRows = all<{ tags: string }>(`SELECT tags FROM ${KT.docs}`);
+  const tagRows = all<{ tags: string }>(`SELECT tags FROM ${KT.docs} WHERE ${NOT_INBOX}`);
   const tagSet = new Set<string>();
   for (const r of tagRows) {
     try {
@@ -61,8 +71,8 @@ export function knowledgeStats(): KnowledgeStats {
       /* ignore */
     }
   }
-  const dirCount = Number((get<{ c: number }>(`SELECT count(DISTINCT dir_path) c FROM ${KT.docs}`)?.c ?? 0));
-  const recent = all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} ORDER BY mtime DESC, path ASC LIMIT 8`).map(rowToSummary);
+  const dirCount = Number((get<{ c: number }>(`SELECT count(DISTINCT dir_path) c FROM ${KT.docs} WHERE ${NOT_INBOX}`)?.c ?? 0));
+  const recent = all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE ${NOT_INBOX} ORDER BY mtime DESC, path ASC LIMIT 8`).map(rowToSummary);
   const indexedAt = getMeta(META.indexedAt) || null;
   return {
     docCount,
@@ -79,7 +89,10 @@ export function knowledgeStats(): KnowledgeStats {
 /** 目录列表（含每个目录的直接+递归文档数按目录归组；前端据此建树） */
 export function listDirs(): KnowledgeDirInfo[] {
   ensureKnowledgeSchema();
-  const rows = all<{ dir_path: string; c: number }>(`SELECT dir_path, count(*) c FROM ${KT.docs} GROUP BY dir_path`);
+  const rows = all<{ dir_path: string; c: number }>(
+    `SELECT dir_path, count(*) c FROM ${KT.docs} WHERE dir_path <> ? GROUP BY dir_path`,
+    [INBOX_DIR],
+  );
   const counts = new Map<string, number>();
   for (const r of rows) counts.set(r.dir_path, Number(r.c));
 
@@ -101,7 +114,7 @@ export function listDirs(): KnowledgeDirInfo[] {
 /** 标签列表（含文档数） */
 export function listTags(): KnowledgeTagInfo[] {
   ensureKnowledgeSchema();
-  const rows = all<{ tags: string }>(`SELECT tags FROM ${KT.docs}`);
+  const rows = all<{ tags: string }>(`SELECT tags FROM ${KT.docs} WHERE ${NOT_INBOX}`);
   const counts = new Map<string, number>();
   for (const r of rows) {
     try {
@@ -121,15 +134,15 @@ export function listDocsByDir(dir: string, recursive = true): KnowledgeDocSummar
   ensureKnowledgeSchema();
   const target = normalizeRel(dir);
   if (!target) {
-    return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} ORDER BY dir_path ASC, title ASC`).map(rowToSummary);
+    return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE ${NOT_INBOX} ORDER BY dir_path ASC, title ASC`).map(rowToSummary);
   }
   if (recursive) {
     return all<KnowledgeDocRow>(
-      `SELECT * FROM ${KT.docs} WHERE dir_path = ? OR dir_path LIKE ? ORDER BY dir_path ASC, title ASC`,
+      `SELECT * FROM ${KT.docs} WHERE ${NOT_INBOX} AND (dir_path = ? OR dir_path LIKE ?) ORDER BY dir_path ASC, title ASC`,
       [target, `${target}/%`],
     ).map(rowToSummary);
   }
-  return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE dir_path = ? ORDER BY title ASC`, [target]).map(rowToSummary);
+  return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE ${NOT_INBOX} AND dir_path = ? ORDER BY title ASC`, [target]).map(rowToSummary);
 }
 
 /** 按标签筛选 */
@@ -139,13 +152,13 @@ export function listDocsByTag(tag: string): KnowledgeDocSummary[] {
   if (!needle) return [];
   // JSON 数组按精确字符串匹配（转义引号避免子串误命中）
   const pattern = `%"${needle.replace(/["\\]/g, '\\$&')}"%`;
-  return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE tags LIKE ? ESCAPE '\\' ORDER BY mtime DESC`, [pattern]).map(rowToSummary);
+  return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE ${NOT_INBOX} AND tags LIKE ? ESCAPE '\\' ORDER BY mtime DESC`, [pattern]).map(rowToSummary);
 }
 
 /** 全部文档（前端勾选/图谱定位等使用） */
 export function listAllDocs(): KnowledgeDocSummary[] {
   ensureKnowledgeSchema();
-  return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} ORDER BY dir_path ASC, title ASC`).map(rowToSummary);
+  return all<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE ${NOT_INBOX} ORDER BY dir_path ASC, title ASC`).map(rowToSummary);
 }
 
 /** 按路径批量取摘要（保持入参顺序；不存在的路径跳过） */
@@ -153,7 +166,9 @@ export function summariesOf(paths: string[]): KnowledgeDocSummary[] {
   ensureKnowledgeSchema();
   const out: KnowledgeDocSummary[] = [];
   for (const p of paths) {
-    const row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [normalizeRel(p)]);
+    const rel = normalizeRel(p);
+    if (rel === INBOX_DIR || rel.startsWith(`${INBOX_DIR}/`)) continue; // Q4：收件箱不可见，不能挂任务
+    const row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [rel]);
     if (row) out.push(rowToSummary(row));
   }
   return out;
@@ -172,40 +187,11 @@ export async function readDoc(relPath: string): Promise<KnowledgeDoc | null> {
   const path = normalizeRel(relPath);
   if (!path) return null;
 
-  // P2-5（验收打回）：虚拟目录「助理收件箱/」的文档来自收件箱（kb_drafts），不在 Vault——
-  // 直接从收件箱表读，用既有 KnowledgeDoc 形态返回（阅读卡片无需任何特殊分支）。
-  if (path === '助理收件箱' || path.startsWith('助理收件箱/')) {
-    const drafts = all<{ id: number; title: string; source_kind: string; source_ref: string; content: string; created_at: string }>(
-      `SELECT id, title, source_kind, source_ref, content, created_at FROM ${KT.drafts} ORDER BY id DESC`,
-    );
-    if (path === '助理收件箱') {
-      // 目录级：返回该目录的汇总页（列出各条整理）
-      const lines = drafts.map((d) => `- [${d.title}](助理收件箱/${d.id}.md)（${d.source_kind === 'doc' ? '文档整理' : d.source_kind === 'hot' ? '素材卡' : d.source_kind === 'audit' ? '体检建议' : '未结构化'} · ${d.created_at.slice(0, 10)}）`);
-      return {
-        path: '助理收件箱',
-        title: '助理收件箱（收件箱）',
-        dir: '',
-        tags: ['助理收件箱'],
-        mtime: drafts[0]?.created_at ?? new Date().toISOString(),
-        size: lines.join('\n').length,
-        content: [`# 助理收件箱（收件箱）`, '', '依依的整理产出，确认可用后可手动沉淀进知识库。', '', ...lines].join('\n'),
-        anchors: [],
-      };
-    }
-    const id = Number(path.split('/')[1]?.replace(/\.md$/i, ''));
-    const d = Number.isFinite(id) ? drafts.find((x) => x.id === id) : undefined;
-    if (!d) return null;
-    return {
-      path: `助理收件箱/${d.id}.md`,
-      title: d.title,
-      dir: '助理收件箱',
-      tags: ['助理收件箱'],
-      mtime: d.created_at,
-      size: d.content.length,
-      content: d.content,
-      anchors: [],
-    };
-  }
+  // Q4/Q7（复核定案 §8.3）：kb_drafts 降级为**不可见的写入日志**——
+  // 虚拟目录「助理收件箱/」的所有用户可见形态（目录树 / 文档列表 / 阅读卡片 / 挂任务勾选）一律取消。
+  // 这里不再从 kb_drafts 返回任何文档形态：按普通路径解析必然落空 → readDoc 返回 null（= 文档不存在）。
+  // kb_drafts 表本身保留（仍作写入日志），/api/kb-drafts 仍可查日志，但不作为知识库文档出现。
+  if (path === '助理收件箱' || path.startsWith('助理收件箱/')) return null;
 
   let row = get<KnowledgeDocRow>(`SELECT * FROM ${KT.docs} WHERE path = ?`, [path]);
 

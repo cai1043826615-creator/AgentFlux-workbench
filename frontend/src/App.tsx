@@ -392,10 +392,12 @@ function NewTaskModal() {
 }
 
 function Shell() {
-  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask, workflows, currentWorkflowId, setCurrentWorkflowId } = useWorkbench();
+  const { view, selectedTaskId, backToBoard, openTask, agents, chatTarget, selectChat, setView, openNewTask, workflows, currentWorkflowId, setCurrentWorkflowId, chatPanelOpen, setChatPanelOpen } = useWorkbench();
   const [showLeft, setShowLeft] = useState(true);
-  // 右栏聊天面板默认收起：首屏把横向空间让给主视图（可随时展开）
-  const [showRight, setShowRight] = useState(false);
+  // 右栏聊天面板展开状态提升到 store（第三方复核 P2 修复）：知识库「和依依对话」按钮需要远程展开面板，
+  // 因此这里不再持有本地 state，改为引用 store 的 chatPanelOpen / setChatPanelOpen。
+  const showRight = chatPanelOpen;
+  const setShowRight = setChatPanelOpen;
   const [leftWidth, setLeftWidth] = useState(220);
   const [rightWidth, setRightWidth] = useState(280);
   const [settingsSignal, setSettingsSignal] = useState(0);

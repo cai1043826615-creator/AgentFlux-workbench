@@ -23,8 +23,26 @@ const TIER_CAP_OPTIONS: { value: '' | HotTier; label: string }[] = [
 /* report-driven-fixes 3.8：源管理降级——adapter/vertical 编辑界面已隐藏，
    KNOWN_ADAPTERS / VERTICAL_OPTIONS 常量随之移除（适配器注册表以后端为准，新增源无需改聚合代码） */
 
+/**
+ * 热点面板扩展类型（Q1 全量展示集 / Q5 未展示条数）：
+ * 后端在 HotPanel 上追加的字段；旧缓存/降级面板可能没有，前端一律按可选处理。
+ */
+export type HotPanelExt = HotPanel & {
+  aiTags?: Record<string, { cls?: 'dir' | 'ref' | 'none'; tag?: string; use?: string }>;
+  aiTagged?: boolean;
+  aiDegraded?: boolean;
+  /** 全量展示集（前端三分组以此为数据源） */
+  displaySet?: HotItem[];
+  /** 未展示条数（上游原始条目数 - 展示数，主要来自去重合并） */
+  hiddenCount?: number;
+  /** 上游原始条目数（去重前） */
+  rawCount?: number;
+  /** 各源贡献的展示条数 */
+  sourceCounts?: Record<string, number>;
+};
+
 /** 5.2 信息条：新鲜度 + 源状态摘要 + 上游日报外链（无日报时退化为仅新鲜度） */
-function InfoBar({ panel }: { panel: HotPanel }) {
+function InfoBar({ panel }: { panel: HotPanelExt }) {
   const ok = panel.sources.filter((s) => s.status === 'ok').length;
   const degraded = panel.sources.filter((s) => s.status === 'degraded');
   const daily = panel.daily as HotDailyInfo | null;
@@ -32,8 +50,11 @@ function InfoBar({ panel }: { panel: HotPanel }) {
   // P1-14 追问修复：给出「条目本身的最新发布时间」——
   // 让「热点停在 11 日」一眼可辨：是抓取时间旧（我们慢了）还是发布时间旧（上游没更新）。
   // 二者分开讲，用户就不会把上游停更误判为刷新失灵。
-  const allLatest = (['mustRead', 'browse', 'other'] as const)
-    .flatMap((t) => panel.tiers[t] ?? [])
+  // Q1：全量展示集优先（旧缓存/降级面板回退 tiers）
+  const allItems: HotItem[] = panel.displaySet?.length
+    ? panel.displaySet
+    : (['mustRead', 'browse', 'other'] as const).flatMap((t) => panel?.tiers[t] ?? []);
+  const allLatest = allItems
     .map((i) => i.latestAt)
     .filter((v): v is string => !!v)
     .sort();
@@ -515,14 +536,9 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
 /** 每日热点视图：只读情报面板（多源 / 三态降级 / 电商化分层 / A4 排版） */
 export function HotView() {
   // report-driven-fixes 3.5：后端在 panel 上扩展 aiTags（条目 id → AI 打标分组），类型对齐 api.hotPanel 返回
-  const [panel, setPanel] = useState<
-    | (HotPanel & {
-        aiTags?: Record<string, { cls?: 'dir' | 'ref' | 'none'; tag?: string; use?: string }>;
-        aiTagged?: boolean;
-        aiDegraded?: boolean;
-      })
-    | null
-  >(null);
+  // Q1：displaySet = 全量展示集（旧版只给了分层截断后的 13 条，热榜源一条都上不了屏）
+  // Q5：hiddenCount = 未展示条数（去重合并掉的），避免「看不到 = 没有」的误判
+  const [panel, setPanel] = useState<HotPanelExt | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
@@ -548,7 +564,13 @@ export function HotView() {
 
   // report-driven-fixes 3.5：三分组（产出方向 / 可参考 / 无关），按后端 AI 打标结果（panel.aiTags[id].cls）归类。
   // 后端 hot-tagging 未下发 cls（LLM 失败降级）时该条目兜底进「可参考」。
+  // Q1：数据源从「分层截断后的 tiers」改为「全量展示集 displaySet」——
+  //     三分组本身就是筛选，不该在后端先丢条目；热榜源（微博/抖音/头条）因此能上屏。
+  //     displaySet 缺失（旧缓存/降级面板）时回退 tiers，保证不白屏。
   const TIER_KEYS = ['mustRead', 'browse', 'other'] as const;
+  const displayItems: HotItem[] = panel?.displaySet?.length
+    ? panel.displaySet
+    : TIER_KEYS.flatMap((t) => panel?.tiers[t] ?? []);
   const GROUPS: { key: 'dir' | 'ref' | 'none'; label: string; hint: string }[] = [
     { key: 'dir', label: '产出方向', hint: '与当前工作直接相关、可作产出依据' },
     { key: 'ref', label: '可参考', hint: '作为行业背景参考' },
@@ -558,7 +580,7 @@ export function HotView() {
   const clsOf = (item: HotItem): 'dir' | 'ref' | 'none' => aiTags[item.id]?.cls ?? 'ref';
   const groups = GROUPS.map((g) => ({
     ...g,
-    items: TIER_KEYS.flatMap((t) => panel?.tiers[t] ?? []).filter((item) => clsOf(item) === g.key),
+    items: displayItems.filter((item) => clsOf(item) === g.key),
   }));
   const groupTotal = groups.reduce((n, g) => n + g.items.length, 0);
   const groupCount = (key: 'dir' | 'ref' | 'none') => groups.find((g) => g.key === key)?.items.length ?? 0;
@@ -635,12 +657,21 @@ export function HotView() {
               </span>
               <span className="font-display tabular text-[15px] font-bold">{groupCount('dir')}</span>
             </span>
-            <span className="inline-flex items-baseline gap-1.5">
-              <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                可参考
-              </span>
+            <span className="qs-meta inline-flex items-baseline gap-1.5" style={{ color: 'var(--color-ink-faint)' }}>
+              可参考
               <span className="font-display tabular text-[15px] font-bold">{groupCount('ref')}</span>
             </span>
+            {/* Q5：未展示条数提示（上游总数 - 展示数，主要来自三层去重合并），避免「看不到 = 没有」的误判 */}
+            {panel && (panel.hiddenCount ?? 0) > 0 ? (
+              <span
+                className="qs-meta"
+                style={{ color: 'var(--color-ink-faint)' }}
+                title={`上游共抓到 ${panel.rawCount ?? groupTotal} 条，展示 ${groupTotal} 条；其余 ${panel.hiddenCount} 条因与其他条目重复（三层去重合并）未单独展示，已并入同类条目`}
+                data-hot-hidden
+              >
+                另有 {panel.hiddenCount} 条未展示（重复合并）
+              </span>
+            ) : null}
             <span className="qs-meta ml-auto" style={{ color: 'var(--color-ink-faint)' }} title="最近一次抓取完成时间；点右上「刷新」可立即重抓">
               更新于 {fmtTime(panel.fetchedAt)}
             </span>

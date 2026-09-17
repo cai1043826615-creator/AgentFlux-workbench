@@ -6,7 +6,7 @@
  * - 只读 Vault：全程仅 listVaultMarkdown + readVaultFile，写操作被 assertVaultReadOnly 拒绝
  */
 import { createHash } from 'node:crypto';
-import { all, run, tx } from '../db/client.ts';
+import { run, tx } from '../db/client.ts';
 import { SNAPSHOT_DOCS, followCatalogChanges, readCatalogSnapshot, saveCatalogSnapshot } from '../agents/mount-repoint.ts';
 import { extractLinks, extractTags, extractTitle, parseFrontmatter, resolveLinkTarget } from './markdown.ts';
 import { KT, META, ensureKnowledgeSchema, setMeta } from './schema.ts';
@@ -147,32 +147,20 @@ export async function rebuildIndex(): Promise<IndexResult | null> {
   const cfg = resolveVaultConfig();
   setMeta(META.root, cfg.root ?? '');
   try {
-    // P2-5（验收打回）：收件箱内容并入现有目录树与阅读体系——
-    // 依依的整理产出作为虚拟目录「助理收件箱/」追加进索引（物理存 kb_drafts 表，不落 Vault、不碰只读承诺）。
-    // 用户在目录树/文档列表/搜索里看到它们，点开走既有阅读卡片。
-    const draftDocs = all<{ id: number; title: string; source_kind: string; source_ref: string; content: string; created_at: string }>(
-      `SELECT id, title, source_kind, source_ref, content, created_at FROM ${KT.drafts} ORDER BY id DESC`,
-    ).map((d) => ({
-      path: `助理收件箱/${d.id}.md`,
-      title: d.title,
-      dir: '助理收件箱',
-      tags: ['助理收件箱', d.source_kind === 'doc' ? '文档整理' : d.source_kind === 'hot' ? '素材卡' : d.source_kind === 'audit' ? '体检建议' : '未结构化'],
-      body: d.content,
-      hash: sha1(d.content),
-      mtime: d.created_at,
-      size: d.content.length,
-    }));
+    // 收件箱虚拟目录已取消（report-driven-fixes §8.3 定案 + 第三方复核 Q4/Q7）：
+    // kb_drafts 降级为**不可见的写入日志**，其所有用户可见形态（虚拟目录「助理收件箱/」、文档列表、搜索）一律取消。
+    // 因此索引构建**不再**从 kb_drafts 生成文档条目（此前会写成「助理收件箱/N.md」进 knowledge_docs，
+    // 每次重建索引重写回来导致读侧屏蔽治标不治本）。kb_drafts 表本身保留作写入日志。
 
     if (!cfg.root) {
-      // 未连接不是错误：清空知识库表，保持「未连接 = 空索引」一致状态（板块 A 不受影响）；
-      // 收件箱仍可见（依依产出不依赖 Vault 连接）
-      writeIndex(draftDocs);
+      // 未连接不是错误：清空知识库表，保持「未连接 = 空索引」一致状态（板块 A 不受影响）
+      writeIndex([]);
       setMeta(META.indexedAt, new Date().toISOString());
       setMeta(META.lastError, '');
       return null;
     }
     const { docs, skipped } = await collectDocs(cfg);
-    const result = writeIndex([...docs, ...draftDocs]);
+    const result = writeIndex(docs);
     const final = { ...result, skipped };
     setMeta(META.indexedAt, new Date().toISOString());
     setMeta(META.lastError, '');

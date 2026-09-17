@@ -4,8 +4,12 @@
  * 板块边界：本文件只读写知识库表与 task_kb_refs（耦合点表），
  * 不触碰板块 A 的状态机与业务表；未连接/异常时全部接口返回可解释状态而非 5xx。
  */
+import multipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
-import type { AttentionConfig, KnowledgeVaultConfigInput, TaskHotRefInput, TaskKbRefInput } from '@workbench/shared';
+import type { AttentionConfig, KnowledgeVaultConfigInput, TaskHotRefInput, TaskKbRefInput, XhsImportInput } from '@workbench/shared';
+import { KB_IMPORT_MAX_BYTES } from '@workbench/shared';
+import { ImportError, importDocumentFile } from '../knowledge/doc-import.ts';
+import { importXhsNote, XhsImportError, xhsCookieConfigured } from '../knowledge/xhs-import.ts';
 import { loadAttentionConfig, saveAttentionConfig } from '../knowledge/attention.ts';
 import { knowledgeStats, knowledgeStatus, listAllDocs, listDocsByDir, listDocsByTag, listDirs, listTags, readDoc } from '../knowledge/docs.ts';
 import { graphData, nodeDetail } from '../knowledge/graph.ts';
@@ -21,6 +25,9 @@ import { resolveVaultConfig, saveVaultConfig } from '../knowledge/vault.ts';
 
 export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
   ensureKnowledgeSchema();
+
+  // 文档导入走 multipart（单文件字段 file）；上限与前端一致，超限返回中文错误
+  await app.register(multipart, { limits: { fileSize: KB_IMPORT_MAX_BYTES, files: 1 } });
 
   // ===== Vault 连接与索引 =====
 
@@ -184,4 +191,51 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
       return result;
     },
   );
+
+  // ===== 知识库导入（文档上传 / 小红书拆解）=====
+
+  /**
+   * 上传文档导入知识库：multipart 单字段 `file`，解析为 Markdown 后写入 知识库/收件箱/ 并后台重建索引。
+   * 支持 pdf / docx / doc / txt / md；类型白名单、体积上限、文件名安全化（防路径穿越）在 doc-import 内。
+   */
+  app.post('/api/knowledge/import', async (req, reply) => {
+    let part;
+    try {
+      part = await req.file();
+    } catch (err) {
+      return reply.code(400).send({ error: `上传解析失败：${err instanceof Error ? err.message : String(err)}` });
+    }
+    if (!part) return reply.code(400).send({ error: '请选择要上传的文件（字段名 file）' });
+    try {
+      const buffer = await part.toBuffer();
+      const result = await importDocumentFile({ filename: part.filename ?? '', buffer });
+      return result;
+    } catch (err) {
+      if (err instanceof ImportError) return reply.code(400).send({ error: err.message });
+      // 体积超限由 multipart limits 抛出：转成中文提示
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/file size|too large|limit/i.test(msg)) {
+        return reply.code(400).send({ error: `文件过大，上限 ${KB_IMPORT_MAX_BYTES / 1024 / 1024}MB` });
+      }
+      return reply.code(500).send({ error: `导入失败：${msg}` });
+    }
+  });
+
+  /** 小红书 Cookie 是否已配置（前端据此给「去配置」提示；不返回 Cookie 本身） */
+  app.get('/api/knowledge/xhs/status', async () => ({ configured: xhsCookieConfigured() }));
+
+  /**
+   * 小红书拆解入库：粘贴分享文本或笔记链接 → 解析成 Markdown 笔记（frontmatter + 正文 + 图片/视频链接）
+   * → 写入 知识库/收件箱/小红书/ 并后台重建索引。未配置 Cookie 时按粘贴文本降级解析（不报错）。
+   */
+  app.post<{ Body: XhsImportInput }>('/api/knowledge/xhs-import', async (req, reply) => {
+    const text = String(req.body?.text ?? '').trim();
+    if (!text) return reply.code(400).send({ error: '请粘贴小红书分享文本或笔记链接' });
+    try {
+      return await importXhsNote({ text });
+    } catch (err) {
+      if (err instanceof XhsImportError) return reply.code(400).send({ error: err.message });
+      return reply.code(500).send({ error: `拆解失败：${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
 }

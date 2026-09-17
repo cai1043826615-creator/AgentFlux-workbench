@@ -10,12 +10,14 @@ import type {
   DeliverableSearchResult,
   DeliverableVersion,
   ExecutionStats,
+  HotItem,
   HotPanel,
   KnowledgeDirInfo,
   KnowledgeDoc,
   KnowledgeDocSummary,
   KnowledgeGraphData,
   KnowledgeHealth,
+  KnowledgeImportResult,
   KnowledgeNodeDetail,
   KnowledgeSearchResult,
   KnowledgeStats,
@@ -36,7 +38,19 @@ import type {
   TaskListQuery,
   TaskListItem,
   WorkflowDefinition,
+  XhsImportResult,
 } from '@workbench/shared';
+
+/** 后端可能返回 { error } 或纯文本：统一取可读中文（失败时不暴露状态码以外的细节） */
+function extractErr(body: string, status: number): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: string };
+    if (parsed?.error) return parsed.error;
+  } catch {
+    /* 非 JSON：按纯文本处理 */
+  }
+  return body ? `HTTP ${status}: ${body.slice(0, 200)}` : `HTTP ${status}`;
+}
 
 async function j<T>(p: Promise<Response>): Promise<T> {
   const res = await p;
@@ -142,6 +156,24 @@ export const api = {
   /** 知识健康度（文档使用率 + 孤岛文件；只读） */
   kbHealth: () => j<{ health: KnowledgeHealth }>(fetch('/api/knowledge/health')),
 
+  // ===== 知识库导入（文档上传 / 小红书拆解）=====
+  /** 上传文档导入知识库：multipart 单文件 → 解析入库 → 重建索引；返回落盘路径等信息 */
+  kbImportDoc: async (file: File): Promise<KnowledgeImportResult> => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/knowledge/import', { method: 'POST', body: form });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractErr(body, res.status));
+    }
+    return (await res.json()) as KnowledgeImportResult;
+  },
+  /** 小红书 Cookie 是否已配置（后端权威判定，不返回 Cookie 本身） */
+  kbXhsStatus: () => j<{ configured: boolean }>(fetch('/api/knowledge/xhs/status')),
+  /** 小红书拆解入库：粘贴分享文本或笔记链接 → Markdown 笔记落盘 知识库/收件箱/小红书/ */
+  kbImportXhs: (text: string) =>
+    j<XhsImportResult>(fetch('/api/knowledge/xhs-import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })),
+
   // ===== 小助理整理（kb-assistant）=====
   /** 整理产出统一落盘 知识库/灵感库/（report-driven-fixes 0.1/0.5/0.7：总览三按钮与热点「收进灵感库」共用） */
   kbOrganize: (input: {
@@ -160,11 +192,22 @@ export const api = {
   kbDraftDelete: (id: number) => j<{ deleted: boolean }>(fetch(`/api/kb-drafts/${id}`, { method: 'DELETE' })),
 
   // ===== 每日热点 =====
-  /** AI 打标分组结果（report-driven-fixes 3.5）：条目 id → {cls,tag,use}；LLM 失败为空对象 */
+  /**
+   * AI 打标分组结果（report-driven-fixes 3.5）：条目 id → {cls,tag,use}；LLM 失败为空对象
+   * Q1/Q5 扩展：displaySet = 全量展示集（前端三分组以此为数据源）；hiddenCount = 未展示条数（去重合并掉的）
+   */
   hotPanel: (refresh = false) =>
-    j<{ panel: HotPanel & { aiTags?: Record<string, { cls?: 'dir' | 'ref' | 'none'; tag?: string; use?: string }>; aiTagged?: boolean; aiDegraded?: boolean } }>(
-      fetch(`/api/hot${refresh ? '?refresh=1' : ''}`),
-    ),
+    j<{
+      panel: HotPanel & {
+        aiTags?: Record<string, { cls?: 'dir' | 'ref' | 'none'; tag?: string; use?: string }>;
+        aiTagged?: boolean;
+        aiDegraded?: boolean;
+        displaySet?: HotItem[];
+        hiddenCount?: number;
+        rawCount?: number;
+        sourceCounts?: Record<string, number>;
+      };
+    }>(fetch(`/api/hot${refresh ? '?refresh=1' : ''}`)),
   hotAttention: () => j<{ config: AttentionConfig }>(fetch('/api/hot/attention')),
   hotSaveAttention: (config: AttentionConfig) =>
     j<{ config: AttentionConfig }>(fetch('/api/hot/attention', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })),

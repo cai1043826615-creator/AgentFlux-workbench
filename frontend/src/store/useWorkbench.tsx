@@ -92,6 +92,9 @@ interface WorkbenchState {
   restoreTask: (id: number) => Promise<void>;
   sendChat: (body: string) => void;
   selectChat: (target: ChatTarget) => void;
+  /** 右侧聊天面板展开状态（提升到 store：跨视图组件如知识库「和依依对话」需要远程展开面板，第三方复核 P2 修复） */
+  chatPanelOpen: boolean;
+  setChatPanelOpen: (open: boolean) => void;
   setView: (v: WorkbenchView) => void;
   /** 打开知识库并定位到指定文档阅读 */
   openKbDoc: (path: string | null) => void;
@@ -131,6 +134,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(initialHash.taskId);
   const [taskTab, setTaskTabState] = useState<TaskTab>('detail');
   const [chatTarget, setChatTarget] = useState<ChatTarget>({ kind: 'group', to: '全体' });
+  /** 右侧聊天面板展开状态（App 渲染右侧栏的依据；提升到 store 供知识库「和依依对话」远程展开） */
+  const [chatPanelOpen, setChatPanelOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [deliverablesByTask, setDeliverablesByTask] = useState<Record<number, Deliverable[]>>({});
   const [eventsByTask, setEventsByTask] = useState<Record<number, TaskEvent[]>>({});
@@ -518,6 +523,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       restoreTask,
       sendChat,
       selectChat,
+      chatPanelOpen,
+      setChatPanelOpen,
       setView,
       openKbDoc,
       kbDir,
@@ -535,7 +542,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       pushToast,
       dismissToast,
     }),
-    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, workflows, currentWorkflowId, kbDocPath, kbDir, openKbDir, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, focusPackageSignal, requestFocusPackage, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
+    [tasks, agents, connected, reconnect, view, selectedTaskId, taskTab, chatTarget, messages, deliverablesByTask, eventsByTask, approvalQueue, settings, loading, workflows, currentWorkflowId, kbDocPath, kbDir, openKbDir, docPreviewPath, openDocPreview, closeDocPreview, kbNodeId, focusPackageSignal, requestFocusPackage, newTask, boardMode, filters, refresh, createTask, confirmTask, decide, retryImage, review, archiveTask, restoreTask, sendChat, selectChat, chatPanelOpen, setChatPanelOpen, setView, openKbDoc, setKbNodeId, openNewTask, closeNewTask, openTask, backToBoard, setTaskTab, setBoardMode, setFilters, clearFilters, actionToasts, pushToast, dismissToast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

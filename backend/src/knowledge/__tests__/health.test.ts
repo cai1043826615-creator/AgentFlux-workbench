@@ -149,6 +149,52 @@ describe('2.7 文档使用率（computeDocUsageRate）', () => {
     assert.equal(r.linkedDocs, 0);
     assert.equal(r.ratio, null);
   });
+
+  test('Q3·Agent 挂载通道并入：仅被挂载（无任何任务关联）的技能库文档计入分子', () => {
+    clearKnowledge();
+    insertDoc('技能库/电商/电商文案模板.md', [], '技能库/电商');
+    insertDoc('技能库/小红书/小红书合规违禁词清单.md', [], '技能库/小红书');
+    insertDoc('知识库/品牌规范/无关文档.md', [], '知识库/品牌规范');
+    // 依依：skills 数组挂技能名（basename 匹配路径），files 空
+    run(`INSERT OR REPLACE INTO agents (id,name,role,persona,model,skills,files,created_at) VALUES (?,?,?,?,?,?,?,?)`, [
+      'agent-copy',
+      '美美',
+      'copy',
+      '',
+      '',
+      '["电商文案模板","小红书合规违禁词清单"]',
+      '[]',
+      '2026-09-11T00:00:00.000Z',
+    ]);
+    const r = computeDocUsageRate();
+    assert.equal(r.linkedDocs, 2, '两篇被挂载的技能库文档计入，未被挂载的无关文档不计入');
+    assert.equal(r.totalDocs, 3);
+  });
+
+  test('Q3·wiki 引用通道并入：仅被其他文档 wiki 引用（无任务关联、无挂载）的文档计入分子', () => {
+    clearKnowledge();
+    run(`DELETE FROM agents WHERE id = 'agent-copy'`);
+    insertDoc('a.md', []);
+    insertDoc('b.md', []);
+    insertDoc('c.md', []);
+    run(`INSERT INTO ${KT.links} (source_path,target,kind) VALUES (?,?,?)`, ['a.md', 'b.md', 'link']);
+    const r = computeDocUsageRate();
+    assert.equal(r.linkedDocs, 2, 'a（有出边）与 b（被引用）计入，c 不计入');
+    assert.equal(r.totalDocs, 3);
+  });
+
+  test('Q4·隐藏的「助理收件箱/」文档不进分母，其链接边也不把其他文档「传染」成已使用', () => {
+    clearKnowledge();
+    insertDoc('x.md', []);
+    insertDoc('助理收件箱/1.md', [], '助理收件箱');
+    // 隐藏文档指向 x.md 的链接边不应让 x.md 变成「已使用」
+    run(`INSERT INTO ${KT.links} (source_path,target,kind) VALUES (?,?,?)`, ['助理收件箱/1.md', 'x.md', 'link']);
+    const r = computeDocUsageRate();
+    assert.equal(r.totalDocs, 1, '收件箱文档不进分母');
+    assert.equal(r.linkedDocs, 0, '隐藏文档的链接边不参与使用判定');
+    const islands = islandDocPaths();
+    assert.ok(!islands.some((p) => p.startsWith('助理收件箱/')), '收件箱文档不出现在孤岛清单');
+  });
 });
 
 describe('2.8 孤岛判定（islandDocPaths）', () => {

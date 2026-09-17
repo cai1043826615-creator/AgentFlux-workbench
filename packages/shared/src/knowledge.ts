@@ -446,3 +446,51 @@ export interface KnowledgeVaultConfigInput {
    */
   presetEntries?: KnowledgePresetEntry[];
 }
+
+// ===== 知识库导入（文档上传 / 小红书拆解）=====
+
+/** 导入文档支持的扩展名（小写，含点） */
+export type KnowledgeImportExt = '.pdf' | '.doc' | '.docx' | '.txt' | '.md';
+
+/** 单文件上传体积上限（字节；20MB，与后端 bodyLimit 对齐） */
+export const KB_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
+
+/** 文档导入结果（POST /api/knowledge/import） */
+export interface KnowledgeImportResult {
+  ok: true;
+  /** 落盘的 Vault 相对路径（/ 分隔） */
+  path: string;
+  /** 文档标题（frontmatter title 或文件名） */
+  title: string;
+  /** 原始文件名 */
+  sourceName: string;
+  /** 源类型：pdf / docx / text（txt|md 原文入库） */
+  sourceType: 'pdf' | 'docx' | 'text';
+  /** 解析出的正文字数 */
+  charCount: number;
+  /** 是否已触发后台重建索引 */
+  reindexStarted: boolean;
+}
+
+/** 小红书拆解输入（POST /api/knowledge/xhs-import） */
+export interface XhsImportInput {
+  /** 用户粘贴的小红书分享文本或笔记链接 */
+  text: string;
+}
+
+/** 小红书拆解结果（POST /api/knowledge/xhs-import） */
+export interface XhsImportResult {
+  ok: true;
+  /** 落盘的 Vault 相对路径 */
+  path: string;
+  title: string;
+  /** 解析出的图片链接 */
+  images: string[];
+  /** 解析出的视频链接 */
+  videos: string[];
+  /** 笔记原文链接（分享文本/链接里能取到时） */
+  sourceUrl: string | null;
+  /** 降级说明（如「未配置 Cookie，仅按粘贴文本解析」）；完全正常时为 null */
+  degraded: string | null;
+  reindexStarted: boolean;
+}

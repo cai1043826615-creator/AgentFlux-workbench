@@ -25,11 +25,14 @@ const { ensureKnowledgeSchema } = await import('../schema.ts');
 const {
   DEFAULT_ATTENTION,
   DEFAULT_MIN_KEYWORD_HITS,
+  DEFAULT_PER_SOURCE_QUOTA,
   DEFAULT_SOURCES,
   normalizeAttention,
   loadAttentionConfig,
   matchDomains,
   classifyHot,
+  selectHotSet,
+  interleaveBySource,
   sourceTierCapOf,
 } = await import('../attention.ts');
 const { loadHotPanel, clearHotCache, evidenceOf } = await import('../hot.ts');
@@ -90,22 +93,48 @@ const SELECTED_JSON = JSON.stringify({
 
 // 热榜源 fixture（3.3 新增；公开匿名 JSON 结构）：
 // 百度返回「天猫双11新规」无标点版，60s·微博返回同题带标点版 → 三层去重 L2 标题归一并合（sourceCount=2 进必看）
+// Q2：百度真实结构是**三层嵌套** data.cards[].content[].content[]（cards[].content[] 是分组壳），
+// 旧 fixture 只有两层 → 掩盖了「解析 0 条却报 ok」的缺陷。此处按真实结构固化。
 const BAIDU_JSON = JSON.stringify({
   data: {
     cards: [
       {
+        component: 'realtime',
         content: [
-          { word: '天猫双11新规预售期延长商家报名开启', desc: '平台调整预售规则，商家报名同步开启', url: 'https://top.baidu.com/board?raw=1' },
-          { word: '某地暴雨红色预警', desc: '出行注意安全', url: 'https://top.baidu.com/board?raw=2' },
+          {
+            content: [
+              { word: '天猫双11新规预售期延长商家报名开启', desc: '平台调整预售规则，商家报名同步开启', url: 'https://top.baidu.com/board?raw=1', isTop: true, index: 1 },
+              { word: '某地暴雨红色预警', desc: '出行注意安全', url: 'https://top.baidu.com/board?raw=2', isTop: false, index: 2, hotTag: '3' },
+            ],
+          },
         ],
       },
     ],
   },
 });
 
+/** Q2：旧两层结构（接口若改回扁平）也应能解析，验证兼容分支 */
+const BAIDU_JSON_FLAT = JSON.stringify({
+  data: {
+    cards: [
+      {
+        content: [
+          { word: '扁平结构词条', desc: '兼容旧结构', url: 'https://top.baidu.com/board?flat=1' },
+        ],
+      },
+    ],
+  },
+});
+
+/** Q2：解析不出任何词条 → 适配器应抛 HOT_PARSE_EMPTY（而不是静默返回 ok） */
+const BAIDU_JSON_EMPTY = JSON.stringify({ data: { cards: [] } });
+
 const WEIBO_JSON = JSON.stringify({
   data: [
+    // 与百度同题（无标点/带标点差异）→ 用于验证 L2 标题归一精确去重
     { title: '天猫双11新规：预售期延长，商家报名开启', hot: 1234567, url: 'https://weibo.com/1' },
+    // Q1：微博独有条目（验证热榜源自身能上屏，不被去重与截断吃掉）
+    { title: '直播间带货新规发布', hot: 765432, url: 'https://weibo.com/2' },
   ],
 });
 
@@ -346,21 +375,53 @@ describe('3.2-3.4 多源适配器解析（fixture 结构）', () => {
     assert.ok(Number.isFinite(t) && Date.now() - t <= 24 * 60 * 60 * 1000, `latestAt 应在最近 24h 内，实际 ${temu.latestAt}`);
   });
 
-  test('baidu-hot 适配器：cards[].content[].word/desc/url 解析，上限 30 条', async () => {
+  test('baidu-hot 适配器：三层嵌套 data.cards[].content[].content[] 解析（Q2），上限 30 条', async () => {
     installFetchStub();
     const r = await baiduHotAdapter.fetchAll(5000);
-    assert.equal(r.items.length, 2);
+    assert.equal(r.items.length, 2, `真实三层结构应解析出 2 条，实际 ${r.items.length}（旧实现只解析两层 → 0 条）`);
     const hit = r.items.find((i) => i.title.includes('天猫双11'))!;
     assert.ok(hit.url!.startsWith('https://top.baidu.com/'), 'url 原样透传');
     assert.ok(hit.latestAt, 'latestAt=抓取时刻');
+    assert.equal(hit.summary, '平台调整预售规则，商家报名同步开启', 'desc 作为摘要');
+  });
+
+  test('Q2 兼容旧两层结构 cards[].content[]（扁平）也能解析', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(BAIDU_JSON_FLAT, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    try {
+      const r = await baiduHotAdapter.fetchAll(5000);
+      assert.equal(r.items.length, 1);
+      assert.equal(r.items[0].title, '扁平结构词条');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test('Q2 解析结果为 0 条 → 抛 HOT_PARSE_EMPTY（不静默报 ok）', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(BAIDU_JSON_EMPTY, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    try {
+      await assert.rejects(
+        () => baiduHotAdapter.fetchAll(5000),
+        (err: unknown) => {
+          const e = err as { code?: string; message?: string };
+          assert.equal(e.code, 'HOT_PARSE_EMPTY', '解析 0 条应为 HOT_PARSE_EMPTY');
+          assert.ok(e.message && (e.message.includes('解析失败') || e.message.includes('结构变更')), '原因应含「解析失败/接口结构变更」');
+          return true;
+        },
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   test('60s 适配器：微博/抖音 data[].title/hot/url 解析', async () => {
     installFetchStub();
     const wb = await weibo60sAdapter.fetchAll(5000);
-    assert.equal(wb.items.length, 1);
+    assert.equal(wb.items.length, 2, '微博 fixture 含 2 条（1 条与百度同题用于去重验证 + 1 条独有）');
     assert.ok(wb.items[0].title.includes('天猫双11'));
     assert.equal(wb.items[0].url, 'https://weibo.com/1');
+    assert.ok(wb.items.some((i) => i.title.includes('直播间')), '微博独有条目应解析出来');
     const dy = await douyin60sAdapter.fetchAll(5000);
     assert.equal(dy.items.length, 2);
     assert.ok(dy.items[0].title.includes('明星'));
@@ -399,6 +460,67 @@ describe('3.2-3.4 多源适配器解析（fixture 结构）', () => {
   });
 });
 
+// ===================== Q1 按源配额轮询（热点上屏修复） =====================
+
+describe('Q1 按源配额轮询：每个源都有保底展示名额', () => {
+  /** A 源 20 条 + B 源 5 条（A 排在前：复现「第一个源吃光名额」的缺陷）
+   *  标题需命中 ≥2 个关注域关键词（降噪规则②）才成立：
+   *  - A「天猫双11大促」→ 促销节点(双11 + 大促) = 2 词成立；
+   *  - B「抖音小店直播电商大促」→ 平台规则(抖音小店 + 直播电商) = 2 词成立。 */
+  function twoSourceItems(): RawHotItem[] {
+    const out: RawHotItem[] = [];
+    for (let i = 0; i < 20; i++) {
+      out.push({ id: `a${i}`, title: `天猫双11大促第${i}期`, summary: null, source: 'A', sourceId: 'src-a', vertical: 'ecommerce-news', sourceCount: 3, url: null, latestAt: null });
+    }
+    for (let i = 0; i < 5; i++) {
+      out.push({ id: `b${i}`, title: `抖音小店直播电商大促第${i}期`, summary: null, source: 'B', sourceId: 'src-b', vertical: 'ecommerce-news', sourceCount: 3, url: null, latestAt: null });
+    }
+    return out;
+  }
+
+  test('按源交错：前 4 条应为 A,B,A,B（不再被第一个源吃光）', () => {
+    const order = interleaveBySource(twoSourceItems()).slice(0, 4).map((i) => i.sourceId);
+    assert.deepEqual(order, ['src-a', 'src-b', 'src-a', 'src-b'], `实际 ${order.join(',')}`);
+  });
+
+  test('回归旧缺陷：截断后 B 源仍有名额（旧实现 B 源 0 条）', () => {
+    const cfg = normalizeAttention({ ...DEFAULT_ATTENTION, minimumSources: 2, mustReadLimit: 3 });
+    const tiers = classifyHot(twoSourceItems(), cfg);
+    const ids = tiers.mustRead.map((i) => i.sourceId ?? '');
+    assert.ok(ids.includes('src-b'), `B 源应有必看名额，实际 ${JSON.stringify(ids)}（旧实现为全 A）`);
+  });
+
+  test('每源配额 perSourceQuota=2 生效（单源最多 2 条）', () => {
+    const cfg = normalizeAttention({ ...DEFAULT_ATTENTION, minimumSources: 1, perSourceQuota: 2 });
+    const set = selectHotSet(twoSourceItems(), cfg);
+    const bySource: Record<string, number> = {};
+    for (const it of set) bySource[it.sourceId ?? ''] = (bySource[it.sourceId ?? ''] ?? 0) + 1;
+    assert.equal(bySource['src-a'], 2, `A 源应只取 2 条，实际 ${bySource['src-a']}`);
+    assert.equal(bySource['src-b'], 2, `B 源应只取 2 条，实际 ${bySource['src-b']}`);
+    assert.equal(set.length, 4);
+  });
+
+  test('默认配置 perSourceQuota=0 → 全量上屏（向后兼容：不配置即不限）', () => {
+    assert.equal(DEFAULT_PER_SOURCE_QUOTA, 0);
+    const cfg = normalizeAttention({ ...DEFAULT_ATTENTION, minimumSources: 1 });
+    assert.equal(cfg.perSourceQuota, 0, '未配置时回退默认 0（不限）');
+    const set = selectHotSet(twoSourceItems(), cfg);
+    assert.equal(set.length, 25, `全量上屏应为 25 条，实际 ${set.length}`);
+  });
+
+  test('展示集 selectHotSet 不再丢弃条目（旧实现分层后仅 13 条）', () => {
+    const cfg = normalizeAttention({ ...DEFAULT_ATTENTION, minimumSources: 1 });
+    const items: RawHotItem[] = Array.from({ length: 60 }, (_, i) => ({
+      id: `x${i}`, title: `热点${i}`, summary: null, source: 'S', sourceId: `src-${i % 6}`, vertical: 'ecommerce-news', sourceCount: 3, url: null, latestAt: null,
+    }));
+    const set = selectHotSet(items, cfg);
+    assert.equal(set.length, 60, `全量展示集应为 60 条，实际 ${set.length}`);
+    const tiers = classifyHot(items, cfg);
+    const tiered = tiers.mustRead.length + tiers.browse.length + tiers.other.length;
+    assert.ok(tiered < 60, `分层（截断）后应少于 60 条，实际 ${tiered}——展示集走的是另一条路`);
+  });
+});
+
 // ===================== 3.6/3.7/3.8 聚合 / 证据 / 源状态 =====================
 
 describe('3.6 聚合与单源降级隔离', () => {
@@ -411,6 +533,37 @@ describe('3.6 聚合与单源降级隔离', () => {
     assert.ok(panel.counts.upstream >= 6, `upstream 应 ≥6（pai 2 + 100ec 3 + 热榜 5 条经三层去重后），实际 ${panel.counts.upstream}`);
     assert.ok(panel.counts.selected24h > 0, '最近 24h 条目数应 > 0');
     assert.ok(panel.tiers.other.length > 0, '应存在「其他」层条目');
+  });
+
+  test('Q1 展示集：全部启用源都有条目上屏（热榜源不再被饿死）', async () => {
+    clearHotCache();
+    installFetchStub();
+    const panel = await loadHotPanel(true);
+    const shown = panel.displaySet;
+    assert.ok(shown.length > 0, '展示集不应为空');
+    const srcIds = new Set(shown.map((i) => i.sourceId ?? 'unknown'));
+    for (const id of ['pai-news', '100ec-24h', 'baidu-hot', '60s-weibo', '60s-douyin', 'toutiao-hot']) {
+      assert.ok(srcIds.has(id), `源 ${id} 应有条目上屏，实际来源集合 ${[...srcIds].join(',')}`);
+    }
+    // 展示集条数 = 去重后全部条目（旧实现只有 13 条）
+    assert.equal(shown.length, panel.counts.upstream, `展示集应等于去重后上游数 ${panel.counts.upstream}，实际 ${shown.length}`);
+  });
+
+  test('Q5 未展示条数：hiddenCount = 原始条目数 - 展示数（≥0）', async () => {
+    clearHotCache();
+    installFetchStub();
+    const panel = await loadHotPanel(true);
+    assert.equal(panel.hiddenCount, panel.rawCount - panel.displaySet.length, 'hiddenCount 应等于 rawCount - 展示数');
+    assert.ok(panel.hiddenCount >= 0, 'hiddenCount 不应为负');
+    assert.ok(panel.rawCount >= panel.displaySet.length, '原始条目数应 ≥ 展示数（去重只减不增）');
+  });
+
+  test('Q1 源分布统计 sourceCounts 与展示集一致', async () => {
+    clearHotCache();
+    installFetchStub();
+    const panel = await loadHotPanel(true);
+    const sum = Object.values(panel.sourceCounts).reduce((a, b) => a + b, 0);
+    assert.equal(sum, panel.displaySet.length, 'sourceCounts 合计应等于展示集条数');
   });
 
   test('三层去重 L2：同题不同标点（百度/微博）归一后精确去重，仅保留一条', async () => {

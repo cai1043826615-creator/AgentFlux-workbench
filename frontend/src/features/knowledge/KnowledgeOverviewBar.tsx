@@ -8,16 +8,18 @@
  *   其中「灵感库」是**知识库内的目录/入口名**（用户定案）。
  *   （report-driven-fixes 0.8：灵感库入口不再跳「每日热点」模块页，而是直接打开真实目录 `知识库/灵感库/`，
  *    计数=该目录实际文档数；「每日热点」模块页只保留左栏入口，消除 D-28 的多入口冗余。）
- * - 小助理右侧 3 个整理动作按钮（report-driven-fixes 0.7）：整理热点素材 / 整理文档 / 知识库体检
+ * - 小助理右侧 3 个动作按钮：上传文档 / 拆解小红书 / 和依依对话（用户定案）。
+ *   （旧的「整理热点素材 / 整理文档 / 知识库体检」三枚已按用户定案移除：
+ *     整理文档与知识库体检判定没必要，改由「上传文档」承担导入职责；后端 /api/kb-assistant/organize 保留未动。）
  *
  * 被移除内容的去向：
  * - 「星图缩略预览」→ 已删（星图入口在左栏「知识星图」，无需重复占位）
  * - 「最近更新」→ 已删（文档列表区本身可浏览，无需在总览带重复）
  * - 「文档使用率」「孤岛」→ 已删（属数据库统计口径，对运营无决策价值）
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { Agent, KnowledgeHealth, KnowledgeStats, KnowledgeStatus } from '@workbench/shared';
-import { Avatar, Badge, Btn } from '../../components/ui.tsx';
+import { Avatar, Badge, Btn, Field, Modal, ModalFooter } from '../../components/ui.tsx';
 import { AvatarStatus } from '../../components/AvatarStatus.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
@@ -151,11 +153,10 @@ function OverviewEntry({
 const INSPIRATION_DIR = '知识库/灵感库';
 
 /**
- * 【新增组件前置声明】
- * 1. 现有组件为何不行：总览带需要「一行一个、带 loading、可禁用」的纵向小按钮组，
- *    查过注册表（docs/规范/01 §3）——Btn 是通用按钮但无纵向组容器语义，且三枚按钮共享同一
- *    organizing 状态互斥；内联三份重复 JSX 违反 DRY，故抽一个极小的本地动作按钮。
- * 2. 复用范围：本文件内 3 处（整理热点素材 / 整理文档 / 知识库体检），共用一个弹窗后不扩散。
+ * 【新增组件前置声明】（沿用既有本地组件，未新增通用组件）
+ * 1. 现有组件为何不行：查过注册表（docs/规范/01 §3）——Btn 是通用按钮，此处正是复用它，
+ *    只是需要「一行一个、带 loading、可禁用」的纵向排布，故保留本文件内已有的薄封装，不在 features/ 下新造按钮。
+ * 2. 复用范围：本文件内 3 处（上传文档 / 拆解小红书 / 和依依对话）。
  * 3. 是否应提升为通用组件：否（仅总览带使用；Btn 已是通用按钮，本组件只是「标签 + loading」薄封装）。
  */
 function OrganizeBtn({ label, active, busy, onClick }: { label: string; active?: boolean; busy?: boolean; onClick: () => void }) {
@@ -165,6 +166,9 @@ function OrganizeBtn({ label, active, busy, onClick }: { label: string; active?:
     </Btn>
   );
 }
+
+/** 文档上传的接受类型（与后端白名单一致：pdf/docx/doc/txt/md） */
+const ACCEPT_DOCS = '.pdf,.doc,.docx,.txt,.md';
 
 export interface KnowledgeOverviewBarProps {
   status: KnowledgeStatus;
@@ -177,18 +181,23 @@ export interface KnowledgeOverviewBarProps {
  * 高度由紧凑内边距控制，约 120–140px。
  */
 export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOverviewBarProps) {
-  const { setView, openKbDir, pushToast } = useWorkbench();
+  const { setView, openKbDir, pushToast, selectChat, setChatPanelOpen } = useWorkbench();
   const usage = health?.usage;
   /** 文档使用率口径（2.5）：百分比（分子/分母）；ratio 为 null（未连接/0 篇文档）显示「—」 */
   const usageText = usage && usage.ratio !== null ? `${Math.round(usage.ratio * 100)}%（${usage.linkedDocs}/${usage.totalDocs}）` : '—';
   /** 灵感库真实目录的文档数（入口①的数量；report-driven-fixes 0.8：不再取热点面板上游总数） */
   const [inspirationCount, setInspirationCount] = useState(0);
-  /** 正在执行的整理动作（三按钮互斥） */
-  const [organizing, setOrganizing] = useState<'hot' | 'doc' | 'audit' | null>(null);
+  /** 正在执行的异步动作（互斥）：upload=上传文档 / xhs=拆解小红书；「和依依对话」是纯跳转，无异步态 */
+  const [busy, setBusy] = useState<'upload' | 'xhs' | null>(null);
   /** 小助理（依依）入口位：P1·5.4 预留，P2·F3 实体已存在即命中 */
   const assistant = useFirstAssistantAgent();
   /** 依依设置弹窗（P2·F3：与工位卡同一配置弹窗） */
   const [settingsAgent, setSettingsAgent] = useState<Agent | null>(null);
+  /** 小红书拆解弹窗（复用既有 Modal + Field，不自造弹窗，G1/G2） */
+  const [xhsOpen, setXhsOpen] = useState(false);
+  const [xhsText, setXhsText] = useState('');
+  /** 隐藏的文件选择器（由「上传文档」按钮触发） */
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,22 +214,61 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
     };
   }, [stats?.indexedAt]);
 
-  /** 整理动作（report-driven-fixes 0.7）：对应 kb-assistant organize 三型，产出统一落盘 知识库/灵感库/ */
-  const runOrganize = async (kind: 'hot' | 'doc' | 'audit') => {
-    if (organizing) return;
-    setOrganizing(kind);
+  /** 导入成功后刷新灵感库/收件箱计数（索引是后台重建的，这里只刷新本卡片数字） */
+  const refreshInspiration = useCallback(async () => {
     try {
-      const r = await api.kbOrganize({ kind });
-      const doneLabel = kind === 'hot' ? '热点素材整理完成' : kind === 'doc' ? '文档整理完成' : '知识库体检完成';
-      pushToast({ message: `${doneLabel}：${r.title ?? '已写入 知识库/灵感库/'}`, tone: 'ok', duration: 6000, key: 'kb-organize' });
-      // 灵感库目录计数可能变化，整理成功后刷新
       const docs = await api.kbDocs({ dir: INSPIRATION_DIR });
       setInspirationCount(docs.docs.length);
-    } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : '整理失败，请重试', tone: 'no', duration: 8000, key: 'kb-organize' });
-    } finally {
-      setOrganizing(null);
+    } catch {
+      /* 刷新失败不影响已完成的导入 */
     }
+  }, []);
+
+  /** ① 上传文档导入知识库：选文件 → 上传解析 → 提示落盘位置 */
+  const onPickFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // 允许连续选同一个文件
+    if (!file) return;
+    setBusy('upload');
+    try {
+      const r = await api.kbImportDoc(file);
+      pushToast({ message: `已导入《${r.title}》→ ${r.path}`, tone: 'ok', duration: 6000, key: 'kb-import' });
+      void refreshInspiration();
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : '导入失败，请重试', tone: 'no', duration: 8000, key: 'kb-import' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** ② 小红书拆解入库：粘贴分享文本或笔记链接 → 解析成 Markdown 落盘 */
+  const submitXhs = async () => {
+    const text = xhsText.trim();
+    if (!text) return;
+    setBusy('xhs');
+    try {
+      const r = await api.kbImportXhs(text);
+      pushToast({
+        message: r.degraded ? `已拆解（降级）：${r.degraded} → ${r.path}` : `已拆解《${r.title}》→ ${r.path}`,
+        tone: r.degraded ? 'default' : 'ok',
+        duration: 8000,
+        key: 'kb-xhs',
+      });
+      setXhsText('');
+      setXhsOpen(false);
+      void refreshInspiration();
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : '拆解失败，请重试', tone: 'no', duration: 8000, key: 'kb-xhs' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** ③ 和依依对话：切到依依的私聊会话并**展开右侧聊天面板**（第三方复核 P2：仅 selectChat 时面板可能折叠，用户感知"点了没反应"） */
+  const chatWithAssistant = () => {
+    selectChat({ kind: 'private', to: assistant?.id ?? assistant?.name ?? '依依' });
+    setChatPanelOpen(true);
+    pushToast({ message: `已打开与${assistant?.name ?? '依依'}的对话`, tone: 'ok', duration: 4000, key: 'kb-chat' });
   };
 
   return (
@@ -259,16 +307,39 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
 
       {/* 小助理（依依）位：总览带最右侧（用户定案③）；支持收起/展开（用户定案④，与工位栏一致语义）。
           实体存在 → 真实 Agent 卡 + 配置入口；不存在（异常）→ 紧凑占位而非死链。
-          report-driven-fixes 0.7：小助理卡右侧并列三枚整理动作按钮（整理热点素材 / 整理文档 / 知识库体检）。 */}
+          report-driven-fixes 0.7：旧三枚整理按钮（整理热点素材 / 整理文档 / 知识库体检）已按用户定案替换。 */}
       <AssistantSpot assistant={assistant} onConfigure={() => assistant && setSettingsAgent(assistant)} />
       <div className="flex shrink-0 flex-col gap-1.5">
-        <OrganizeBtn label="整理热点素材" active={organizing === 'hot'} busy={organizing === 'hot'} onClick={() => void runOrganize('hot')} />
-        <OrganizeBtn label="整理文档" active={organizing === 'doc'} busy={organizing === 'doc'} onClick={() => void runOrganize('doc')} />
-        <OrganizeBtn label="知识库体检" active={organizing === 'audit'} busy={organizing === 'audit'} onClick={() => void runOrganize('audit')} />
+        <input ref={fileRef} type="file" accept={ACCEPT_DOCS} className="hidden" onChange={(e) => void onPickFile(e)} />
+        <OrganizeBtn label="上传文档" active={busy === 'upload'} busy={busy === 'upload'} onClick={() => fileRef.current?.click()} />
+        <OrganizeBtn label="拆解小红书" active={busy === 'xhs'} busy={busy === 'xhs'} onClick={() => setXhsOpen(true)} />
+        <OrganizeBtn label="和依依对话" onClick={chatWithAssistant} />
       </div>
 
       {status.indexing ? <Badge tone="signal">索引中…</Badge> : null}
       {settingsAgent ? <AgentSettingsModal agent={settingsAgent} open onClose={() => setSettingsAgent(null)} /> : null}
+
+      {/* 小红书拆解弹窗：复用既有 Modal + Field + ModalFooter（G1），不自造弹窗 */}
+      <Modal open={xhsOpen} title="拆解小红书内容" onClose={() => setXhsOpen(false)} width={560}>
+        <Field label="粘贴小红书分享文本或笔记链接" required>
+          <textarea
+            className="qs-input w-full"
+            rows={8}
+            value={xhsText}
+            onChange={(e) => setXhsText(e.target.value)}
+            placeholder="在小红书 App 点「分享 → 复制链接」，或直接粘贴整段分享文案"
+          />
+        </Field>
+        <p className="qs-meta mb-3" style={{ color: 'var(--color-ink-faint)' }}>
+          解析结果写入 知识库/收件箱/小红书/；未配置小红书 Cookie 时按粘贴内容降级拆解，不影响文本解析。
+        </p>
+        <ModalFooter>
+          <Btn onClick={() => setXhsOpen(false)}>取消</Btn>
+          <Btn variant="primary" onClick={() => void submitXhs()} disabled={busy === 'xhs' || !xhsText.trim()}>
+            {busy === 'xhs' ? '拆解中…' : '拆解并入库'}
+          </Btn>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 }

@@ -43,6 +43,16 @@ export const HOT_REQUEST_TIMEOUT_MS = 12_000;
 export const DEFAULT_MIN_KEYWORD_HITS = 2;
 
 /**
+ * 内置默认「每源展示配额」（Q1 热点上屏修复）：0 = 不限（全量上屏）。
+ *
+ * 背景：旧 classifyHot 按「上游收集顺序」截断（必看取前 3、浏览取前 8、其他取前 12），
+ * 上游顺序 = 源注册顺序（电商派排第一）→ 第一个源吃光名额，本次新增的微博/抖音/头条热榜
+ * 一条都上不了屏（报告 P1 缺陷 Q1）。改为按源配额轮询后，默认放开为「不限」，
+ * 让每个源的条目都能上屏；需要限流时可配置 perSourceQuota > 0。
+ */
+export const DEFAULT_PER_SOURCE_QUOTA = 0;
+
+/**
  * 内置默认源列表（report-driven-fixes 3.3/3.7 定案）：
  * - 保留电商垂直源：电商派 / 网经社（对工作台价值最高）；
  * - AI HOT 源关闭（disabled，保留条目便于恢复；适配器仍在注册表）；
@@ -210,6 +220,19 @@ export interface AttentionDomainScoped extends AttentionDomain {
   applyToSourceTiers?: number[];
 }
 
+/**
+ * 配置扩展（Q1 热点上屏修复）：展示配额字段。
+ * shared 的 AttentionConfig 不改（避免与其他会话冲突），沿用 AttentionDomainScoped 同款本地扩展策略。
+ */
+export interface AttentionConfigQuota extends AttentionConfig {
+  /**
+   * 每个源的展示名额上限（Q1 配额策略）：
+   * - >0：按源轮询取，每个源最多上屏 N 条——保证排在后面的源（如微博/抖音/头条热榜）也有保底名额；
+   * - 0 / 缺省（向后兼容现有配置）：不限，全量上屏。
+   */
+  perSourceQuota?: number;
+}
+
 /** 归一化关注域：排除词/多词阈值缺省回退（排除词空、阈值默认 2）；非法阈值回退默认；源作用域字段透传 */
 function normalizeDomain(raw: unknown, i: number): AttentionDomainScoped {
   const d = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -266,8 +289,8 @@ function normalizeSources(raw: Partial<AttentionConfig>): HotSourceConfig[] {
 }
 
 /** 合并用户配置与默认配置（缺项回退默认） */
-export function normalizeAttention(input: unknown): AttentionConfig {
-  const raw = input && typeof input === 'object' ? (input as Partial<AttentionConfig>) : {};
+export function normalizeAttention(input: unknown): AttentionConfigQuota {
+  const raw = input && typeof input === 'object' ? (input as Partial<AttentionConfig> & { perSourceQuota?: unknown }) : {};
   const domains: AttentionDomain[] = Array.isArray(raw.domains) && raw.domains.length > 0
     ? raw.domains
         .filter((d) => Boolean(d) && typeof d === 'object')
@@ -283,11 +306,13 @@ export function normalizeAttention(input: unknown): AttentionConfig {
     browseLimit: limitOf(raw.browseLimit, DEFAULT_ATTENTION.browseLimit!),
     otherLimit: limitOf(raw.otherLimit, DEFAULT_ATTENTION.otherLimit!),
     minimumSources: limitOf(raw.minimumSources, DEFAULT_ATTENTION.minimumSources!, 20),
+    // Q1：每源展示配额（0/缺省 = 不限，全量上屏；向后兼容现有配置）
+    perSourceQuota: limitOf(raw.perSourceQuota, DEFAULT_PER_SOURCE_QUOTA, 100),
   };
 }
 
 /** 读取关注域配置（文件缺失或损坏时回退内置默认，不抛错） */
-export function loadAttentionConfig(): AttentionConfig {
+export function loadAttentionConfig(): AttentionConfigQuota {
   try {
     if (!existsSync(ATTENTION_CONFIG_PATH)) return normalizeAttention(DEFAULT_ATTENTION);
     const parsed = JSON.parse(readFileSync(ATTENTION_CONFIG_PATH, 'utf8')) as unknown;
@@ -298,7 +323,7 @@ export function loadAttentionConfig(): AttentionConfig {
 }
 
 /** 保存关注域配置（本地文件，不入版本库） */
-export function saveAttentionConfig(input: unknown): AttentionConfig {
+export function saveAttentionConfig(input: unknown): AttentionConfigQuota {
   const cfg = normalizeAttention(input);
   const configDir = dirname(ATTENTION_CONFIG_PATH);
   if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
@@ -366,19 +391,66 @@ export function sourceTierCapOf(item: RawHotItem, cfg: AttentionConfig): HotTier
   return isEcommerceVertical(vertical) ? null : 'browse';
 }
 
+/** 分层装饰结果（含判定中间态；strip 后对外只暴露 HotItem） */
+type DecoratedHot = HotItem & { hit: boolean; strong: boolean; browseable: boolean };
+
+/** 去掉判定中间态（对外只暴露 HotItem） */
+function stripDecorated(list: DecoratedHot[]): HotItem[] {
+  return list.map(({ hit: _hit, strong: _strong, browseable: _b, ...rest }) => rest);
+}
+
 /**
- * 分层（坑2 + hot-intel D4）：
- * - mustRead：≥1 个域成立 + sourceCount ≥ minimumSources + 源 tierCap 允许 mustRead；
- * - browse：域成立 + 未被 mustRead 取走 + 源 tierCap 允许 browse；
- * - other：其余（含命中排除词、关键词数不足、tierCap 为 other 的条目）。
- * 每层按限制数截断。
+ * 按源交错（round-robin）重排：第 1 轮每源取第 1 条，第 2 轮每源取第 2 条……
+ *
+ * Q1 根因修复：上游收集顺序 = 源注册顺序，若直接按原顺序截断，排在前面的源（电商派）
+ * 会吃光全部名额，后面新增的热榜源（微博/抖音/头条）一条都上不了屏。
+ * 交错后每个源在列表前部都有代表，截断也不会饿死任何源。
+ *
+ * @param perSource 每源最多取几条（Infinity = 不限）
  */
-export function classifyHot(items: RawHotItem[], cfg: AttentionConfig): {
-  mustRead: HotItem[];
-  browse: HotItem[];
-  other: HotItem[];
-} {
-  const decorated: (HotItem & { hit: boolean; strong: boolean; browseable: boolean })[] = items.map((it) => {
+export function interleaveBySource<T extends { sourceId?: string }>(list: T[], perSource = Number.POSITIVE_INFINITY): T[] {
+  if (list.length === 0) return [];
+  const bySource = new Map<string, T[]>();
+  for (const it of list) {
+    const k = it.sourceId ?? '';
+    const arr = bySource.get(k);
+    if (arr) arr.push(it);
+    else bySource.set(k, [it]);
+  }
+  const out: T[] = [];
+  const taken = new Map<string, number>();
+  let round = 0;
+  // 每源上限有限时，总产出上限 = 源数 × 每源上限（提前终止的兜底，正常由 added=false 退出）
+  while (out.length < list.length) {
+    let added = false;
+    for (const [k, arr] of bySource) {
+      if (round >= arr.length) continue;
+      const n = taken.get(k) ?? 0;
+      if (n >= perSource) continue;
+      out.push(arr[round]);
+      taken.set(k, n + 1);
+      added = true;
+    }
+    if (!added) break;
+    round++;
+  }
+  return out;
+}
+
+/**
+ * 从候选列表中按「源轮询」取至 limit 条（Q1：每个源都有保底名额）。
+ * 候选数 ≤ limit 时原样返回（不打乱既有顺序，保持分层结果的稳定预期）。
+ */
+function takeBySourceRoundRobin(list: DecoratedHot[], limit: number): DecoratedHot[] {
+  if (limit <= 0) return [];
+  if (list.length <= limit) return list.slice();
+  // 先按源交错（每源依次拿第 1 条、第 2 条…），再取前 limit 条 → 截断不会饿死任何源
+  return interleaveBySource(list).slice(0, limit);
+}
+
+/** 分层判定（不含截断）：给每条打出 hit/strong/browseable 与面向用户的 reason */
+function decorateHot(items: RawHotItem[], cfg: AttentionConfig): DecoratedHot[] {
+  return items.map((it) => {
     const domains = matchDomains([it.title, it.summary ?? '', it.latest ?? '', it.source].filter(Boolean).join(' '), cfg);
     const hit = domains.length > 0;
     const cap = sourceTierCapOf(it, cfg);
@@ -393,17 +465,52 @@ export function classifyHot(items: RawHotItem[], cfg: AttentionConfig): {
           : '未命中关注域，归入其他';
     return { ...it, domains, reason, hit, strong, browseable };
   });
+}
 
-  const mustRead = decorated.filter((d) => d.strong).slice(0, cfg.mustReadLimit ?? 3);
+/**
+ * 分层（坑2 + hot-intel D4 + Q1 配额修复）：
+ * - mustRead：≥1 个域成立 + sourceCount ≥ minimumSources + 源 tierCap 允许 mustRead；
+ * - browse：域成立 + 未被 mustRead 取走 + 源 tierCap 允许 browse；
+ * - other：其余（含命中排除词、关键词数不足、tierCap 为 other 的条目）。
+ *
+ * Q1 修复：每层**按源轮询（round-robin）**取而非按上游收集顺序截断——
+ * 旧实现里上游顺序 = 源注册顺序，电商派排第一就吃光 mustRead 3 / browse 8 / other 12 全部名额，
+ * 后面的微博/抖音/头条热榜一条都上不了屏。现在先按源交错再截断，每个源都有保底名额。
+ */
+export function classifyHot(items: RawHotItem[], cfg: AttentionConfig): {
+  mustRead: HotItem[];
+  browse: HotItem[];
+  other: HotItem[];
+} {
+  const decorated = decorateHot(items, cfg);
+
+  const mustRead = takeBySourceRoundRobin(decorated.filter((d) => d.strong), cfg.mustReadLimit ?? 3);
   const usedIds = new Set(mustRead.map((d) => d.id));
-  const browse = decorated.filter((d) => !usedIds.has(d.id) && d.browseable).slice(0, cfg.browseLimit ?? 8);
+  const browse = takeBySourceRoundRobin(
+    decorated.filter((d) => !usedIds.has(d.id) && d.browseable),
+    cfg.browseLimit ?? 8,
+  );
   browse.forEach((d) => usedIds.add(d.id));
-  const other = decorated.filter((d) => !usedIds.has(d.id)).slice(0, cfg.otherLimit ?? 12);
+  const other = takeBySourceRoundRobin(
+    decorated.filter((d) => !usedIds.has(d.id)),
+    cfg.otherLimit ?? 12,
+  );
 
-  const strip = (list: (HotItem & { hit: boolean; strong: boolean; browseable: boolean })[]): HotItem[] =>
-    list.map(({ hit: _hit, strong: _strong, browseable: _b, ...rest }) => rest);
+  return { mustRead: stripDecorated(mustRead), browse: stripDecorated(browse), other: stripDecorated(other) };
+}
 
-  return { mustRead: strip(mustRead), browse: strip(browse), other: strip(other) };
+/**
+ * 展示集（Q1：报告建议展示集改为全量，不再用分层截断后的 13 条）。
+ *
+ * - perSourceQuota ≤ 0（默认，向后兼容现有配置）→ 全量上屏，仅按源交错重排（每源在前部都有代表）；
+ * - perSourceQuota > 0 → 每源最多上屏 N 条（限流用）。
+ *
+ * 三分组（产出方向/可参考/无关）由前端按 AI 打标结果筛选，本身就是筛选，故此处不再丢弃条目。
+ */
+export function selectHotSet(items: RawHotItem[], cfg: AttentionConfigQuota): HotItem[] {
+  const quota = Number((cfg as AttentionConfigQuota).perSourceQuota ?? DEFAULT_PER_SOURCE_QUOTA);
+  const picked = interleaveBySource(decorateHot(items, cfg), quota > 0 ? quota : Number.POSITIVE_INFINITY);
+  return stripDecorated(picked);
 }
 
 /** 判断热点条目应属层级（供前端/测试直接查询） */

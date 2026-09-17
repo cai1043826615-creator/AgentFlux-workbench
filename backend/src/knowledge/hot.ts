@@ -8,7 +8,15 @@
  */
 import type { HotEvidenceLevel, HotItem, HotPanel, HotSourceStatus } from '@workbench/shared';
 import { get, run } from '../db/client.ts';
-import { HOT_CACHE_TTL_MS, HOT_REQUEST_TIMEOUT_MS, classifyHot, loadAttentionConfig, type RawHotItem } from './attention.ts';
+import {
+  HOT_CACHE_TTL_MS,
+  HOT_REQUEST_TIMEOUT_MS,
+  classifyHot,
+  loadAttentionConfig,
+  selectHotSet,
+  type AttentionConfigQuota,
+  type RawHotItem,
+} from './attention.ts';
 import { instantiateAdapters, type HotSourceFetchResult, type RawSourceItem } from './hot-sources/index.ts';
 import { tagHotItems, type AiTagResult } from './hot-tagging.ts';
 import { KT, ensureKnowledgeSchema } from './schema.ts';
@@ -175,6 +183,10 @@ function unavailablePanel(sourceNames: string[], code: string, message: string):
     aiTags: {},
     aiTagged: false,
     aiDegraded: true,
+    displaySet: [],
+    hiddenCount: 0,
+    rawCount: 0,
+    sourceCounts: {},
   };
 }
 
@@ -183,11 +195,25 @@ function unavailablePanel(sourceNames: string[], code: string, message: string):
  * - aiTags：条目 id → {cls, tag, use}；LLM 失败为空对象；
  * - aiTagged：本次是否成功打标（false = 全批降级「可参考」）；
  * - aiDegraded：LLM 通道降级标记（前端据此显示「AI 识别暂不可用」）。
+ *
+ * Q1 扩展：
+ * - displaySet：全量展示集（报告 P1 缺陷 Q1：旧实现展示的是分层截断后的 13 条，
+ *   热榜源一条都上不了屏）。前端三分组（产出方向/可参考/无关）以本集合为数据源；
+ * - hiddenCount：未展示条数（上游原始条目数 - 展示数，主要来自三层去重合并），用于 Q5 提示；
+ * - sourceCounts：各源贡献的展示条数（实测核对「热榜源是否上屏」用）。
  */
 export interface HotPanelWithTags extends HotPanel {
   aiTags: Record<string, AiTagResult>;
   aiTagged: boolean;
   aiDegraded: boolean;
+  /** 展示集（全量上屏；前端三分组以此为数据源） */
+  displaySet: HotItem[];
+  /** 未展示条数（上游原始条目数 - 展示数，主要来自去重合并） */
+  hiddenCount: number;
+  /** 上游原始条目数（去重前） */
+  rawCount: number;
+  /** 各源贡献的展示条数（sourceId → 条数） */
+  sourceCounts: Record<string, number>;
 }
 
 /**
@@ -273,21 +299,34 @@ export async function loadHotPanel(force = false): Promise<HotPanelWithTags> {
 
   const tiers = classifyHot(unified, cfg);
   const now = Date.now();
+  // Q1：展示集 = 全量去重条目（按源交错重排，每源在前部都有代表），不再是分层截断后的 13 条。
+  // 三分组（产出方向/可参考/无关）本身就是筛选，不需要在后端先丢弃条目。
+  const displaySet = selectHotSet(unified, cfg as AttentionConfigQuota);
 
-  // 3.4：去重后单次 LLM 批量打标（失败 → null → 全批降级「可参考」；结果随缓存 TTL 复用）。
-  // 只对最终展示条目（三层合计）打标，避免把全部去重上游条目（可达数百条）一次喂给 LLM 导致超长截断降级。
-  const tieredItems = [...tiers.mustRead, ...tiers.browse, ...tiers.other];
-  const tagMap = await tagHotItems(tieredItems.map((i) => ({ id: i.id, title: i.title })));
+  // 3.4：去重后 LLM 批量打标（失败 → null → 全批降级「可参考」；结果随缓存 TTL 复用）。
+  // Q1：展示集可达 200 条，tagHotItems 内部按批（每批 25 条）循环调用并合并结果——
+  // 一次喂 208 条会因输出超长被截断导致全批静默降级（历史教训），故必须分批。
+  const tagMap = await tagHotItems(displaySet.map((i) => ({ id: i.id, title: i.title })));
   const aiTags: Record<string, AiTagResult> = tagMap ? Object.fromEntries(tagMap) : {};
 
   // 证据等级回填（classifyHot 输出 HotItem，附 evidence）
-  const applyEvidence = (list: HotItem[]): HotItem[] =>
-    list.map((it) => ({ ...it, evidence: evidenceOf({ sourceCount: it.sourceCount, url: it.url }), sourceName: it.source, latest: it.latest ?? null }));
+  const applyEvidence = <T extends HotItem>(list: T[]): HotItem[] =>
+    list.map((it) => ({ ...it, evidence: evidenceOf({ sourceCount: it.sourceCount, url: it.url }), sourceName: it.sourceName ?? it.source, latest: it.latest ?? null }));
 
   const mustRead = applyEvidence(tiers.mustRead);
   const browse = applyEvidence(tiers.browse);
   const other = applyEvidence(tiers.other);
-  const allTiered = [...mustRead, ...browse, ...other];
+  const shown = applyEvidence(displaySet);
+
+  // Q5：未展示条数 = 上游原始条目（去重前）- 展示数（避免「看不到=没有」的误判）
+  const rawCount = rawItems.length;
+  const hiddenCount = Math.max(0, rawCount - shown.length);
+  // 各源展示条数分布（实测核对热榜源是否上屏）
+  const sourceCounts: Record<string, number> = {};
+  for (const it of shown) {
+    const k = it.sourceId || 'unknown';
+    sourceCounts[k] = (sourceCounts[k] ?? 0) + 1;
+  }
 
   const panel: HotPanelWithTags = {
     status: 'live',
@@ -303,12 +342,16 @@ export async function loadHotPanel(force = false): Promise<HotPanelWithTags> {
       mustRead: mustRead.length,
       browse: browse.length,
       other: other.length,
-      selected24h: allTiered.filter((it) => isWithin24h(it.latestAt, now)).length,
+      selected24h: shown.filter((it) => isWithin24h(it.latestAt, now)).length,
     },
     tiers: { mustRead, browse, other },
     aiTags,
     aiTagged: tagMap !== null,
     aiDegraded: tagMap === null,
+    displaySet: shown,
+    hiddenCount,
+    rawCount,
+    sourceCounts,
   };
   writeCache(key, panel, HOT_CACHE_TTL_MS);
   return panel;

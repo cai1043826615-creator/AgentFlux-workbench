@@ -68,17 +68,25 @@ export function Modal({ open, title, onClose, children, width = 520 }: { open: b
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
   if (!open) return null;
+  const headingId = 'qs-modal-title';
   return (
     /**
-     * 可滚动弹层（核验 D-02）：内容高于视口时必须能滚到「下一步 / 确认」等底部按钮。
-     * 原先 overlay 为 overflow: visible、面板无 max-height，在 1366×768 等可视高度约 657px 的屏幕上
-     * 「新建任务」第 1 步的底部按钮被挤出视口且无法滚动 → 按钮完全不可达。
-     * 现在由 overlay 承担滚动（面板整体参与滚动，不用内部滚动，避免头部与正文脱节）。
+     * Q6（复核）：overlay 原先无 role/aria-modal，读屏软件无法识别为对话框。
+     * 这里补 `role="dialog" aria-modal="true"` 并用 aria-labelledby 关联标题，
+     * 其余结构（滚动层级、点击遮罩关闭、Esc 关闭）保持原样不变。
      */
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/25 py-[5vh]" onClick={onClose}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={headingId}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/25 py-[5vh]"
+      onClick={onClose}
+    >
       <div className="qs-card w-full" style={{ maxWidth: width }} onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: 'var(--color-line)' }}>
-          <h3 className="font-display text-base font-semibold">{title}</h3>
+          <h3 id={headingId} className="font-display text-base font-semibold">
+            {title}
+          </h3>
           <Btn variant="ghost" size="sm" onClick={onClose} aria-label="关闭">
             ✕
           </Btn>

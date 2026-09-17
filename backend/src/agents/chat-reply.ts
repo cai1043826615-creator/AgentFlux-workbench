@@ -8,6 +8,7 @@ import type { ChatKind } from '@workbench/shared';
 import { WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { get } from '../db/client.ts';
 import type { AgentRow } from '../db/schema.ts';
+import { retrieveKnowledge } from '../knowledge/rag.ts';
 import { listSupervisorNotes, recordSupervisorNote, sendChatMessage } from '../routes/chat.ts';
 import { broadcast } from '../ws/broadcast.ts';
 import { callLlm, LlmChannelUnavailableError } from './llm.ts';
@@ -26,6 +27,9 @@ const STAGE_AGENT: Record<string, string> = {
 
 /** 主管 Agent id */
 const SUPERVISOR_ID = 'agent-supervisor';
+
+/** 知识库小助理 id（依依）：RAG 只挂在此实体（用户定案：不挂单个任务/工作流） */
+const ASSISTANT_ID = 'agent-assistant';
 
 /** 群聊指令词：命中时由主管回复并记录要求 */
 const DIRECTIVE_RE = /注意|要求|记住|检查|以后/;
@@ -57,8 +61,11 @@ function resolveReplyAgentId(chatKind: ChatKind, to: string, body: string): stri
   return SUPERVISOR_ID;
 }
 
-/** 组装 system prompt：Agent 人设 + 挂载技能 + 进行中任务上下文 */
-function buildSystemPrompt(agent: AgentRow, activeTask: { id: number; title: string; stage: string } | undefined): string {
+/**
+ * 组装 system prompt：Agent 人设 + 挂载技能 + 进行中任务上下文（+ 小助理的知识库 RAG 参考资料）。
+ * kbRefs 非空时追加「知识库参考资料」并要求回答标注来源；为空则与既有行为完全一致。
+ */
+function buildSystemPrompt(agent: AgentRow, activeTask: { id: number; title: string; stage: string } | undefined, kbRefs = ''): string {
   const lines: string[] = [`你是${agent.name}（${agent.role}）。${agent.persona}`];
   let skills: string[] = [];
   try {
@@ -72,6 +79,7 @@ function buildSystemPrompt(agent: AgentRow, activeTask: { id: number; title: str
     lines.push(`当前进行中任务 #${activeTask.id}「${activeTask.title}」，阶段：${label}。请结合任务上下文回复。`);
   }
   lines.push('用中文简洁回复用户，围绕你的职责范围，不要编造未发生的事实。');
+  if (kbRefs) lines.push('', kbRefs);
   return lines.join('\n');
 }
 
@@ -108,7 +116,12 @@ export async function handleAgentReply(chatKind: ChatKind, to: string, body: str
       'SELECT id, title, stage FROM tasks WHERE "column" = ? ORDER BY id DESC LIMIT 1',
       ['progress'],
     );
-    const system = buildSystemPrompt(agent, activeTask);
+    // 小助理「依依」：对话前先做一次知识库全库 RAG 检索（未连接/无命中时返回空块，行为不变）
+    const kb = agentId === ASSISTANT_ID ? await retrieveKnowledge(body) : { chunks: [], promptBlock: '', reason: '' };
+    if (agentId === ASSISTANT_ID) {
+      console.log(`[chat-reply] RAG 命中 ${kb.chunks.length} 段${kb.reason ? `（${kb.reason}）` : ''}`);
+    }
+    const system = buildSystemPrompt(agent, activeTask, kb.promptBlock);
     let reply: string;
     try {
       reply = (await callLlm({ agentId, system, user: body })).content.trim();
