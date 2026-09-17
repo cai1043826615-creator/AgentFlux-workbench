@@ -44,7 +44,7 @@ export function WorkstationBar() {
               工位 WORKSTATIONS · {crew.length} 个
             </span>
             <button type="button" className="qs-clickable qs-meta" style={{ color: 'var(--color-ink-soft)' }} onClick={() => setExpanded(false)} title="折叠工位栏">
-              收起 ▴
+              收起 ▸
             </button>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-3">

@@ -30,7 +30,7 @@ function stageIdxOf(task: TaskWithMeta): number {
 /** 状态 tag（对齐线框 tag：warn 待确认 / ok 已归档 / work 进行中） */
 function Tag({ task }: { task: TaskWithMeta }) {
   if (task.column === 'awaiting') {
-    return <span className="qs-badge warn">{`待你确认 · ${stageText(task)}`}</span>;
+    return <span className="qs-badge warn">{`待确认 · ${stageText(task)}`}</span>;
   }
   if (task.column === 'done') return <span className="qs-badge ok">✓ 已完成</span>;
   if (task.column === 'progress') return <span className="qs-badge">进行中 · {stageText(task)}</span>;
@@ -279,7 +279,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
           {workflows.find((w) => w.id === currentWorkflowId)?.name ?? ''}
         </span>
         <span className="qs-meta hidden sm:inline" style={{ color: 'var(--color-ink-faint)' }}>
-          {visible.length}个任务{archivedCount > 0 ? ` · ${archivedCount} 个已归档` : ''}
+          {visible.length} 个任务{archivedCount > 0 ? ` · ${archivedCount} 个已归档` : ''}
         </span>
         <div className="flex items-center gap-1 rounded-[4px] border p-0.5" style={{ borderColor: 'var(--color-line)' }}>
           <button

@@ -101,7 +101,7 @@ function AssistantSpot({ assistant, onConfigure }: { assistant: Agent | null; on
         aria-label="收起依依"
         aria-expanded={true}
       >
-        收起 ▴
+        收起 ▸
       </button>
       {/* 与工位卡同款（非 compact，含模型/活动行）——宽度随容器自适应 */}
       <AgentCard agent={assistant} onConfigure={onConfigure} />

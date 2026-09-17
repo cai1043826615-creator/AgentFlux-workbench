@@ -260,11 +260,11 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
       <div className="flex items-center gap-3 rounded-[4px] border px-3 py-2.5" style={{ borderColor: 'var(--color-signal)', background: 'var(--color-signal-soft)' }}>
         <div className="min-w-0 flex-1">
           <div className="mb-1 text-[12px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
-            审批 · 待你确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
+            审批 · 待确认 {WORKFLOW_STAGE_LABELS[task.stage] ?? task.stage} #{task.id}
           </div>
           <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
             {pendingKind === 'copy'
-              ? '待你确认 · 采纳后自动进入图片设计（在上方文案卡内操作）；失败可打回重做。'
+              ? '待确认 · 采纳后自动进入图片设计（在上方文案卡内操作）；失败可打回重做。'
               : '待逐张确认 · 全部采纳后自动推进（在上方图片卡内逐张操作）；失败可打回重做。'}
           </div>
         </div>
@@ -278,7 +278,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   /* ---------- 左栏：卖点文案 ---------- */
   const copyBadge =
     copyState === 'pending' ? (
-      <Badge tone="signal">待你确认</Badge>
+      <Badge tone="signal">待确认</Badge>
     ) : copyState === 'done' ? (
       <Badge tone="ok">已采纳</Badge>
     ) : copyState === 'rejected' ? (

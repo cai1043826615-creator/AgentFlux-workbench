@@ -257,7 +257,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
         >
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-bold" style={{ color: 'var(--color-signal-strong)' }}>
-              待你确认 · {stageName}
+              待确认 · {stageName}
             </div>
             <div className="qs-meta mt-0.5" style={{ color: 'var(--color-ink-soft)' }}>
               在上方内容卡内逐项「采纳 / 打回」，全部采纳后自动进入下一阶段；失败可打回重做。

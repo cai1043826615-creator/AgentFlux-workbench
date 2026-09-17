@@ -127,7 +127,7 @@ export function TaskFilterBar() {
         style={{ color: moreActive ? 'var(--color-signal)' : 'var(--color-ink-soft)' }}
         onClick={() => setMoreOpen((v) => !v)}
       >
-        更多筛选 {moreOpen ? '▴' : '▾'}
+        更多筛选 {moreOpen ? '▾' : '▸'}
         {!moreOpen && moreActive ? ' · 已启用' : ''}
       </button>
       {active ? (

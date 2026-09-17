@@ -93,7 +93,7 @@ function ToastCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[15px] font-bold leading-tight" style={{ color: isApproval ? 'var(--color-signal-strong)' : 'var(--color-ok)' }}>
-            {isApproval ? '待你确认' : '任务完成'}
+            {isApproval ? '待确认' : '任务完成'}
           </div>
           <div className="qs-meta mt-1.5 truncate text-[13px] leading-snug" style={{ color: 'var(--color-ink-soft)' }}>
             #{item.taskId} {item.title}

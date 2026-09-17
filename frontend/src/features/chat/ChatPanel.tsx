@@ -176,7 +176,7 @@ export function ChatPanel() {
               style={{ color: 'var(--color-ink-faint)', cursor: 'pointer' }}
               onClick={() => setShowEvents((v) => !v)}
             >
-              {evtCount} 条系统事件 {showEvents ? '▴' : '▾'}
+              {evtCount} 条系统事件 {showEvents ? '▾' : '▸'}
             </button>
           ) : null}
         </div>

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { WORKFLOW_STAGE_LABELS, isXhsWorkflow, nodeOfStage, stageKeysOf, approvalPointsOf, type Agent, type Deliverable, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef } from '@workbench/shared';
+import { WORKFLOW_STAGE_LABELS, isXhsWorkflow, nodeOfStage, stageKeysOf, approvalPointsOf, type Agent, type Deliverable, type ProvenanceResult, type ReworkInfo, type TaskCostSummary, type TaskEvent, type TaskEventType, type TaskHotRef, type TaskHotRefInput, type TaskKbRef, type TaskKbRefInput } from '@workbench/shared';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
-import { Avatar, Badge, Spinner, Tabs } from '../../components/ui.tsx';
+import { Avatar, Badge, Btn, Modal, ModalFooter, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { fmtTime, fmtFull } from '../../lib/format.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
+import { KbRefPicker } from '../knowledge/KbRefPicker.tsx';
 import { DownloadButton, KbInvalidBadge, fmtRelative } from '../board/TaskListView.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
@@ -291,10 +292,18 @@ function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) 
 }
 
 /** 任务关联的知识库资料（板块 A/B 唯一耦合点，6.3）：标题 / 路径 / 片段范围 + 预览原文 + 失效标记
- *  P2·F1：「阅读原文」改走文档预览弹窗（就地看，不离开任务详情） */
-function KbRefsPanel({ taskId }: { taskId: number }) {
+ *  P2·F1：「阅读原文」改走文档预览弹窗（就地看，不离开任务详情）
+ *  核验 D-19：新增「编辑 / ＋ 关联资料」入口。此前只在「新建任务」弹窗第 2 步可设，
+ *  任务建好后无法补挂资料 —— 而详情页顶部又会警示「参数由模型生成，请人工核对」，
+ *  用户看到警示却无路可走（库内 68% 的任务无任何关联资料）。现在可就地补挂/修改。 */
+function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: string }) {
   const { openDocPreview } = useWorkbench();
   const [refs, setRefs] = useState<TaskKbRef[] | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<TaskKbRefInput[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -309,52 +318,104 @@ function KbRefsPanel({ taskId }: { taskId: number }) {
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [taskId, reloadKey]);
+
+  const openEditor = () => {
+    setDraft((refs ?? []).map((r) => ({ docPath: r.docPath, anchor: r.anchor ?? undefined, note: r.note })));
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.putTaskKbRefs(taskId, draft);
+      setEditing(false);
+      setReloadKey((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (refs === null) return <PanelSkeleton title="关联知识库资料" />;
-  // 未关联资料时不占用任务详情空间（知识库未连接时的既有体验保持一致）
-  if (refs.length === 0) return null;
 
   const invalidCount = refs.filter((r) => !r.valid).length;
   return (
-    <div className="qs-card p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-display text-[15px] font-semibold">关联知识库资料</h3>
-        <span className="qs-meta" style={{ color: invalidCount > 0 ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
-          {refs.length} 份{invalidCount > 0 ? ` · ${invalidCount} 份已失效` : ''}
-        </span>
-      </div>
-      <div className="space-y-1.5">
-        {refs.map((r) => (
-          <div key={r.id} className="rounded-[4px] border px-2.5 py-2" style={{ borderColor: r.valid ? 'var(--color-line)' : 'var(--color-danger-soft)', background: r.valid ? 'transparent' : 'var(--color-danger-soft)' }}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium" style={{ color: r.valid ? 'var(--color-ink)' : 'var(--color-danger)' }}>
-                  {r.title}
-                  {!r.valid ? <span className="qs-meta ml-1.5">失效（Vault 中已不存在）</span> : null}
-                </div>
-                <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
-                  {r.docPath}
-                  {r.anchor ? ` · 片段「${r.anchor}」` : ' · 整篇'}
+    <>
+      <div className="qs-card p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="font-display text-[15px] font-semibold">关联知识库资料</h3>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="qs-meta" style={{ color: invalidCount > 0 ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
+              {refs.length > 0 ? `${refs.length} 份${invalidCount > 0 ? ` · ${invalidCount} 份已失效` : ''}` : '未关联'}
+            </span>
+            <Btn size="sm" variant="ghost" className="outline" onClick={openEditor} title="关联或修改本任务引用的知识库资料">
+              {refs.length > 0 ? '编辑' : '＋ 关联资料'}
+            </Btn>
+          </div>
+        </div>
+        {refs.length === 0 ? (
+          /* 空态不再整块消失（核验 D-19）：给出「能做什么」与入口，而不是留白 */
+          <p className="qs-meta leading-relaxed" style={{ color: 'var(--color-ink-soft)' }}>
+            尚未关联任何知识库资料，产出中的参数将由模型生成、需人工核对。点右上角「＋ 关联资料」从知识库挑选事实来源（产品资料 / 品牌规范等），保存后在后续生成中作为只读参考注入。
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {refs.map((r) => (
+              <div key={r.id} className="rounded-[4px] border px-2.5 py-2" style={{ borderColor: r.valid ? 'var(--color-line)' : 'var(--color-danger-soft)', background: r.valid ? 'transparent' : 'var(--color-danger-soft)' }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium" style={{ color: r.valid ? 'var(--color-ink)' : 'var(--color-danger)' }}>
+                      {r.title}
+                      {!r.valid ? <span className="qs-meta ml-1.5">失效（Vault 中已不存在）</span> : null}
+                    </div>
+                    <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
+                      {r.docPath}
+                      {r.anchor ? ` · 片段「${r.anchor}」` : ' · 整篇'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 cursor-pointer text-[12px] hover:underline"
+                    style={{ color: r.valid ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}
+                    onClick={() => openDocPreview(r.docPath)}
+                    title="预览全文（弹窗，不离开任务详情）"
+                  >
+                    查看原文 ↗
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                className="shrink-0 cursor-pointer text-[12px] hover:underline"
-                style={{ color: r.valid ? 'var(--color-signal)' : 'var(--color-ink-faint)' }}
-                onClick={() => openDocPreview(r.docPath)}
-                title="预览全文（弹窗，不离开任务详情）"
-              >
-                查看原文 ↗
-              </button>
-            </div>
+            ))}
           </div>
-        ))}
+        )}
+        <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
+          关联资料以只读方式作为 Agent 生成的事实参考，不会写回知识库。
+        </p>
       </div>
-      <p className="qs-meta mt-2" style={{ color: 'var(--color-ink-faint)' }}>
-        关联资料以只读方式作为 Agent 生成的事实参考，不会写回知识库。
-      </p>
-    </div>
+
+      <Modal open={editing} title="关联知识库资料" onClose={() => setEditing(false)} width={560}>
+        <KbRefPicker value={draft} onChange={setDraft} />
+        <p className="qs-meta mt-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
+          保存后在后续阶段的生成中作为只读事实参考注入。
+          {taskColumn === 'progress' ? '本任务正处于「进行中」：已产出阶段需先打回重做，才会使用新资料。' : ''}
+        </p>
+        {error ? (
+          <p className="mt-2 text-[13px]" style={{ color: 'var(--color-danger)' }}>
+            ● {error}
+          </p>
+        ) : null}
+        <ModalFooter>
+          <Btn onClick={() => setEditing(false)}>取消</Btn>
+          <Btn variant="primary" disabled={busy} onClick={() => void save()}>
+            {busy ? '保存中…' : '保存'}
+          </Btn>
+        </ModalFooter>
+      </Modal>
+    </>
   );
 }
 
@@ -436,7 +497,7 @@ function HotRefsPanel({ taskId }: { taskId: number }) {
               <div className="flex shrink-0 items-center gap-2">
                 {r.url ? (
                   <a href={r.url} target="_blank" rel="noreferrer" className="qs-meta hover:underline" style={{ color: 'var(--color-signal)' }}>
-                    原文 ↗
+                    查看原文 ↗
                   </a>
                 ) : null}
                 <button type="button" className="qs-meta cursor-pointer hover:underline" style={{ color: 'var(--color-ink-faint)' }} onClick={() => void remove(r.hotId)} disabled={busy}>
@@ -597,6 +658,7 @@ export function TaskDetailView({
                 <span aria-hidden="true">⚠</span>
                 <span>
                   本任务未关联任何知识库资料 · <strong>参数由模型生成，请人工核对</strong>
+                  <span className="qs-meta ml-1.5" style={{ color: 'var(--color-ink-faint)' }}>（可在下方「关联知识库资料」补挂）</span>
                 </span>
               </div>
             ) : null}
@@ -625,8 +687,8 @@ export function TaskDetailView({
               ) : null}
             </div>
 
-            {/* 关联知识库资料（有则显示，无则不占位） */}
-            <KbRefsPanel taskId={task.id} />
+            {/* 关联知识库资料（核验 D-19：空态也显示，并提供「＋ 关联资料 / 编辑」入口） */}
+            <KbRefsPanel taskId={task.id} taskColumn={task.column} />
 
             {/* 任务背景 · 外部环境情报（hot-intel D2：有则显示，无则不占位） */}
             <HotRefsPanel taskId={task.id} />
