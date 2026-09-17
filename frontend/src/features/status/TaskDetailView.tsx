@@ -3,11 +3,11 @@ import { WORKFLOW_STAGE_LABELS, isXhsWorkflow, nodeOfStage, stageKeysOf, approva
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Modal, ModalFooter, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
-import { fmtTime, fmtFull } from '../../lib/format.ts';
+import { fmtTime, fmtFull, relTime } from '../../lib/format.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
 import { KbRefPicker } from '../knowledge/KbRefPicker.tsx';
-import { DownloadButton, KbInvalidBadge, fmtRelative } from '../board/TaskListView.tsx';
+import { DownloadButton, KbInvalidBadge } from '../board/TaskListView.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
   TASK_CREATED: '创建任务',
@@ -137,7 +137,7 @@ function EventTimeline({ events, workflowId }: { events: TaskEvent[]; workflowId
                   {head}
                 </span>
               )}
-              <span className="qs-meta shrink-0" title={fmtFull(g.items[0].createdAt)}>{fmtRelative(g.items[0].createdAt)}</span>
+              <span className="qs-meta shrink-0" title={fmtFull(g.items[0].createdAt)}>{relTime(g.items[0].createdAt)}</span>
             </div>
             {stageLabelOf(g.items[0]) ? (
               <div className="qs-meta mt-0.5 pl-6 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
@@ -151,7 +151,7 @@ function EventTimeline({ events, workflowId }: { events: TaskEvent[]; workflowId
                   return (
                     <div key={ev.id} className="flex items-baseline justify-between gap-2">
                       <span className="text-[12px]" style={{ color: 'var(--color-ink-soft)' }}>{note || EVENT_LABELS[ev.type]}</span>
-                      <span className="qs-meta shrink-0" title={fmtFull(ev.createdAt)}>{fmtRelative(ev.createdAt)}</span>
+                      <span className="qs-meta shrink-0" title={fmtFull(ev.createdAt)}>{relTime(ev.createdAt)}</span>
                     </div>
                   );
                 })}
@@ -547,7 +547,7 @@ export function TaskDetailView({
   if (!task) {
     return (
       <div className="flex h-full items-center justify-center">
-        <Spinner label="加载任务…" />
+        <Spinner label="任务加载中…" />
       </div>
     );
   }

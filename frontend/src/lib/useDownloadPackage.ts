@@ -21,7 +21,7 @@ export function useDownloadPackage(taskId: number) {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace(/^HTTP 409: /, '') : '下载失败，请稍后再试');
+      setError(err instanceof Error ? err.message.replace(/^HTTP 409: /, '') : '下载失败，请重试');
     } finally {
       setBusy(false);
     }

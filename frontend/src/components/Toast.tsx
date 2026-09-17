@@ -113,7 +113,7 @@ function ToastCard({
             setLeaving(true);
           }}
         >
-          ×
+          ✕
         </button>
       </div>
       {/* Aceternity 风 action 按钮行：底部分隔线 + 右侧按钮（点击 = 跳转 + 关闭该条） */}
@@ -264,7 +264,7 @@ function ActionToastCard({ toast, onDismiss }: { toast: ActionToast; onDismiss: 
         aria-label="关闭"
         onClick={() => onDismiss(toast.id)}
       >
-        ×
+        ✕
       </button>
     </div>
   );

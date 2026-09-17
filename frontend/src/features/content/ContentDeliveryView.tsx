@@ -108,7 +108,7 @@ function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () =
     <div className="group relative aspect-square overflow-hidden border" style={{ borderColor: 'var(--color-line)' }}>
       {!loaded ? (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'var(--color-canvas)' }}>
-          <Spinner label="图片加载中" />
+          <Spinner label="图片加载中…" />
         </div>
       ) : null}
       <img
@@ -228,9 +228,8 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
       await retryImage(task.id, imageId);
       pushToast({ message: '已开始重新生成该图片', tone: 'signal', duration: 4000 });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '重试失败';
-      setRetryError(msg);
-      pushToast({ message: `重试失败：${msg}`, tone: 'no', duration: 5000 });
+      // C8：行内警示（retryError）已展示失败原因，不再重复弹 Toast，避免同一错误两处显示
+      setRetryError(err instanceof Error ? err.message : '重试失败');
     } finally {
       setRetrying(null);
     }
@@ -405,7 +404,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             className="mb-2 flex items-start gap-2 rounded-[4px] border px-3 py-2 text-[12px]"
             style={{ borderColor: 'var(--color-danger)', background: 'var(--color-danger-soft)', color: 'var(--color-ink-soft)' }}
           >
-            <span aria-hidden="true">⚠</span>
+            <span aria-hidden="true">●</span>
             <span>
               {allFailed ? '全部图片生成失败 · 可按「跳过」不触发返工地推进，或「打回」让设计师重新产出' : `${failedImgs.length} 张图片生成失败 · 不影响其他图片决策，可「跳过」或「打回」`}
             </span>
@@ -434,12 +433,12 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                   <Badge
                     tone={failed ? 'no' : skipped ? 'default' : img.status === 'approved' ? 'ok' : img.status === 'rejected' ? 'no' : canDecide ? 'signal' : 'default'}
                   >
-                    {failed ? '生成失败' : skipped ? '已跳过' : img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回' : canDecide ? '待确认' : '未决'}
+                    {failed ? '生成失败' : skipped ? '已跳过' : img.status === 'approved' ? '已采纳' : img.status === 'rejected' ? '已打回 · 返工中' : canDecide ? '待确认' : '未决'}
                   </Badge>
                 </div>
                 {failed ? (
                   <div className="qs-meta mt-1" style={{ color: 'var(--color-danger)' }}>
-                    生成失败 · 已尝试 {(img.attempts ?? MAX_IMAGE_ATTEMPTS).toLocaleString('zh-CN')}/{MAX_IMAGE_ATTEMPTS} 次
+                    生成失败 · 已尝试 {img.attempts ?? MAX_IMAGE_ATTEMPTS}/{MAX_IMAGE_ATTEMPTS} 次
                   </div>
                 ) : null}
                 {failed && img.error ? (

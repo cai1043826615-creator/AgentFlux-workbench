@@ -113,7 +113,7 @@ export function PanelCard({
 export function StateBadge({ state }: { state: 'none' | 'working' | 'pending' | 'done' | 'rejected' }) {
   if (state === 'pending') return <Badge tone="warn">待确认</Badge>;
   if (state === 'done') return <Badge tone="ok">已采纳</Badge>;
-  if (state === 'rejected') return <Badge tone="no">已打回</Badge>;
+  if (state === 'rejected') return <Badge tone="no">已打回 · 返工中</Badge>;
   if (state === 'working') return <Badge tone="warn">生成中</Badge>;
   return <Badge>未产出</Badge>;
 }
@@ -136,7 +136,7 @@ function ImgThumb({ img, onZoom }: { img: ParsedImg; onZoom: () => void }) {
     <div className="relative aspect-square overflow-hidden border" style={{ borderColor: 'var(--color-line)' }}>
       {!loaded ? (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'var(--color-canvas)' }}>
-          <Spinner label="图片加载中" />
+          <Spinner label="图片加载中…" />
         </div>
       ) : null}
       <img
@@ -186,14 +186,14 @@ export function ImageGrid({
             <ImgThumb img={img} onZoom={() => onZoom(img)} />
             <div className="flex items-center gap-1.5">
               {img.status === 'approved' ? <Badge tone="ok">已采纳</Badge> : null}
-              {img.status === 'rejected' ? <Badge tone="no">已打回</Badge> : null}
+              {img.status === 'rejected' ? <Badge tone="no">已打回 · 返工中</Badge> : null}
               {img.status === 'skipped' ? <Badge>已跳过</Badge> : null}
               {img.status === 'pending' ? <Badge>待确认</Badge> : null}
               {failed ? <Badge tone="no">生成失败</Badge> : null}
             </div>
             {failed ? (
               <div className="qs-meta text-[10px]" style={{ color: 'var(--color-danger)' }}>
-                已尝试 {(img.attempts ?? MAX_IMAGE_ATTEMPTS).toLocaleString('zh-CN')}/{MAX_IMAGE_ATTEMPTS} 次
+                已尝试 {img.attempts ?? MAX_IMAGE_ATTEMPTS}/{MAX_IMAGE_ATTEMPTS} 次
               </div>
             ) : null}
             {canDecide && (img.status === 'pending' || failed) ? (

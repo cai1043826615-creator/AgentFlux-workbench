@@ -70,7 +70,7 @@ function InfoBar({ panel }: { panel: HotPanel }) {
         </span>
       ) : null}
       <span className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-        源状态 {ok}/{panel.sources.length} 可用
+        源状态 {ok}/{panel.sources.length} 个源可用
         {degraded.length > 0 ? ` · ${degraded.map((s) => `${s.label}降级${s.error ? `：${s.error}` : ''}`).join('；')}` : ''}
       </span>
       {hasDaily && daily ? (
@@ -275,7 +275,7 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
         将「{item.title}」挂到已存在任务的背景情报中（作为外部环境参考，不产生新任务）。
       </p>
       {!tasks ? (
-        <Spinner label="加载任务列表…" />
+        <Spinner label="任务列表加载中…" />
       ) : tasks.length === 0 ? (
         <Empty text="暂无任务" />
       ) : (
@@ -293,7 +293,7 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
           <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-1">
             {filteredTasks.length === 0 ? (
               <div className="qs-meta px-2 py-3 text-center" style={{ color: 'var(--color-ink-faint)' }}>
-                无匹配任务
+                无匹配任务 · 可调整搜索关键字
               </div>
             ) : (
               filteredTasks.map((t) => (
@@ -391,7 +391,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   return (
     <Modal open={open} title="热点源配置" onClose={onClose} width={640}>
       {!config ? (
-        <Spinner label="加载配置…" />
+        <Spinner label="配置加载中…" />
       ) : (
         <div className="max-h-[52vh] space-y-4 overflow-y-auto pr-1">
           {/* 关注域：摘要 + 展开（域名称作为可见标题，不再用空白输入框） */}
@@ -583,7 +583,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="qs-meta w-[64px] shrink-0">抓取方式</span>
-                          <input className="qs-input flex-1" value={s.adapter} onChange={(e) => patchSource(s.id, { adapter: e.target.value })} placeholder="抓取方式（adapter id）" list="hot-adapters" />
+                          <input className="qs-input flex-1" value={s.adapter} onChange={(e) => patchSource(s.id, { adapter: e.target.value })} placeholder="填写抓取方式" list="hot-adapters" />
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="qs-meta w-[64px] shrink-0">内容类型</span>
@@ -695,7 +695,7 @@ export function HotView() {
             刷新
           </Btn>
           <Btn size="sm" variant="ghost" onClick={() => setConfigOpen(true)}>
-            热点源配置
+            灵感库设置
           </Btn>
         </div>
       </div>
@@ -716,7 +716,7 @@ export function HotView() {
       ) : null}
 
       {loading && !panel ? (
-        <Spinner label="拉取热点…" />
+        <Spinner label="热点加载中…" />
       ) : !panel || panel.status === 'unavailable' ? (
         <Empty text={KB_EMPTY_STATES.hotEmptyUnavailable.text} hint={KB_EMPTY_STATES.hotEmptyUnavailable.hint} emptyKey={KB_EMPTY_STATES.hotEmptyUnavailable.key} />
       ) : panel.counts.upstream === 0 ? (
@@ -727,7 +727,7 @@ export function HotView() {
               原「多源热点 92」是从上游抓到的原始条数，但界面只展示分层后的少量条目 →
               数字与列表对不上，属口径失真。改为讲「抓了多少 / 现在能看多少」：
               · 上游抓取 = 原始条数（并注明来源数，解释 92 从哪来）
-              · 今日必看 / 24H 精选 = 实际可读的分层计数
+              · 今日必看 / 今日精选 = 实际可读的分层计数
               · 刷新时间 = 让「点刷新」有可见反馈（此前刷新成功也看不出变化） */}
           <div className="qs-card flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5" data-hot-pills>
             <span className="inline-flex items-baseline gap-1.5">
@@ -736,7 +736,7 @@ export function HotView() {
               </span>
               <span className="font-display tabular text-[15px] font-bold">{panel.counts.upstream}</span>
               <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                条 · 来自 {panel.sources.filter((s) => s.status === 'ok').length} 个公开源
+                条 · 来自 {panel.sources.filter((s) => s.status === 'ok').length} 个源
               </span>
             </span>
             <span className="inline-flex items-baseline gap-1.5">
@@ -747,7 +747,7 @@ export function HotView() {
             </span>
             <span className="inline-flex items-baseline gap-1.5">
               <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                24H 精选
+                今日精选
               </span>
               <span className="font-display tabular text-[15px] font-bold">{panel.counts.selected24h}</span>
             </span>

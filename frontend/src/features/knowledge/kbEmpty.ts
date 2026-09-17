@@ -38,7 +38,7 @@ export const KB_EMPTY_STATES = {
   /** 无标签 */
   kbNoTags: {
     key: 'kb-no-tags',
-    text: '还没有文档声明标签',
+    text: '暂无文档声明标签',
     hint: '在文档 frontmatter 的 tags 字段写标签，保存后点「重建索引」；标签是知识星图连通与检索的关键。',
   },
   /** 无目录 */
@@ -50,7 +50,7 @@ export const KB_EMPTY_STATES = {
   /** 星图无数据（无链接且无标签；主视图与缩略预览同一文案来源） */
   graphEmpty: {
     key: 'graph-empty',
-    text: '还没有可连成图谱的关系',
+    text: '暂无图谱关系',
     hint: '在文档之间添加 [[wiki链接]]，或让两篇文档共享同一标签，然后点「刷新」。',
   },
   /** 搜索结果为空 */

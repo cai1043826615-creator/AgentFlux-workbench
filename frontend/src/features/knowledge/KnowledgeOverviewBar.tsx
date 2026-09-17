@@ -21,7 +21,7 @@ import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { AgentCard } from '../workstation/AgentCard.tsx';
 import { AgentSettingsModal } from '../workstation/AgentSettingsModal.tsx';
-import { fmtRelative } from '../board/TaskListView.tsx';
+import { relTime } from '../../lib/format.ts';
 
 /**
  * P1·5.4：小助理入口位的数据源。
@@ -191,7 +191,7 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
         </div>
         <div className="font-display tabular text-[20px] font-bold leading-tight">{usage?.linkedDocs ?? 0}</div>
         <div className="qs-meta mt-0.5 text-[10px]" style={{ color: 'var(--color-ink-faint)' }}>
-          篇被任务引用{stats?.indexedAt ? ` · ${fmtRelative(stats.indexedAt)}更新` : ''}
+          篇被任务引用{stats?.indexedAt ? ` · ${relTime(stats.indexedAt)}更新` : ''}
         </div>
       </div>
 

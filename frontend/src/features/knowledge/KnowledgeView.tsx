@@ -319,7 +319,7 @@ export function KnowledgeView() {
     );
   }
 
-  if (!status) return <Spinner label="加载知识库…" />;
+  if (!status) return <Spinner label="知识库加载中…" />;
 
   return (
     <div className="space-y-4">

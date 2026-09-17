@@ -678,7 +678,7 @@ export function KnowledgeGraphView() {
           <div className="mb-3 flex flex-col gap-0.5">
             {presetEntries.length === 0 ? (
               <span className="qs-meta px-1" style={{ color: 'var(--color-ink-faint)' }}>
-                还没有重点目录 · 到「知识库设置」添加
+                暂无重点目录 · 到「知识库设置」添加
               </span>
             ) : (
               presetEntries.map((p) => (
@@ -733,7 +733,7 @@ export function KnowledgeGraphView() {
           <div ref={wrapRef} className="qs-card relative h-[62vh] overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
             {loading && !graph ? (
               <div className="flex h-full items-center justify-center">
-                <Spinner label="加载知识星图…" />
+                <Spinner label="知识星图加载中…" />
               </div>
             ) : !hasData ? (
               // 4.4：无数据时渲染空图提示（文案与总览带缩略预览同源 kbEmpty.ts）

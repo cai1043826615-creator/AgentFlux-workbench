@@ -82,7 +82,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
     try {
       await decide(task.id, kind, decision, imageId, noteText);
     } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : '操作失败', tone: 'no' });
+      pushToast({ message: err instanceof Error ? err.message : '操作失败，请重试', tone: 'no' });
     } finally {
       setBusy(false);
     }

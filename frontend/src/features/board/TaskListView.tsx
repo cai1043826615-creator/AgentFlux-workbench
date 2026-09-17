@@ -9,29 +9,12 @@ import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { api } from '../../lib/api.ts';
 import { isFilterActive, type TaskFilters } from '../../lib/taskFilters.ts';
 import { useDownloadPackage } from '../../lib/useDownloadPackage.ts';
+import { fmtFull, relTime } from '../../lib/format.ts';
 import { Avatar, Badge, Btn, Empty } from '../../components/ui.tsx';
 
 const PLATFORM_OPTIONS = ['天猫', '京东', '拼多多', '抖音小店', '小红书', '其他'];
 const COL_LABEL: Record<string, string> = { planned: '规划中', progress: '进行中', awaiting: '待确认', done: '已完成' };
 const HIT_FIELD_LABEL: Record<string, string> = { title: '标题', point: '卖点', keyword: '关键词', imageName: '图片名' };
-
-/** 34：相对时间（列表 / 日志统一口径） */
-export function fmtRelative(iso?: string | Date): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  const diff = Date.now() - d.getTime();
-  const min = 60_000;
-  const hr = 3_600_000;
-  const day = 86_400_000;
-  const p = (n: number) => String(n).padStart(2, '0');
-  if (diff < min) return '刚刚';
-  if (diff < hr) return `${Math.floor(diff / min)} 分钟前`;
-  if (diff < day) return `${Math.floor(diff / hr)} 小时前`;
-  if (diff < 2 * day) return `昨天 ${p(d.getHours())}:${p(d.getMinutes())}`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
-  return `${d.getMonth() + 1}-${d.getDate()}`;
-}
 
 /** 关联资料失效角标（B6 · 9.1/9.2：kbRefsInvalid > 0 才显示，无失效不显示） */
 export function KbInvalidBadge({ task, compact }: { task: TaskWithMeta; compact?: boolean }) {
@@ -201,11 +184,11 @@ export function TaskListTable({ tasks, onOpen }: { tasks: TaskWithMeta[]; onOpen
                 </span>
               </td>
               <td className="qs-meta px-3 py-2">{(t.platforms ?? []).join(' / ') || t.platform || '—'}</td>
-              <td className="qs-meta px-3 py-2 tabular" title={new Date(t.createdAt).toLocaleString('zh-CN', { hour12: false })}>
-                {fmtRelative(t.createdAt)}
+              <td className="qs-meta px-3 py-2 tabular" title={fmtFull(t.createdAt)}>
+                {relTime(t.createdAt)}
               </td>
-              <td className="qs-meta px-3 py-2 tabular" title={t.updatedAt ? new Date(t.updatedAt).toLocaleString('zh-CN', { hour12: false }) : ''}>
-                {fmtRelative(t.updatedAt)}
+              <td className="qs-meta px-3 py-2 tabular" title={t.updatedAt ? fmtFull(t.updatedAt) : ''}>
+                {relTime(t.updatedAt)}
               </td>
               <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                 <span className="flex items-center gap-1.5">
@@ -242,7 +225,7 @@ export function DeliverableSearch() {
       setHint(r.hits.length === 0 ? (r.hint ?? '无命中') : '');
     } catch {
       setHits([]);
-      setHint('搜索失败，请稍后再试');
+      setHint('搜索失败，请重试');
     } finally {
       setBusy(false);
     }

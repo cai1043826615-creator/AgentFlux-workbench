@@ -135,7 +135,7 @@ export function VaultConfigModal({
             </p>
             {entries.length === 0 ? (
               <p className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-                还没有重点目录，点「＋ 新增」添加，如「产品资料 → 原始资料/产品资料」。
+                暂无重点目录，点「＋ 新增」添加，如「产品资料 → 原始资料/产品资料」。
               </p>
             ) : (
               <div className="space-y-2">

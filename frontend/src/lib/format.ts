@@ -27,16 +27,25 @@ export function fmtFull(iso?: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 「刚刚 / N 分钟前 / N 小时前 / N 天前」——最近活跃等相对时间（ObservabilityView） */
+/**
+ * 「刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / N 天前 / MM-DD」——相对时间
+ * （原 TaskListView.fmtRelative 的「昨天 HH:mm」口径于 2026-09-17 并入，消除两套实现分叉）
+ */
 export function relTime(iso?: string | null): string {
   if (!iso) return '—';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '—';
-  const diff = Date.now() - t;
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  return `${Math.floor(diff / 86_400_000)} 天前`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const diff = Date.now() - d.getTime();
+  const min = 60_000;
+  const hr = 3_600_000;
+  const day = 86_400_000;
+  const p = (n: number) => String(n).padStart(2, '0');
+  if (diff < min) return '刚刚';
+  if (diff < hr) return `${Math.floor(diff / min)} 分钟前`;
+  if (diff < day) return `${Math.floor(diff / hr)} 小时前`;
+  if (diff < 2 * day) return `昨天 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+  return `${d.getMonth() + 1}-${d.getDate()}`;
 }
 
 /** 「MM-DD HH:mm」本地化格式（ObservabilityView timeFmt 原用 toLocaleString，统一为 fmtTime 等价输出） */

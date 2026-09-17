@@ -46,8 +46,8 @@ export function ImagePreview({
           /* ui-rules-ignore 遮罩上元素描边：半透明白，属遮罩内配色 */
           style={{ borderColor: 'rgba(255,255,255,0.25)' }}
         />
-        <button type="button" className="qs-btn sm absolute -top-10 right-0" onClick={onClose}>
-          ✕ 关闭
+        <button type="button" className="qs-btn sm absolute -top-10 right-0" onClick={onClose} aria-label="关闭">
+          ✕
         </button>
         {/* ui-rules-ignore 遮罩上元信息文字：半透明白，属遮罩内配色 */}
         <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
@@ -65,7 +65,7 @@ export function deliverableStatusLabel(status?: string): string {
     case 'approved':
       return '已采纳';
     case 'rejected':
-      return '已打回';
+      return '已打回 · 返工中';
     case 'skipped':
       return '已跳过';
     case 'ref':

@@ -248,7 +248,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
   if (loading && tasks.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <Spinner label="加载任务中…" />
+        <Spinner label="任务加载中…" />
       </div>
     );
   }
