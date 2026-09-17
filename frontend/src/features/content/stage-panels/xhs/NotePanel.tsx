@@ -47,10 +47,10 @@ export function NotePanel({ note, state, busy, onDecide }: PanelCommon & { note:
             ) : (
               <div className="flex gap-1.5">
                 <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejecting(true)}>
-                  打回重写
+                  打回重做
                 </Btn>
                 <Btn size="sm" variant="primary" disabled={busy} onClick={() => onDecide('copy', 'approve')}>
-                  采纳，进入配图 →
+                  采纳
                 </Btn>
               </div>
             )}

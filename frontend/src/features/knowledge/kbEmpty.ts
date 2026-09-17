@@ -39,7 +39,7 @@ export const KB_EMPTY_STATES = {
   kbNoTags: {
     key: 'kb-no-tags',
     text: '还没有文档声明标签',
-    hint: '在文档 frontmatter 的 tags 字段写标签，保存后点「重建索引」；标签是星图连通与检索的关键。',
+    hint: '在文档 frontmatter 的 tags 字段写标签，保存后点「重建索引」；标签是知识星图连通与检索的关键。',
   },
   /** 无目录 */
   kbNoDirs: {

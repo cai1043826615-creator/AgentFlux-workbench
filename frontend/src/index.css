@@ -24,7 +24,7 @@
   --color-danger-soft: #fef2f2;
 
   /* 知识星图专用（graphCanvas.ts 绘制用；Canvas 无法直接用 var()，由该文件读这些变量）
-     它们是星图「层次感」的载体：选中态 → 邻居态 → 默认态 的由深到浅递减。 */
+     它们是知识星图「层次感」的载体：选中态 → 邻居态 → 默认态 的由深到浅递减。 */
   --color-signal-light: #a78bfa; /* 文档节点「邻居」态（比 signal 浅一档） */
   --color-signal-pale: #c4b5fd; /* 标签节点「邻居」态（更浅） */
   --color-graph-tag: #d4d4d8; /* 标签节点默认态（中性浅灰） */

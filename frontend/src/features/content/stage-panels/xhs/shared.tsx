@@ -250,7 +250,7 @@ export function ImageGrid({
                     ) : null}
                     {!decided ? (
                       <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejecting(img.id)}>
-                        打回
+                        打回重做
                       </Btn>
                     ) : null}
                   </div>

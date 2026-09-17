@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { isXhsWorkflow, type AgentOnlineStatus, type TaskKbRefInput } from '@workbench/shared';
 import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter, type GlyphName } from './components/ui.tsx';
+import { AvatarStatus } from './components/AvatarStatus.tsx';
 import { api } from './lib/api.ts';
 import { onWindowFocus } from './lib/approval-notify.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
@@ -512,7 +513,7 @@ function Shell() {
           </div>
         )}
 
-        {/* 中栏：工位栏（仅看板页常驻，意见2）+ 主视图 */}
+        {/* 中栏：工位栏（仅任务看板常驻，意见2）+ 主视图 */}
         <main className="flex flex-1 min-w-0 flex-col p-4">
           {view === 'board' && <WorkstationBar />}
           <div className="flex-1 min-h-0 overflow-auto">
@@ -570,10 +571,14 @@ function Shell() {
                     title={`${a.name}（${a.role}）· ${AGENT_STATUS[a.onlineStatus]}`}
                     onClick={() => openPrivate(a.id)}
                   >
-                    <span className="relative" style={{ outline: active ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2, borderRadius: 999 }}>
-                      <Avatar name={a.name} id={a.id} size={32} title={`${a.name}（${a.role}）· ${AGENT_STATUS[a.onlineStatus]}`} />
-                      <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${AGENT_DOT[a.onlineStatus]}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)' }} />
-                    </span>
+                    <AvatarStatus
+                      active={active}
+                      name={a.name}
+                      id={a.id}
+                      size={32}
+                      statusClass={AGENT_DOT[a.onlineStatus]}
+                      avatarTitle={`${a.name}（${a.role}）· ${AGENT_STATUS[a.onlineStatus]}`}
+                    />
                   </button>
                 );
               })}

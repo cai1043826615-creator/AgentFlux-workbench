@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AttentionConfig, AttentionDomain, HotDailyInfo, HotEvidenceLevel, HotItem, HotPanel, HotSourceConfig, HotTier, TaskHotRefInput, TaskListItem } from '@workbench/shared';
 import { Badge, Btn, Empty, Modal, ModalFooter, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
+import { fmtTime } from '../../lib/format.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
 
@@ -36,14 +37,6 @@ const VERTICAL_OPTIONS: { value: string; label: string }[] = [
   { value: 'gov-stats', label: '政府统计' },
   { value: 'AI 行业聚合', label: 'AI 行业' },
 ];
-
-function fmtTime(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 /** 5.2 信息条：新鲜度 + 源状态摘要 + 上游日报外链（无日报时退化为仅新鲜度） */
 function InfoBar({ panel }: { panel: HotPanel }) {
@@ -125,7 +118,7 @@ function DegradeNotice({ panel, onRetry, loading }: { panel: HotPanel; onRetry: 
   );
 }
 
-/** 单条热点卡片：只读情报 + 挂为任务背景（5.3/5.4/5.5 + 2.8） */
+/** 单条热点卡片：只读情报 + 挂到工作流（5.3/5.4/5.5 + 2.8） */
 function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAttach: (item: HotItem) => void }) {
   const seq = String(index + 1).padStart(2, '0');
   const evidence = item.evidence;
@@ -203,12 +196,12 @@ function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAt
           {item.reason}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Btn size="sm" variant="ghost" title="挂为任务背景（选择已存在任务，不产生新任务）" onClick={() => onAttach(item)}>
-            挂为任务背景
+          <Btn size="sm" variant="ghost" title="挂到工作流（选择已存在任务，不产生新任务）" onClick={() => onAttach(item)}>
+            挂到工作流
           </Btn>
           {item.url ? (
             <a href={item.url} target="_blank" rel="noreferrer" className="qs-meta hover:underline" style={{ color: 'var(--color-signal)' }}>
-              原文 ↗
+              查看原文 ↗
             </a>
           ) : null}
         </div>
@@ -217,7 +210,7 @@ function HotCard({ item, index, onAttach }: { item: HotItem; index: number; onAt
   );
 }
 
-/** 2.8 挂为任务背景：选择已存在任务（不产生新任务），PUT 追加该热点 */
+/** 2.8 挂到工作流：选择已存在任务（不产生新任务），PUT 追加该热点 */
 function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: () => void; item: HotItem | null; onDone: () => void }) {
   const [tasks, setTasks] = useState<TaskListItem[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -277,7 +270,7 @@ function AttachModal({ open, onClose, item, onDone }: { open: boolean; onClose: 
   };
 
   return (
-    <Modal open={open} title="挂为任务背景" onClose={onClose} width={520}>
+    <Modal open={open} title="挂到工作流" onClose={onClose} width={520}>
       <p className="qs-meta mb-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
         将「{item.title}」挂到已存在任务的背景情报中（作为外部环境参考，不产生新任务）。
       </p>
@@ -384,7 +377,7 @@ function AttentionModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     try {
       await api.hotSaveAttention(config);
       onSaved();
-      pushToast({ message: '情报配置已保存', tone: 'ok', duration: 4000 });
+      pushToast({ message: '热点源配置已保存', tone: 'ok', duration: 4000 });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

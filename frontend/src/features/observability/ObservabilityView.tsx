@@ -1,27 +1,17 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Agent, AgentExecution, ExecutionStats } from '@workbench/shared';
 import { Avatar, Badge, Btn, Card, Empty, SectionTitle, Spinner } from '../../components/ui.tsx';
+import { AvatarStatus } from '../../components/AvatarStatus.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { AgentSettingsModal } from '../workstation/AgentSettingsModal.tsx';
 import { dotLabel } from '../workstation/WorkstationBar.tsx';
 import { agentBadgeTone, agentColor, agentLabel } from '../../lib/agentStatus.ts';
+import { relTime, timeFmt } from '../../lib/format.ts';
 
 /** Agent 状态视图（意见18：工位在线状态 + 执行统计 + 执行日志） */
 
 /* ===== 工具 ===== */
-
-/** ISO 时间 → 中文相对时间 */
-function relTime(iso?: string): string {
-  if (!iso) return '—';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '—';
-  const diff = Date.now() - t;
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  return `${Math.floor(diff / 86_400_000)} 天前`;
-}
 
 /** 状态徽章：统一映射自 lib/agentStatus.ts（online=ok / 忙碌=signal / 未配置=warn / 待命=default，与工位栏一致） */
 function StatusBadge({ status }: { status: Agent['onlineStatus'] }) {
@@ -126,7 +116,6 @@ export function ObservabilityView() {
   const [settingsAgent, setSettingsAgent] = useState<Agent | null>(null);
 
   const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
-  const timeFmt = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="flex flex-col gap-4">
@@ -152,14 +141,16 @@ export function ObservabilityView() {
                   {/* 头部（意见10 去重：头像右下状态点 + 名字/角色/状态 Badge + Agent 设置按钮；
                       意见5：「最近活跃」从本行拆出独立一行，避免元素过多被截断） */}
                   <div className="flex items-center gap-2.5">
-                    <div className="relative shrink-0 self-start">
-                      <Avatar name={a.name} id={a.id} size={36} title={`${a.name}（${a.role}）`} />
-                      <span
-                        className="absolute -bottom-0.5 -right-0.5 h-[10px] w-[10px] rounded-full"
-                        style={{ background: agentColor(a.onlineStatus), boxShadow: '0 0 0 2px var(--color-surface)' }}
-                        title={dotLabel(a.onlineStatus)}
-                      />
-                    </div>
+                    <AvatarStatus
+                      className="shrink-0 self-start"
+                      name={a.name}
+                      id={a.id}
+                      size={36}
+                      statusColor={agentColor(a.onlineStatus)}
+                      dotSize={10}
+                      title={dotLabel(a.onlineStatus)}
+                      avatarTitle={`${a.name}（${a.role}）`}
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate text-[14px] font-semibold">{a.name}</span>

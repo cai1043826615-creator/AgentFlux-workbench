@@ -1,5 +1,6 @@
 import type { Agent } from '@workbench/shared';
 import { Avatar, Badge } from '../../components/ui.tsx';
+import { AvatarStatus } from '../../components/AvatarStatus.tsx';
 import { agentColor, agentDotClass, agentLabel } from '../../lib/agentStatus.ts';
 
 /**
@@ -73,13 +74,16 @@ export function AgentAvatarRowItem({ agent }: { agent: Agent }) {
       style={{ background: 'var(--color-sunken)', border: '1px solid var(--color-line)' }}
       title={`${agent.name}（${agent.role}）· ${agentLabel(agent.onlineStatus)}`}
     >
-      <span className="relative shrink-0">
-        <Avatar name={agent.name} id={agent.id} size={20} title={`${agent.name}（${agent.role}）`} />
-        <span
-          className={`qs-dot absolute -bottom-0.5 -right-0.5 ${agentDotClass(agent.onlineStatus)}`}
-          style={{ boxShadow: '0 0 0 1.5px var(--color-sunken)', width: 7, height: 7 }}
-        />
-      </span>
+      <AvatarStatus
+        className="shrink-0"
+        name={agent.name}
+        id={agent.id}
+        size={20}
+        statusClass={agentDotClass(agent.onlineStatus)}
+        dotSize={7}
+        ringColor="var(--color-sunken)"
+        avatarTitle={`${agent.name}（${agent.role}）`}
+      />
       <span className="qs-meta whitespace-nowrap" style={{ color: 'var(--color-ink)' }}>
         {agent.name}
       </span>

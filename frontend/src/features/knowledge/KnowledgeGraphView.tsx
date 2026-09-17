@@ -733,7 +733,7 @@ export function KnowledgeGraphView() {
           <div ref={wrapRef} className="qs-card relative h-[62vh] overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
             {loading && !graph ? (
               <div className="flex h-full items-center justify-center">
-                <Spinner label="加载星图…" />
+                <Spinner label="加载知识星图…" />
               </div>
             ) : !hasData ? (
               // 4.4：无数据时渲染空图提示（文案与总览带缩略预览同源 kbEmpty.ts）
@@ -835,9 +835,9 @@ export function KnowledgeGraphView() {
                     className="qs-meta mt-1 cursor-pointer text-left hover:underline"
                     style={{ color: 'var(--color-signal)' }}
                     onClick={() => detail.node.path && openDocPreview(detail.node.path)}
-                    title="预览全文（弹窗，不离开星图）"
+                    title="预览全文（弹窗，不离开知识星图）"
                   >
-                    {detail.node.path} · 阅读原文
+                    {detail.node.path} · 查看原文 ↗
                   </button>
                 ) : null}
                 {detail.node.tags.length > 0 ? (

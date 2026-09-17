@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react';
 import type { Agent, KnowledgeHealth, KnowledgeStats, KnowledgeStatus } from '@workbench/shared';
 import { Avatar, Badge } from '../../components/ui.tsx';
+import { AvatarStatus } from '../../components/AvatarStatus.tsx';
 import { api } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { AgentCard } from '../workstation/AgentCard.tsx';
@@ -71,10 +72,14 @@ function AssistantSpot({ assistant, onConfigure }: { assistant: Agent | null; on
         role="button"
         aria-expanded={false}
       >
-        <span className="relative shrink-0">
-          <Avatar name={assistant.name} id={assistant.id} size={22} title={`${assistant.name}（${assistant.role}）`} />
-          <span className="qs-dot absolute -bottom-0.5 -right-0.5" style={{ width: 7, height: 7, boxShadow: '0 0 0 1.5px var(--color-surface)' }} />
-        </span>
+        <AvatarStatus
+          className="shrink-0"
+          name={assistant.name}
+          id={assistant.id}
+          size={22}
+          dotSize={7}
+          avatarTitle={`${assistant.name}（${assistant.role}）`}
+        />
         <span className="qs-meta whitespace-nowrap" style={{ color: 'var(--color-ink)' }}>
           {assistant.name}
         </span>

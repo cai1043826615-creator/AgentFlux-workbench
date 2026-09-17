@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CopyPackage, Deliverable, DeliverableDiff, DeliverableVersion, ProvenanceResult, Task } from '@workbench/shared';
 import { BOARD_COLUMNS, WORKFLOW_STAGE_LABELS } from '@workbench/shared';
 import { Badge, Btn, Card, Empty, SectionTitle, Spinner, Tabs } from '../../components/ui.tsx';
+import { ImagePreview, deliverableStatusLabel } from '../../components/ImagePreview.tsx';
+import { fmtTime } from '../../lib/format.ts';
 import { MutedPlaceholder, resolveInfoBarRef } from './stage-panels/xhs/shared.tsx';
 import { TaskInfoBar } from './stage-panels/xhs/TaskInfoBar.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
@@ -309,7 +311,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
           {copy.title}
         </h4>
         {copyDeliverable ? (
-          <div className="qs-meta mt-1">版本 v{copyDeliverable.version} · {new Date(copyDeliverable.updatedAt).toLocaleString('zh-CN')}</div>
+          <div className="qs-meta mt-1">版本 v{copyDeliverable.version} · {fmtTime(copyDeliverable.updatedAt)}</div>
         ) : null}
 
         <ol className="mt-4 space-y-2">
@@ -349,7 +351,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
           <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
             <div className="flex items-center gap-2">
               <Btn variant="danger" size="sm" disabled={busy} onClick={() => setRejectingCopy(true)}>
-                打回
+                打回重做
               </Btn>
               <Btn variant="primary" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'approve')}>
                 采纳
@@ -491,7 +493,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                           </>
                         ) : null}
                         <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejectingImg(img.id)}>
-                          打回
+                          打回重做
                         </Btn>
                       </div>
                     )}
@@ -639,28 +641,11 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
         </>
       ) : null}
 
-      {/* 大图预览 overlay（深色半透明遮罩 + 居中大图 + 关闭） */}
-      {preview ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-6"
-          /* ui-rules-ignore 大图预览遮罩：规范允许的遮罩类语义色（AGENTS.md 二.5 例外） */
-          style={{ background: 'rgba(10,10,10,0.72)' }}
-          onClick={() => setPreview(null)}
-        >
-          <div className="relative max-h-full max-w-full" onClick={(e) => e.stopPropagation()}>
-            {/* ui-rules-ignore 遮罩上元素描边：半透明白描边，属遮罩内配色（AGENTS.md 二.5 例外） */}
-            <img src={preview.url} alt={preview.name} className="max-h-[76vh] max-w-full border object-contain" style={{ borderColor: 'rgba(255,255,255,0.25)' }} />
-            <button type="button" className="qs-btn sm absolute -top-10 right-0" onClick={() => setPreview(null)}>
-              ✕ 关闭
-            </button>
-            {/* ui-rules-ignore 遮罩上元信息文字：半透明白，属遮罩内配色（AGENTS.md 二.5 例外） */}
-            <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
-              {preview.name} ·{' '}
-              {preview.status === 'approved' ? '已采纳' : preview.status === 'rejected' ? '已打回' : preview.status === 'skipped' ? '已跳过' : preview.status === 'ref' ? '参考图' : '待确认'}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {/* 大图预览（抽为 ImagePreview 组件，消除与 XhsDeliveryView 的重复实现） */}
+      <ImagePreview
+        preview={preview ? { url: preview.url, name: preview.name, statusLabel: deliverableStatusLabel(preview.status) } : null}
+        onClose={() => setPreview(null)}
+      />
     </div>
   );
 }
@@ -753,7 +738,7 @@ function CopyVersionPanel({ taskId }: { taskId: number }) {
             >
               {versions.map((v) => (
                 <option key={v.version} value={v.version}>
-                  v{v.version} · {new Date(v.createdAt).toLocaleString('zh-CN')}
+                  v{v.version} · {fmtTime(v.createdAt)}
                 </option>
               ))}
             </select>

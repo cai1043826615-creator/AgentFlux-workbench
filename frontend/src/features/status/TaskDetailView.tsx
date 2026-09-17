@@ -3,6 +3,7 @@ import { WORKFLOW_STAGE_LABELS, isXhsWorkflow, nodeOfStage, stageKeysOf, approva
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
+import { fmtTime, fmtFull } from '../../lib/format.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
 import { DownloadButton, KbInvalidBadge, fmtRelative } from '../board/TaskListView.tsx';
@@ -40,22 +41,6 @@ const MARK_STYLE: Record<'ok' | 'no' | 'warn' | 'neutral', { bg: string; fg: str
   warn: { bg: 'var(--color-warn-soft)', fg: 'var(--color-warn)' },
   neutral: { bg: 'var(--color-sunken)', fg: 'var(--color-ink-soft)' },
 };
-
-function fmtTime(iso?: string): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-function fmtFull(iso?: string): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 function stageKeyOf(ev: TaskEvent): string {
   const s = ev.payload?.stage;
@@ -360,7 +345,7 @@ function KbRefsPanel({ taskId }: { taskId: number }) {
                 onClick={() => openDocPreview(r.docPath)}
                 title="预览全文（弹窗，不离开任务详情）"
               >
-                阅读原文
+                查看原文 ↗
               </button>
             </div>
           </div>

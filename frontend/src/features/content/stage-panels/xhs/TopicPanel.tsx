@@ -36,7 +36,7 @@ export function TopicPanel({ topics, state, busy, onDecide }: PanelCommon & { to
                 <input
                   className="qs-input"
                   autoFocus
-                  placeholder="重出选题的要求（将发给文案 Agent）…"
+                  placeholder="打回重做的要求（将发给文案 Agent）…"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                 />
@@ -54,17 +54,17 @@ export function TopicPanel({ topics, state, busy, onDecide }: PanelCommon & { to
                       setNote('');
                     }}
                   >
-                    确认重出
+                    确认打回
                   </Btn>
                 </div>
               </>
             ) : (
               <div className="flex gap-1.5">
                 <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejecting(true)}>
-                  重出选题
+                  打回重做
                 </Btn>
                 <Btn size="sm" variant="primary" disabled={busy} onClick={() => onDecide('copy', 'approve')}>
-                  确认选题 →
+                  采纳
                 </Btn>
               </div>
             )}

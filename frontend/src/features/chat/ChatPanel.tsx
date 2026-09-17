@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentOnlineStatus, Message } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { Avatar } from '../../components/ui.tsx';
+import { AvatarStatus } from '../../components/AvatarStatus.tsx';
 
 /** 工作群头像命名规则（群头像统一放 frontend/public/groups/，直接引用路径、不落盘生成）：
  *  当前电商新品上架工作流 → 电商工作群 ecom.png（紫色购物袋）
@@ -66,10 +67,13 @@ function ChatHeader() {
           const meta = STATUS_META[a.onlineStatus];
           return (
             <button key={a.id} type="button" className="flex shrink-0 flex-col items-center gap-1" title={`${a.name}（${a.role}）· ${meta.label}`} style={{ cursor: 'pointer' }} onClick={() => selectChat({ kind: 'private', to: a.id })}>
-              <span className="relative" style={{ outline: active ? '2px solid var(--color-signal)' : 'none', outlineOffset: 2, borderRadius: 999 }}>
-                <Avatar name={a.name} size={40} title={`${a.name}（${a.role}）· ${meta.label}`} />
-                <span className={`qs-dot absolute -bottom-0.5 -right-0.5 ${meta.dot}`} style={{ boxShadow: '0 0 0 2px var(--color-surface)' }} />
-              </span>
+              <AvatarStatus
+                active={active}
+                name={a.name}
+                size={40}
+                statusClass={meta.dot}
+                avatarTitle={`${a.name}（${a.role}）· ${meta.label}`}
+              />
               <span className="qs-meta text-[10px]" style={{ color: active ? 'var(--color-ink)' : 'var(--color-ink-faint)' }}>
                 {a.name}
               </span>

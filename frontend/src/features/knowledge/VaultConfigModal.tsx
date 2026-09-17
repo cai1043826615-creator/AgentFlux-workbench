@@ -120,7 +120,7 @@ export function VaultConfigModal({
             </p>
           </section>
 
-          {/* ② 重点目录（6.5–6.8：可增删改；知识库页与星图页共用） */}
+          {/* ② 重点目录（6.5–6.8：可增删改；知识库页与知识星图页共用） */}
           <section>
             <div className="mb-2 flex items-center justify-between">
               <span className="qs-meta font-medium" style={{ color: 'var(--color-ink-soft)' }}>

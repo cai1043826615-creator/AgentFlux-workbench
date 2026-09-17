@@ -37,6 +37,9 @@ debug.log
 # Firecrawl 调研缓存（网页抓取产物，不入库）
 .firecrawl/
 
+# meow-memory 插件的本地记忆库（个人数据，不入库）
+.dsh-meow/
+
 # git 内部元数据备份目录（.git 快照，本不该入库；曾因 add -A 误入库过）
 .git-backup-*
 .git-tmp-*

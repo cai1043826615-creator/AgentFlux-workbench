@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Deliverable, Task, TopicOption, XhsNote } from '@workbench/shared';
 import { WORKFLOW_STAGE_LABELS, XHS_STAGE_COPY, XHS_STAGE_COVER, XHS_STAGE_DELIVER, XHS_STAGE_INNER, XHS_STAGE_REVIEW, XHS_STAGE_TOPIC, stageIndexOf, stageKeysOf } from '@workbench/shared';
 import { Btn, Empty, Spinner } from '../../../../components/ui.tsx';
+import { ImagePreview } from '../../../../components/ImagePreview.tsx';
 import { useWorkbench } from '../../../../store/useWorkbench.tsx';
 import { useDownloadPackage } from '../../../../lib/useDownloadPackage.ts';
 import { ImagePanel } from './ImagePanel.tsx';
@@ -314,31 +315,8 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
         </div>
       ) : null}
 
-      {preview ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-6"
-          /* ui-rules-ignore 大图预览遮罩：规范允许的遮罩类语义色（AGENTS.md 二.5 例外） */
-          style={{ background: 'rgba(10,10,10,0.72)' }}
-          onClick={() => setPreview(null)}
-        >
-          <div className="relative max-h-full max-w-full" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={preview.url}
-              alt={preview.name}
-              className="max-h-[76vh] max-w-full border object-contain"
-              /* ui-rules-ignore 遮罩上元素描边：半透明白，属遮罩内配色（AGENTS.md 二.5 例外） */
-              style={{ borderColor: 'rgba(255,255,255,0.25)' }}
-            />
-            <button type="button" className="qs-btn sm absolute -top-10 right-0" onClick={() => setPreview(null)}>
-              ✕ 关闭
-            </button>
-            {/* ui-rules-ignore 遮罩上元信息文字：半透明白，属遮罩内配色（AGENTS.md 二.5 例外） */}
-            <div className="qs-meta mt-2 text-center" style={{ color: 'rgba(255,255,255,0.72)' }}>
-              {preview.name}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {/* 大图预览（抽为 ImagePreview 组件，消除与 ContentDeliveryView 的重复实现） */}
+      <ImagePreview preview={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }

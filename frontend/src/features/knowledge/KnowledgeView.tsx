@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeDirInfo, KnowledgeDoc, KnowledgeDocSummary, KnowledgeHealth, KnowledgeSearchHit, KnowledgeStats, KnowledgeStatus, KnowledgeTagInfo } from '@workbench/shared';
 import { Badge, Btn, Empty, Glyph, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
+import { fmtFull } from '../../lib/format.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
 import { dirDisplayName, dirDisplayPath } from './dirDisplayName.ts';
@@ -348,7 +349,7 @@ export function KnowledgeView() {
         </p>
       ) : null}
 
-      {/* 总览带：统计 + 星图缩略预览 + 最近更新 + 健康度小指标（2.2–2.6） */}
+      {/* 总览带：统计 + 知识星图缩略预览 + 最近更新 + 健康度小指标（2.2–2.6） */}
       {/* 总览带（P1 要点②）：1 核心指标 + 3 入口，横向一条 */}
       <KnowledgeOverviewBar status={status} stats={stats} health={health} />
 
@@ -568,7 +569,7 @@ export function KnowledgeView() {
           <div className="qs-card max-h-[62vh] overflow-y-auto p-5">
             {!doc ? (
               /* 阅读区空态（意见 N6）：不只是一行「从左侧选择」，而是承担「引导下一步」的职责：
-                 最近阅读 3 篇 + 今日热点入口 + 健康度一行摘要，把 2/3 屏空间用起来 */
+                 最近阅读 3 篇 + 每日热点入口 + 健康度一行摘要，把 2/3 屏空间用起来 */
               <div data-qs-empty={KB_EMPTY_STATES.kbNoDocSelected.key} className="space-y-4">
                 <div>
                   <h3 className="font-display text-[17px] font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
@@ -637,7 +638,7 @@ export function KnowledgeView() {
                   </h3>
                   <div className="qs-meta mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1" style={{ color: 'var(--color-ink-faint)' }}>
                     <span>{doc.path}</span>
-                    <span>更新 {doc.mtime ? doc.mtime.slice(0, 16).replace('T', ' ') : '—'}</span>
+                    <span>更新 {doc.mtime ? fmtFull(doc.mtime) : '—'}</span>
                     {doc.tags.length > 0 ? <span>标签 {doc.tags.join(' / ')}</span> : null}
                   </div>
                   {doc.anchors.length > 0 ? (
