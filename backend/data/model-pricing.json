@@ -1,0 +1,5 @@
+{
+  "deepseek-chat": { "inputPer1M": 1, "outputPer1M": 4, "currency": "CNY" },
+  "deepseek-flash": { "inputPer1M": 1, "outputPer1M": 4, "currency": "CNY" },
+  "deepseek-v4-pro": { "inputPer1M": 4.5, "outputPer1M": 13.5, "currency": "CNY" }
+}

@@ -1,6 +1,10 @@
 # 密钥与本地数据不入库
 backend/.env.local
-backend/data/
+# backend/data/ 是运行期数据目录（DB/上传/备份），整体忽略；
+# 但 model-pricing.json 是「代码持续依赖的默认单价表」，测试与 CI 都需要它，
+# 故显式白名单放行——否则本地有、CI 无，cost.test.ts 必红。
+backend/data/*
+!backend/data/model-pricing.json
 # 知识库本地配置（Vault 绝对路径与个性化关注域，不入库；见 openspec changes/knowledge-base）
 backend/config/
 *.db
@@ -33,6 +37,30 @@ secrets*
 .claude/
 .pnpm-store/
 debug.log
+# 运行日志：任意位置的 *.log 一律不入库（曾出现 backend-run.log / backend-watch.*.log 裸奔）
+*.log
+# 构建/打包临时产物
+frontend/.tmp-esbuild/
+# 作品集沙盒的构建产物（由 frontend/vite.config.sandbox.ts 生成，源在 frontend/src/sandbox/）
+sandbox-dist/
+# 资源压缩前的原图备份（本地留档用，11MB+，不入库）
+frontend/.assets-original-backup/
+# 验收过程中的临时截图（e2e-*.png 等根目录散图）
+/e2e-*.png
+/audit-*.txt
+/.commit-msg.txt
+
+# 工作台的运行期产出（知识库小助理写入的收件箱/灵感库）。
+# 示例Vault 本身是**演示与复现数据**必须入库（backend/src/agents/skills.ts 默认读
+# docs/示例Vault/技能库），但这几个子目录里是历次验收跑出来的真实产物，不入库。
+docs/示例Vault/知识库/收件箱/小红书/
+docs/示例Vault/知识库/灵感库/
+
+# 不属于本仓库的暂存内容（AgentFlux 作品集介绍页：refs/ 参考快照、vendor-staging/ 依赖包，
+# 源目录在 Documents\ChatGPT\作品集网页开发 下，不应混进本仓库）
+refs/
+vendor-staging/
+tools/agentflux-convert-assets.py
 
 # Firecrawl 调研缓存（网页抓取产物，不入库）
 .firecrawl/

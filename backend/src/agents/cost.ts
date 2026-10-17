@@ -2,7 +2,8 @@
  * 任务级执行汇总与费用估算（delivery-ops B12）
  *
  * - 聚合 agent_executions 中 task_id 匹配的记录：耗时/次数/按阶段/按 Agent/模型/token
- * - 单价表：settings.modelPricing 优先，其次 backend/data/model-pricing.json（gitignore，不入版本库）；
+ * - 单价表：settings.modelPricing 优先，其次 backend/data/model-pricing.json
+ *   （运行期数据目录本身被 gitignore，但该单价表是代码持续依赖的默认值，已单独白名单入库）；
  *   源码内零价目字面量。无可用单价表或均未命中实际模型时 cost = null（不臆造金额）。
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ export interface ModelPricingEntry {
 }
 export type ModelPricingTable = Record<string, ModelPricingEntry>;
 
-/** 本地默认单价表路径（gitignore：backend/data/） */
+/** 本地默认单价表路径（backend/data/ 整体忽略，此文件已白名单入库） */
 const PRICING_FILE = join(import.meta.dirname, '..', '..', 'data', 'model-pricing.json');
 
 /** 读取生效单价表：settings.modelPricing 优先，其次本地默认文件；均无 → null */
