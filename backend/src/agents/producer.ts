@@ -9,9 +9,17 @@ export interface ReviewIssue {
   targetStage: string;
   note: string;
 }
+/** 校对检查项（与小红书 ComplianceReport.checks 同口径：固定几类合规检查的通过情况） */
+export interface ReviewCheck {
+  passed: boolean;
+  label: string;
+  note?: string;
+}
 export interface ReviewReport {
   report: string;
   issues: ReviewIssue[];
+  /** 固定合规检查项（绝对化用语/医疗宣称 + 视觉一致性）；旧任务无此字段 → 面板只显示结论 */
+  checks?: ReviewCheck[];
 }
 
 export interface StageProducer {
@@ -86,6 +94,11 @@ export class MockProducer implements StageProducer {
     }
     return {
       report: '校对报告（mock）：标题/关键词/卖点与图片信息一致，平台规格完整，无待修改项，准予放行。',
+      checks: [
+        { passed: true, label: '配图与参考图主体一致' },
+        { passed: true, label: '无「最」「第一」等绝对化用语' },
+        { passed: true, label: '功效描述无医疗宣称' },
+      ],
       issues: [],
     };
   }

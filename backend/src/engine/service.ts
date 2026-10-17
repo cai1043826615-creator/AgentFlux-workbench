@@ -215,7 +215,13 @@ export class WorkflowService {
             const rep = r as ReviewReport;
             return `校对结论：${rep.issues.length ? `发现 ${rep.issues.length} 处问题，触发返工` : '无问题，准予放行'}`;
           })) as ReviewReport;
-          delivery.saveDeliverable(t.id, node.id, 'copy', { title: '主管校对报告', points: [], outline: report.report, keywords: [] });
+          delivery.saveDeliverable(t.id, node.id, 'copy', {
+            title: '主管校对报告',
+            // checks → points：合规面板读 points 渲染「✓/✕ 检查项」清单（与小红书 produceCompliance 同口径）
+            points: (report.checks ?? []).map((c) => `${c.passed ? '通过' : '未通过'}：${c.label}${c.note ? `（${c.note}）` : ''}`),
+            outline: report.report,
+            keywords: [],
+          });
           t = report.issues.length
             ? this.ex(task).reviewRollback(t.id, report.issues[0].targetStage, report.issues[0].note)
             : this.ex(task).reviewPass(t.id);

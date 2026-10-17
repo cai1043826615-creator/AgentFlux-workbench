@@ -401,17 +401,42 @@ export class SmartProducer implements StageProducer {
    */
   async produceReview(task: Task): Promise<ReviewReport> {
     const agentId = AGENT_IDS['主管'];
+    // 实际文案产出（卖点/标题/关键词/大纲）：合规检查必须审真实内容，
+    // 否则模型只能回「未提供文案，无法核对」——检查项形同空转（与小红书 textCompliance 同口径）
+    const copyText = (() => {
+      const d = delivery.getDeliverable(task.id, 'copy', 'copy');
+      if (!d) return '';
+      try {
+        const c = JSON.parse(d.content) as { title?: string; points?: string[]; outline?: string; keywords?: string[] };
+        const parts = [
+          c.title ? `标题：${c.title}` : '',
+          Array.isArray(c.points) && c.points.length ? `卖点：${c.points.join('；')}` : '',
+          c.outline ? `详情大纲：${c.outline}` : '',
+          Array.isArray(c.keywords) && c.keywords.length ? `关键词：${c.keywords.join('、')}` : '',
+        ].filter(Boolean);
+        return parts.join('\n');
+      } catch {
+        return '';
+      }
+    })();
     const fallbackTextReview = () =>
       this.withLlm<ReviewReport>(
         agentId,
-        '你是电商质检主管，做跨产出物一致性校对（文案与图片信息一致、规格完整、平台合规）。严格输出 JSON：{"report":"校对报告（中文，200字内）","issues":[{"targetStage":"copy|main-image|detail-image","note":"问题描述"}...]}，无问题则 issues 为空数组。',
-        `任务：${task.title}（当前待校对全部产出）\n请给出校对报告与问题清单（targetStage 只能是 copy / main-image / detail-image）。`,
+        '你是电商质检主管，做跨产出物一致性校对（文案与图片信息一致、规格完整、平台合规）与合规检查。严格输出 JSON：{"report":"校对报告（中文，200字内）","checks":[{"passed":true,"label":"检查项","note":"说明"}...],"issues":[{"targetStage":"copy|main-image|detail-image","note":"问题描述"}...]}，无问题则 issues 为空数组。\n检查项固定为三类（必须逐项给出，不得因「未提供内容」而含糊其辞）：①绝对化/违禁用语；②医疗功效宣称；③文案与图片信息一致。\n判定尺度（避免误报）：\n1. 只标注明确违规词；行业通用描述（如「不酸」「温和」「舒缓」）不算医疗宣称；\n2. 医疗宣称 = 声称治疗/治愈/修复疾病或生理问题；单纯描述使用体验不属于；\n3. 每个未通过项必须在 note 里引用原文词句并给出改写建议；给不出原文词句的项不得标记为未通过；\n4. 疑似但拿不准 → 通过并在 note 里标注「建议复核」，不进 issues；\n5. note 写具体结论（如「未发现绝对化用语」），不要写「未提供内容」这类推诿说明。',
+        `任务：${task.title}\n\n【待审文案产出】\n${copyText || '（本任务暂无文案产出）'}\n\n请给出校对报告、合规检查项与问题清单（targetStage 只能是 copy / main-image / detail-image）。`,
         () => this.mock.produceReview(task),
         (text) => {
           const parsed = extractJson<Partial<ReviewReport>>(text);
           if (!parsed || !parsed.report) return null;
           return {
             report: parsed.report,
+            checks: Array.isArray(parsed.checks)
+              ? parsed.checks.slice(0, 5).map((c) => ({
+                  passed: c.passed === true,
+                  label: String(c.label ?? ''),
+                  note: c.note ? String(c.note) : undefined,
+                }))
+              : undefined,
             issues: Array.isArray(parsed.issues) ? parsed.issues.slice(0, 3).map((i) => ({ targetStage: String(i.targetStage ?? 'main-image'), note: String(i.note ?? '') })) : [],
           };
         },
@@ -419,11 +444,13 @@ export class SmartProducer implements StageProducer {
         task.workflowId,
       );
 
+    // 视觉一致性校对与文本合规校对并行取数：两者共同构成 checks（与小红书同口径）
     const baseline = (await resolveReferenceImage(task, false)) || (await resolveReferenceImage(task, true)) || task.referenceImage;
     const targets = await collectStageImages(task.id);
     if (!baseline || targets.length === 0) {
       // 无图可审（纯文案链路或图片缺失）→ 文本校对
-      return fallbackTextReview();
+      const textOnly = await fallbackTextReview();
+      return { ...textOnly, checks: textOnly.checks ?? [] };
     }
 
     const baselineName = task.referenceImage ? '上传参考图' : '主图1';
@@ -445,13 +472,24 @@ export class SmartProducer implements StageProducer {
     } catch (err) {
       // 视觉渠道不可用 → 降级文本校对
       console.warn(`[producer] 视觉审阅渠道不可用，降级文本校对: ${err instanceof Error ? err.message : err}`);
-      return fallbackTextReview();
+      const textOnly = await fallbackTextReview();
+      return { ...textOnly, checks: textOnly.checks ?? [] };
     }
+
+    // 文本合规项（绝对化用语/医疗宣称）随视觉结论一起返回：与小红书 produceCompliance 同口径
+    const textPart = await fallbackTextReview();
+    const visualPassed = issues.length === 0;
+    const visualCheck = {
+      passed: visualPassed,
+      label: baseline ? '配图与参考图主体一致' : '配图与文案描述相符',
+      note: `${checked} 张已核对${failed ? `，${failed} 张检查失败已跳过` : ''}`,
+    };
 
     return {
       report: issues.length
         ? `视觉一致性校对（基准：${baselineName}）：发现 ${issues.length} 处图片与基准产品不一致${failed ? `；${failed} 张检查失败已跳过` : ''}，已打回对应阶段返工。`
         : `视觉一致性校对（基准：${baselineName}）：${checked} 张图片与基准产品一致${failed ? `（${failed} 张检查失败已跳过）` : ''}，无问题，准予放行。`,
+      checks: [visualCheck, ...(textPart.checks ?? [])],
       issues,
     };
   }
