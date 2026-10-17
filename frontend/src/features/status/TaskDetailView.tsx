@@ -5,7 +5,6 @@ import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Modal, ModalFooter, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { fmtTime, fmtFull, relTime } from '../../lib/format.ts';
-import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
 import { KbRefPicker } from '../knowledge/KbRefPicker.tsx';
@@ -300,7 +299,7 @@ function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) 
  *  核验 D-19：新增「编辑 / ＋ 关联资料」入口。此前只在「新建任务」弹窗第 2 步可设，
  *  任务建好后无法补挂资料 —— 而详情页顶部又会警示「参数由模型生成，请人工核对」，
  *  用户看到警示却无路可走（库内 68% 的任务无任何关联资料）。现在可就地补挂/修改。 */
-function KbRefsPanel({ taskId, taskColumn, defaultKbQuery }: { taskId: number; taskColumn: string; defaultKbQuery?: string }) {
+function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: string }) {
   const { openDocPreview } = useWorkbench();
   const [refs, setRefs] = useState<TaskKbRef[] | null>(null);
   const [allDocs, setAllDocs] = useState<KnowledgeDocSummary[]>([]);
@@ -457,8 +456,7 @@ function KbRefsPanel({ taskId, taskColumn, defaultKbQuery }: { taskId: number; t
       </div>
 
       <Modal open={editing} title="关联知识库资料" onClose={() => setEditing(false)} width={560}>
-        {/* 沙盒演示：按本任务所属工作流预置关键词（电商/小红书），打开即显示相关资料 */}
-        <KbRefPicker value={draft} onChange={setDraft} defaultQuery={defaultKbQuery} />
+        <KbRefPicker value={draft} onChange={setDraft} />
         <p className="qs-meta mt-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
           新资料将在后续阶段的生成中生效
           {taskColumn === 'progress' ? '；已产出阶段需先打回重做，才会使用新资料。' : '。'}
@@ -748,12 +746,7 @@ export function TaskDetailView({
             </div>
 
             {/* 关联知识库资料（核验 D-19：空态也显示，并提供「＋ 关联资料 / 编辑」入口） */}
-            <KbRefsPanel
-              taskId={task.id}
-              taskColumn={task.column}
-              // 沙盒按工作流预置知识库关键词（电商/小红书）并自动展示，正常使用为 undefined
-              defaultKbQuery={isSandboxMode() ? (isXhsWorkflow(task.workflowId) ? '小红书' : '电商') : undefined}
-            />
+            <KbRefsPanel taskId={task.id} taskColumn={task.column} />
 
             {/* 任务背景 · 外部环境情报（hot-intel D2：有则显示，无则不占位） */}
             <HotRefsPanel taskId={task.id} />

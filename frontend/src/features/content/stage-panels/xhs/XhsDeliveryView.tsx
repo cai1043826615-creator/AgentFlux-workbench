@@ -6,7 +6,6 @@ import { Btn, Empty, Spinner } from '../../../../components/ui.tsx';
 import { ImagePreview } from '../../../../components/ImagePreview.tsx';
 import { useWorkbench } from '../../../../store/useWorkbench.tsx';
 import { useDownloadPackage } from '../../../../lib/useDownloadPackage.ts';
-import { isSandboxMode } from '../../../../lib/sandbox-mode.ts';
 import { ImagePanel } from './ImagePanel.tsx';
 import { NotePanel } from './NotePanel.tsx';
 import { TopicPanel } from './TopicPanel.tsx';
@@ -247,9 +246,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               待确认 · {stageName}
             </div>
             <div className="qs-meta mt-0.5" style={{ color: 'var(--color-ink-soft)' }}>
-              {isSandboxMode()
-                ? '演示模式 · 采纳会记录你的决定并标记为已采纳（沙盒不推进阶段，真实环境由 AI 继续产出）；失败可打回重做。'
-                : '在上方内容卡内逐项「采纳 / 打回」，全部采纳后自动进入下一阶段；失败可打回重做。'}
+              在上方内容卡内逐项「采纳 / 打回」，全部采纳后自动进入下一阶段；失败可打回重做。
             </div>
           </div>
           <Btn variant="primary" className="shrink-0" disabled={busy} onClick={() => void oneClickAdopt()}>

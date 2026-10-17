@@ -6,7 +6,6 @@ import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { ArchivedTasksModal } from './ArchivedTasksModal.tsx';
 import { DeliverableSearch, KbInvalidBadge, TaskFilterBar, TaskListTable } from './TaskListView.tsx';
 import { useDownloadPackage } from '../../lib/useDownloadPackage.ts';
-import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 
 /** 看板列定义（对齐线框 columns） */
 const COLUMNS: { key: BoardColumn; label: string }[] = [
@@ -306,8 +305,7 @@ export function BoardView({ onOpen, onNew }: { onOpen: (id: number) => void; onN
         <Btn variant="ghost" onClick={() => setArchiveOpen(true)} title="查看与恢复已归档任务">
           {archivedCount > 0 ? `已归档任务（${archivedCount}）` : '已归档任务'}
         </Btn>
-        {/* 沙盒演示：冻结「新建任务」——访客只能浏览既有案例，不能新建（否则会进入无产出的空流程） */}
-        <Btn onClick={onNew} disabled={isSandboxMode()} title={isSandboxMode() ? '演示模式：不支持新建任务' : undefined}>
+        <Btn onClick={onNew}>
           ＋ 新建任务
         </Btn>
       </div>
