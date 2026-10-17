@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KB_REF_LIMIT, type KnowledgeSearchHit, type KnowledgeStatus, type TaskKbRefInput } from '@workbench/shared';
 import { Badge, Btn, Empty } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
@@ -9,10 +9,22 @@ import { KB_EMPTY_STATES } from './kbEmpty.ts';
  * - 从知识库搜索勾选资料，最多 6 份（超出时提示并阻止继续勾选）
  * - 支持「整篇 / 章节片段」两种粒度（坑4：资料关联粒度是片段而非整份）
  * - 知识库未连接时显示提示并允许跳过，任务创建流程完全不受影响（6.5 独立性）
+ *
+ * `defaultQuery`（可选）：打开时预填关键词并**立即展示结果**，省去用户手动输入。
+ * 作品集沙盒据此按任务所属工作流预置「电商 / 小红书」，让访客一进来就能看到资料；
+ * 正常使用时不传该参数，行为与原先完全一致（空白起手、手动搜索）。
  */
-export function KbRefPicker({ value, onChange }: { value: TaskKbRefInput[]; onChange: (next: TaskKbRefInput[]) => void }) {
+export function KbRefPicker({
+  value,
+  onChange,
+  defaultQuery,
+}: {
+  value: TaskKbRefInput[];
+  onChange: (next: TaskKbRefInput[]) => void;
+  defaultQuery?: string;
+}) {
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(defaultQuery ?? '');
   const [hits, setHits] = useState<KnowledgeSearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
   /** docPath → 展示标题（勾选时记录，避免额外请求） */
@@ -53,6 +65,21 @@ export function KbRefPicker({ value, onChange }: { value: TaskKbRefInput[]; onCh
       setBusy(false);
     }
   };
+
+  /**
+   * 预置关键词时**自动执行一次搜索**：让用户（沙盒访客）打开即见资料，无需手动输入。
+   * 只在「有默认关键词 + 知识库已连接 + 尚未自动搜过」时触发一次，之后完全交给用户操作；
+   * 正常使用（不传 defaultQuery）时该 effect 直接 return，行为与原先一致。
+   */
+  const autoSearchedRef = useRef(false);
+  useEffect(() => {
+    const q = (defaultQuery ?? '').trim();
+    if (!q || !connected || autoSearchedRef.current) return;
+    autoSearchedRef.current = true;
+    void search();
+    // 仅在连接状态就绪后触发一次；search 内部依赖当前 query，这里不需要重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, defaultQuery]);
 
   const toggleDoc = (docPath: string) => {
     if (isPicked(docPath, null)) {

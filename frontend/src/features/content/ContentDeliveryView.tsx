@@ -8,6 +8,7 @@ import { fmtTime } from '../../lib/format.ts';
 import { MutedPlaceholder, resolveInfoBarRef, sortImagesByDeclaredOrder } from './stage-panels/xhs/shared.tsx';
 import { TaskInfoBar } from './stage-panels/xhs/TaskInfoBar.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 
 /* ===== 内容交付视图（组7 · 任务 7.1-7.6：左右等宽分栏 + 逐张审批 + 终审回退） ===== */
@@ -265,9 +266,11 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
             审批 · 待确认 {stageDisplayName(task.stage)} #{task.id}
           </div>
           <div className="qs-meta" style={{ color: 'var(--color-ink-soft)' }}>
-            {pendingKind === 'copy'
-              ? '待确认 · 采纳后自动进入图片设计（在上方文案卡内操作）；失败可打回重做。'
-              : '待逐张确认 · 全部采纳后自动推进（在上方图片卡内逐张操作）；失败可打回重做。'}
+            {isSandboxMode()
+              ? '演示模式 · 采纳会记录你的决定并标记为已采纳（沙盒不推进阶段，真实环境由 AI 继续产出）；失败可打回重做。'
+              : pendingKind === 'copy'
+                ? '待确认 · 采纳后自动进入图片设计（在上方文案卡内操作）；失败可打回重做。'
+                : '待逐张确认 · 全部采纳后自动推进（在上方图片卡内逐张操作）；失败可打回重做。'}
           </div>
         </div>
         {/* 一键采纳（快捷操作，与上方内容卡内逐项操作并存；采纳后自动推进，条随之消失） */}

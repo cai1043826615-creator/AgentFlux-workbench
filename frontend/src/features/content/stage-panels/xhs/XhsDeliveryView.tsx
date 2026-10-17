@@ -6,10 +6,10 @@ import { Btn, Empty, Spinner } from '../../../../components/ui.tsx';
 import { ImagePreview } from '../../../../components/ImagePreview.tsx';
 import { useWorkbench } from '../../../../store/useWorkbench.tsx';
 import { useDownloadPackage } from '../../../../lib/useDownloadPackage.ts';
+import { isSandboxMode } from '../../../../lib/sandbox-mode.ts';
 import { ImagePanel } from './ImagePanel.tsx';
 import { NotePanel } from './NotePanel.tsx';
 import { TopicPanel } from './TopicPanel.tsx';
-import { CompliancePanel, parseCompliance } from './CompliancePanel.tsx';
 import { TaskInfoBar } from './TaskInfoBar.tsx';
 import { PendingCard, copyJsonForStage, imagesForStage, resolveInfoBarRef, type PanelState, type ParsedImg } from './shared.tsx';
 
@@ -67,8 +67,6 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
 
   const coverImgs = useMemo(() => imagesForStage(delivered, XHS_STAGE_COVER, wfId), [delivered, wfId]);
   const innerImgs = useMemo(() => imagesForStage(delivered, XHS_STAGE_INNER, wfId), [delivered, wfId]);
-  /** 合规审核结果（主管校对报告；shared 解析口径与任务详情一致） */
-  const compliance = useMemo(() => parseCompliance(delivered), [delivered]);
   /** 信息条参考图：上传图优先，无则回退 AI 生成的首图（与电商逻辑统一） */
   const infoRef = useMemo(() => resolveInfoBarRef(task.referenceImage, coverImgs), [task.referenceImage, coverImgs]);
 
@@ -186,13 +184,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
         }
       />
 
-      {/* 合规审核（自动节点）：紧跟当前阶段信息条展示，无决策按钮 */}
-      {(() => {
-        const cur = STAGES.indexOf(task.stage);
-        const rIdx = STAGES.indexOf(XHS_STAGE_REVIEW);
-        const rState: PanelState = task.column === 'done' || (rIdx >= 0 && cur > rIdx) ? 'done' : compliance ? 'done' : cur === rIdx ? 'working' : 'none';
-        return <CompliancePanel data={compliance} state={rState} />;
-      })()}
+      {/* 合规审核已移至「任务详情」页（用户定案 2026-09-17：统一放溯源模块上方） */}
 
       {/* 第一行：选题方向 | 笔记文案（等宽并排） */}
       <div className="grid grid-cols-2 items-stretch gap-4">
@@ -255,7 +247,9 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               待确认 · {stageName}
             </div>
             <div className="qs-meta mt-0.5" style={{ color: 'var(--color-ink-soft)' }}>
-              在上方内容卡内逐项「采纳 / 打回」，全部采纳后自动进入下一阶段；失败可打回重做。
+              {isSandboxMode()
+                ? '演示模式 · 采纳会记录你的决定并标记为已采纳（沙盒不推进阶段，真实环境由 AI 继续产出）；失败可打回重做。'
+                : '在上方内容卡内逐项「采纳 / 打回」，全部采纳后自动进入下一阶段；失败可打回重做。'}
             </div>
           </div>
           <Btn variant="primary" className="shrink-0" disabled={busy} onClick={() => void oneClickAdopt()}>

@@ -115,7 +115,16 @@ interface WorkbenchState {
 
 const VIEWS: WorkbenchView[] = ['board', 'task', 'observability', 'knowledge', 'knowledge-graph', 'hot'];
 function viewFromHash(): { view: WorkbenchView; taskId: number | null } {
-  const h = location.hash.replace('#/', '');
+  // 先剥离 hash 内的查询串与片段（如 `#/task/102?from=portfolio`、`#/hot#top`）：
+  // 分享链接常带推广参数（UTM 等），不剥离会让 `:id` 解析成「102?from=...」→ 任务详情整屏空白。
+  // 先 decodeURIComponent 是为了兜住 `%3F` 这类编码形式的问号（部分分享渠道会转义）。
+  let raw = location.hash;
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    /* 非法编码序列（如单独的 %）→ 保持原样，不让路由整体失效 */
+  }
+  const h = raw.replace('#/', '').split(/[?#]/)[0];
   if (h.startsWith('task/')) {
     const id = Number(h.slice(5));
     return { view: 'task', taskId: Number.isFinite(id) ? id : null };

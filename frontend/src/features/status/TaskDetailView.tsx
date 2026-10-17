@@ -5,10 +5,12 @@ import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Modal, ModalFooter, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { fmtTime, fmtFull, relTime } from '../../lib/format.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
 import { KbRefPicker } from '../knowledge/KbRefPicker.tsx';
 import { DownloadButton, KbInvalidBadge } from '../board/TaskListView.tsx';
+import { parseCompliance } from '../content/stage-panels/xhs/CompliancePanel.tsx';
 
 const EVENT_LABELS: Record<TaskEventType, string> = {
   TASK_CREATED: '创建任务',
@@ -298,7 +300,7 @@ function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) 
  *  核验 D-19：新增「编辑 / ＋ 关联资料」入口。此前只在「新建任务」弹窗第 2 步可设，
  *  任务建好后无法补挂资料 —— 而详情页顶部又会警示「参数由模型生成，请人工核对」，
  *  用户看到警示却无路可走（库内 68% 的任务无任何关联资料）。现在可就地补挂/修改。 */
-function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: string }) {
+function KbRefsPanel({ taskId, taskColumn, defaultKbQuery }: { taskId: number; taskColumn: string; defaultKbQuery?: string }) {
   const { openDocPreview } = useWorkbench();
   const [refs, setRefs] = useState<TaskKbRef[] | null>(null);
   const [allDocs, setAllDocs] = useState<KnowledgeDocSummary[]>([]);
@@ -455,7 +457,8 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
       </div>
 
       <Modal open={editing} title="关联知识库资料" onClose={() => setEditing(false)} width={560}>
-        <KbRefPicker value={draft} onChange={setDraft} />
+        {/* 沙盒演示：按本任务所属工作流预置关键词（电商/小红书），打开即显示相关资料 */}
+        <KbRefPicker value={draft} onChange={setDraft} defaultQuery={defaultKbQuery} />
         <p className="qs-meta mt-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
           新资料将在后续阶段的生成中生效
           {taskColumn === 'progress' ? '；已产出阶段需先打回重做，才会使用新资料。' : '。'}
@@ -745,10 +748,19 @@ export function TaskDetailView({
             </div>
 
             {/* 关联知识库资料（核验 D-19：空态也显示，并提供「＋ 关联资料 / 编辑」入口） */}
-            <KbRefsPanel taskId={task.id} taskColumn={task.column} />
+            <KbRefsPanel
+              taskId={task.id}
+              taskColumn={task.column}
+              // 沙盒按工作流预置知识库关键词（电商/小红书）并自动展示，正常使用为 undefined
+              defaultKbQuery={isSandboxMode() ? (isXhsWorkflow(task.workflowId) ? '小红书' : '电商') : undefined}
+            />
 
             {/* 任务背景 · 外部环境情报（hot-intel D2：有则显示，无则不占位） */}
             <HotRefsPanel taskId={task.id} />
+
+            {/* 合规审核（用户定案 2026-09-17：内容交付页移除，统一放「未关联知识库资料/溯源」上方；
+                两流共用，校对节点 id 按工作流取：小红书 xhs-review、电商 review；无数据不占位） */}
+            <TaskCompliancePanel task={task} deliverables={deliverables} />
 
             {/* 产出溯源（B1：溯源率 + 明细 + 未关联警示；无产出/无事实项时不占位） */}
             <ProvenancePanel taskId={task.id} />
@@ -789,6 +801,58 @@ export function TaskDetailView({
           </aside>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ===== 合规审核（用户定案 2026-09-17：两流统一放任务详情页、溯源模块上方） ===== */
+
+/**
+ * 合规审核面板：只展示检查清单，无人工决策按钮（自动节点）。
+ * - 校对阶段按工作流取：小红书 xhs-review、电商 review
+ * - 无校对产出（未到校对阶段 / 历史无 checks 的任务）→ 不渲染，不占位
+ */
+function TaskCompliancePanel({ task, deliverables }: { task: TaskWithMeta; deliverables: Deliverable[] }) {
+  const reviewStage = isXhsWorkflow(task.workflowId) ? 'xhs-review' : 'review';
+  const data = useMemo(() => parseCompliance(deliverables, reviewStage), [deliverables, reviewStage]);
+  // 旧任务的校对报告只有结论、无 checks 清单 → 仍展示结论，但不渲染空的清单区
+  if (!data) return null;
+  const passed = data.checks.every((c) => c.passed);
+
+  return (
+    <div className="qs-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="font-display text-[15px] font-semibold">合规审核</h3>
+        <Badge tone={passed ? 'ok' : 'no'}>{passed ? '自动放行' : '已回退'}</Badge>
+      </div>
+      <p className="qs-meta mb-2.5">主管 Agent 自动检查，无需人工确认。</p>
+      {data.checks.length > 0 ? (
+        <div className="space-y-1.5 text-[13px]">
+          {data.checks.map((c, i) => (
+            <div
+              key={`${c.label}-${i}`}
+              className="flex items-start gap-2 border-b pb-1.5 last:border-b-0"
+              style={{ borderColor: 'var(--color-line)' }}
+            >
+              <span
+                className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[10px] font-bold"
+                style={
+                  c.passed
+                    ? { background: 'var(--color-ok-soft)', color: 'var(--color-ok)' }
+                    : { background: 'var(--color-danger-soft)', color: 'var(--color-danger)' }
+                }
+              >
+                {c.passed ? '✓' : '✕'}
+              </span>
+              <span style={{ color: 'var(--color-ink-soft)' }}>
+                {c.label}
+                {c.note ? <span className="qs-meta block">{c.note}</span> : null}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {data.report ? <div className="qs-meta mt-2.5">{data.report}</div> : null}
     </div>
   );
 }

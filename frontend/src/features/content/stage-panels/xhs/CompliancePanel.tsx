@@ -4,7 +4,8 @@ import { PanelCard, copyJsonForStage, type PanelCommon } from './shared.tsx';
 
 /* 合规审核（自动节点）：只展示检查清单，不提供任何人工决策按钮。
    「它是自动的」靠面板内文案说明，阶段条上不加「自动」角标。
-   位置：渲染在「任务详情」页顶部（用户定案）。 */
+   位置：渲染在「任务详情」页，溯源模块上方（用户定案 2026-09-17）。
+   两条工作流共用此面板：校对节点 id 不同（xhs-review / review），故由调用方传入。 */
 
 export interface ComplianceView {
   report: string;
@@ -12,13 +13,20 @@ export interface ComplianceView {
   issues: { targetStage: string; note: string }[];
 }
 
-/** 解析合规审核结果（任务详情页顶部使用；与内容交付共用同一口径） */
-export function parseCompliance(deliverables: Deliverable[]): ComplianceView | null {
-  const raw = copyJsonForStage<{ outline?: string; points?: string[] }>(deliverables, XHS_STAGE_REVIEW);
+/**
+ * 解析合规/校对结果（任务详情页使用；两流共用）。
+ * 校对阶段：小红书为 xhs-review、电商为 review——按任务工作流传入。
+ * points 形如「通过：配图与参考图主体一致」/「未通过：xxx（说明）」。
+ */
+export function parseCompliance(deliverables: Deliverable[], reviewStage: string = XHS_STAGE_REVIEW): ComplianceView | null {
+  const raw = copyJsonForStage<{ outline?: string; points?: string[] }>(deliverables, reviewStage);
   if (!raw) return null;
   const checks = (raw.points ?? []).map((p) => {
     const passed = p.startsWith('通过') && !p.startsWith('未通过');
-    return { passed, label: p.replace(/^(通过|未通过)：?/, '') };
+    // 「通过：配图与参考图主体一致（1 张已核对）」→ label 与 note 拆开
+    const body = p.replace(/^(通过|未通过)：?/, '');
+    const m = /^(.*?)（(.+)）$/.exec(body);
+    return { passed, label: m ? m[1] : body, note: m ? m[2] : undefined };
   });
   return { report: raw.outline ?? '', checks, issues: [] };
 }

@@ -5,6 +5,7 @@ import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter, type GlyphName } 
 import { AvatarStatus } from './components/AvatarStatus.tsx';
 import { api } from './lib/api.ts';
 import { onWindowFocus } from './lib/approval-notify.ts';
+import { isSandboxMode } from './lib/sandbox-mode.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
 import { ChatPanel } from './features/chat/ChatPanel.tsx';
 import { WorkstationBar } from './features/workstation/WorkstationBar.tsx';
@@ -17,6 +18,7 @@ import { HotView } from './features/knowledge/HotView.tsx';
 import { KbRefPicker } from './features/knowledge/KbRefPicker.tsx';
 import { ToastHost, ActionToastStack } from './components/Toast.tsx';
 import { DocPreviewModal } from './components/DocPreviewModal.tsx';
+import { SandboxGuideMount } from './sandbox/SandboxGuideMount.tsx';
 
 /** 折叠态头像列：状态点/文案映射（与 ChatPanel 顶部头像一致） */
 const AGENT_DOT: Record<AgentOnlineStatus, string> = {
@@ -318,20 +320,22 @@ function NewTaskModal() {
           </p>
           <ModalFooter>
             <Btn onClick={reset}>取消</Btn>
-            <Btn variant="primary" onClick={() => setStep('kb')} disabled={!canNext}>
+            <Btn variant="primary" onClick={() => setStep('kb')} disabled={!canNext || isSandboxMode()} title={isSandboxMode() ? '演示模式：不支持新建任务' : undefined}>
               下一步：关联知识库资料
             </Btn>
           </ModalFooter>
         </>
       ) : step === 'kb' ? (
         <>
-          <KbRefPicker value={kbRefs} onChange={setKbRefs} />
+          {/* 沙盒演示：按所选工作流预置关键词并自动展示资料，访客打开即见、无需手动搜索；
+              正常使用时不传该参数，仍是空白起手手动搜索。 */}
+          <KbRefPicker value={kbRefs} onChange={setKbRefs} defaultQuery={isSandboxMode() ? (isXhs ? '小红书' : '电商') : undefined} />
           <p className="qs-meta mt-3" style={{ color: 'var(--color-ink-faint)' }}>
             关联的资料会在 Agent 生成时作为只读事实参考注入上下文；本步骤可选，直接跳过不影响开工。
           </p>
           <ModalFooter>
             <Btn onClick={() => setStep('form')}>返回修改</Btn>
-            <Btn variant="primary" onClick={() => setStep('confirm')}>
+            <Btn variant="primary" onClick={() => setStep('confirm')} disabled={isSandboxMode()} title={isSandboxMode() ? '演示模式：不支持新建任务' : undefined}>
               下一步：确认内容
             </Btn>
           </ModalFooter>
@@ -383,7 +387,7 @@ function NewTaskModal() {
           </p>
           <ModalFooter>
             <Btn onClick={() => setStep('kb')}>返回修改</Btn>
-            <Btn variant="primary" onClick={submit} disabled={busy}>{busy ? '创建中…' : '确认创建任务'}</Btn>
+            <Btn variant="primary" onClick={submit} disabled={busy || isSandboxMode()} title={isSandboxMode() ? '演示模式：不支持新建任务' : undefined}>{busy ? '创建中…' : '确认创建任务'}</Btn>
           </ModalFooter>
         </>
       )}
@@ -618,6 +622,8 @@ function Shell() {
       <DocPreviewModal />
       <ToastHost />
       <ActionToastStack />
+      {/* 沙盒新手引导（仅 ?sandbox=1 / VITE_SANDBOX=1 时渲染，非沙盒模式零渲染） */}
+      <SandboxGuideMount />
     </div>
   );
 }
