@@ -160,17 +160,17 @@ function NewTaskModal() {
     setImageCount(3);
   };
 
-  // 沙盒新建任务预填 iPad Pro 与随附参考图；正式模式仍从空表单开始。
+  // 新建任务预填 iPad Pro 与随附参考图；沙盒模式额外冻结上传操作。
   useEffect(() => {
     if (!open) return;
     setStep('form');
-    setTitle(sandboxMode ? 'iPad Pro' : '');
+    setTitle('iPad Pro');
     setDesc(sandboxMode ? '请依据参考图及已核验资料撰写内容；不得从图片推断未确认的规格、材质或功能。' : '');
     setPlatforms([]);
-    setRefDataUrl(sandboxMode ? new URL(`${import.meta.env.BASE_URL}demo/ipad-pro-reference.jpg`, window.location.href).toString() : null);
+    setRefDataUrl(new URL(`${import.meta.env.BASE_URL}demo/ipad-pro-reference.jpg`, window.location.href).toString());
     setKbRefs([]);
     setTouched(false);
-    setProduct(sandboxMode ? 'iPad Pro' : '');
+    setProduct('iPad Pro');
     setWorkflowId(currentWorkflowId); // 每次打开同步左栏当前工作流
     if (fileRef.current) fileRef.current.value = '';
   }, [open]);
@@ -215,7 +215,20 @@ function NewTaskModal() {
       // report-driven-fixes 1.5（D-06）：未选参考图（小红书工作流允许无图）时不发带空图的 400 请求。
       if (refDataUrl && !sandboxMode) {
         try {
-          const { url } = await api.uploadImage(refDataUrl);
+          let uploadData = refDataUrl;
+          if (!uploadData.startsWith('data:')) {
+            const response = await fetch(uploadData);
+            if (!response.ok) throw new Error(`参考图读取失败：${response.status}`);
+            const blob = await response.blob();
+            uploadData = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('参考图读取失败'));
+              reader.onerror = () => reject(reader.error ?? new Error('参考图读取失败'));
+              reader.readAsDataURL(blob);
+            });
+          }
+          referenceImage = uploadData;
+          const { url } = await api.uploadImage(uploadData);
           if (url) referenceImage = url;
         } catch (err) {
           console.warn('[新建任务] 参考图上传失败，回退为 dataURL', err);
