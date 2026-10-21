@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { api } from './api.ts';
+import { isSandboxMode } from './sandbox-mode.ts';
 
 /** 交付包下载（B4 · 4.10）：触发浏览器下载 ZIP；错误（含 409 无交付物）以行内文本展示 */
 export function useDownloadPackage(taskId: number) {
@@ -7,7 +8,7 @@ export function useDownloadPackage(taskId: number) {
   const [error, setError] = useState<string | null>(null);
 
   const download = useCallback(async () => {
-    if (busy) return;
+    if (busy || isSandboxMode()) return;
     setBusy(true);
     setError(null);
     try {

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="主图 · 白底磁吸特写">
+  <rect width="800" height="800" fill="#ffffff"/>
+  <!-- 商品主体区：居中留白，四周 40px 安全边距（对齐《电商主图规范》） -->
+  <rect x="40" y="40" width="720" height="720" fill="none" stroke="#ececee"/>
+  <rect x="150" y="150" width="500" height="460" rx="4" fill="#fafafa" stroke="#dcdce0"/>
+  <g stroke="#dcdce0" fill="none">
+    <path d="M150 610 H650"/>
+    <path d="M400 150 V610" stroke-dasharray="6 8"/>
+  </g>
+  <text x="400" y="394" text-anchor="middle" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="34" fill="#52525b">商品主体</text>
+  <text x="400" y="436" text-anchor="middle" font-family="JetBrains Mono, Consolas, monospace" font-size="20" fill="#71717a">800 × 800</text>
+
+  <!-- 卖点标注块：每张图只讲一个卖点（规范原文要求） -->
+  <rect x="150" y="624" width="500" height="70" rx="4" fill="#f4f4f5"/>
+  <text x="400" y="668" text-anchor="middle" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="600" fill="#0a0a0a">磁吸即充 · 贴上就开始充电</text>
+
+  <!-- 角标：主色只在这里出现，保持稀疏 -->
+  <rect x="40" y="40" width="226" height="40" fill="#7c3aed"/>
+  <text x="153" y="67" text-anchor="middle" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20" fill="#ffffff">主图 · 白底磁吸特写</text>
+  <text x="760" y="67" text-anchor="end" font-family="JetBrains Mono, Consolas, monospace" font-size="20" fill="#71717a">01 / 05</text>
+</svg>

@@ -4,6 +4,7 @@ import { stageDisplayName } from '../../lib/stage-names.ts';
 import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Modal, ModalFooter, Spinner, Tabs } from '../../components/ui.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { fmtTime, fmtFull, relTime } from '../../lib/format.ts';
 import { ContentDeliveryView } from '../content/ContentDeliveryView.tsx';
 import { XhsDeliveryView } from '../content/stage-panels/xhs/XhsDeliveryView.tsx';
@@ -301,6 +302,7 @@ function PanelSkeleton({ title, lines = 2 }: { title: string; lines?: number }) 
  *  用户看到警示却无路可走（库内 68% 的任务无任何关联资料）。现在可就地补挂/修改。 */
 function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: string }) {
   const { openDocPreview } = useWorkbench();
+  const sandboxFrozen = isSandboxMode();
   const [refs, setRefs] = useState<TaskKbRef[] | null>(null);
   const [allDocs, setAllDocs] = useState<KnowledgeDocSummary[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
@@ -361,13 +363,14 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
   }, [allDocs]);
 
   const openEditor = () => {
+    if (sandboxFrozen) return;
     setDraft((refs ?? []).map((r) => ({ docPath: r.docPath, anchor: r.anchor ?? undefined, note: r.note })));
     setError(null);
     setEditing(true);
   };
 
   const save = async () => {
-    if (busy) return;
+    if (busy || sandboxFrozen) return;
     setBusy(true);
     setError(null);
     try {
@@ -393,7 +396,7 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
             <span className="qs-meta" style={{ color: invalidCount > 0 ? 'var(--color-danger)' : 'var(--color-ink-faint)' }}>
               {refs.length > 0 ? `${refs.length} 份${invalidCount > 0 ? ` · ${invalidCount} 份已失效` : ''}` : '未关联'}
             </span>
-            <Btn size="sm" variant="ghost" className="outline" onClick={openEditor} title="关联或修改本任务引用的知识库资料">
+            <Btn size="sm" variant="ghost" className="outline" onClick={openEditor} disabled={sandboxFrozen} title={sandboxFrozen ? '演示模式：关联资料操作已冻结' : '关联或修改本任务引用的知识库资料'}>
               {refs.length > 0 ? '编辑' : '＋ 添加'}
             </Btn>
           </div>
@@ -406,7 +409,7 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
               从知识库挑选事实来源（产品资料 / 品牌规范等）关联到本任务，生成时作为只读参考注入，关键参数不再靠模型凭空生成。
             </p>
             <div className="mt-2">
-              <Btn size="sm" variant="primary" onClick={openEditor}>
+              <Btn size="sm" variant="primary" onClick={openEditor} disabled={sandboxFrozen}>
                 ＋ 关联知识库资料
               </Btn>
             </div>
@@ -456,7 +459,7 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
       </div>
 
       <Modal open={editing} title="关联知识库资料" onClose={() => setEditing(false)} width={560}>
-        <KbRefPicker value={draft} onChange={setDraft} />
+        <KbRefPicker value={draft} onChange={setDraft} selectionDisabled={sandboxFrozen} />
         <p className="qs-meta mt-3 leading-relaxed" style={{ color: 'var(--color-ink-faint)' }}>
           新资料将在后续阶段的生成中生效
           {taskColumn === 'progress' ? '；已产出阶段需先打回重做，才会使用新资料。' : '。'}
@@ -468,7 +471,7 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
         ) : null}
         <ModalFooter>
           <Btn onClick={() => setEditing(false)}>取消</Btn>
-          <Btn variant="primary" disabled={busy} onClick={() => void save()}>
+          <Btn variant="primary" disabled={busy || sandboxFrozen} onClick={() => void save()}>
             {busy ? '保存中…' : '保存'}
           </Btn>
         </ModalFooter>
@@ -479,6 +482,7 @@ function KbRefsPanel({ taskId, taskColumn }: { taskId: number; taskColumn: strin
 
 /** 任务背景 · 外部环境情报（hot-intel D2：列表 + 移除 + 失效标记 + 原文外链；与「关联知识库资料」并列且视觉可区分） */
 function HotRefsPanel({ taskId }: { taskId: number }) {
+  const sandboxFrozen = isSandboxMode();
   const [refs, setRefs] = useState<TaskHotRef[] | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -512,6 +516,7 @@ function HotRefsPanel({ taskId }: { taskId: number }) {
   });
 
   const remove = async (hotId: string) => {
+    if (sandboxFrozen) return;
     setBusy(true);
     try {
       const r = await api.saveTaskHotRefs(taskId, refs.filter((x) => x.hotId !== hotId).map(toInput));
@@ -558,7 +563,7 @@ function HotRefsPanel({ taskId }: { taskId: number }) {
                     查看原文 ↗
                   </a>
                 ) : null}
-                <button type="button" className="qs-meta cursor-pointer hover:underline" style={{ color: 'var(--color-ink-faint)' }} onClick={() => void remove(r.hotId)} disabled={busy}>
+                <button type="button" className="qs-meta cursor-pointer hover:underline" style={{ color: 'var(--color-ink-faint)' }} onClick={() => void remove(r.hotId)} disabled={busy || sandboxFrozen}>
                   移除
                 </button>
               </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { Agent, AgentSkillInfo, ChannelTestError, ChannelTestResult, LlmChannelConfig } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { api } from '../../lib/api.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { Avatar, Badge, Btn, Field, Modal, ModalFooter } from '../../components/ui.tsx';
 import { SkillMountPicker, type MountTarget } from './SkillMountPicker.tsx';
 
@@ -48,6 +49,7 @@ export function AgentSettingsModal({
   scope?: 'workflow' | 'all';
 }) {
   const { settings, refresh, currentWorkflowId } = useWorkbench();
+  const sandboxFrozen = isSandboxMode();
 
   const [persona, setPersona] = useState('');
   const [model, setModel] = useState('');
@@ -88,6 +90,7 @@ export function AgentSettingsModal({
 
   /** 打开二级弹窗：只装载目标工作流的界面（另一条不在弹窗内出现） */
   const openPicker = (kind: 'ecom' | 'xhs') => {
+    if (sandboxFrozen) return;
     setPickerTarget(MOUNT_PARTS[kind]);
     setPickerOpen(true);
   };
@@ -260,6 +263,7 @@ export function AgentSettingsModal({
   const fileResolves = (name: string) => fileCatalog.some((f) => f.id === name);
 
   const removeFile = (kind: 'ecom' | 'xhs', f: string) => {
+    if (sandboxFrozen) return;
     const setter = kind === 'ecom' ? setEcomFiles : setXhsFiles;
     setter((prev) => prev.filter((x) => x !== f));
   };
@@ -355,7 +359,7 @@ export function AgentSettingsModal({
         {showApi ? (
           <div className="mt-3">
             <Field label="模型名称">
-              <input className="qs-input" value={model} onChange={(e) => setModel(e.target.value)} placeholder="如 gpt-4o / deepseek-chat" />
+              <input className="qs-input" value={model} onChange={(e) => setModel(e.target.value)} placeholder="如 gpt-6-luna / deepseek-flash / gpt-image-2.5-sunburst" />
             </Field>
             <Field label="API Base URL">
               <input className="qs-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="如 https://api.openai.com/v1" />
@@ -422,20 +426,20 @@ export function AgentSettingsModal({
               </span>
               <span className="flex-1" />
               <label
-                className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
+                className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading || sandboxFrozen ? 'pointer-events-none opacity-45' : ''}`}
                 style={{ fontSize: 12 }}
-                title="上传 .md 技能文件到技能库对应分类，并自动挂到本工作流"
+                title={sandboxFrozen ? '演示模式：上传操作已冻结' : '上传 .md 技能文件到技能库对应分类，并自动挂到本工作流'}
               >
                 上传技能
-                <input type="file" accept=".md" className="hidden" onChange={(e) => onPickUploadSkill(e, kind)} disabled={uploading} />
+                <input type="file" accept=".md" className="hidden" onChange={(e) => onPickUploadSkill(e, kind)} disabled={uploading || sandboxFrozen} />
               </label>
               <label
-                className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading ? 'pointer-events-none opacity-45' : ''}`}
+                className={`qs-btn sm inline-flex cursor-pointer items-center select-none ${uploading || sandboxFrozen ? 'pointer-events-none opacity-45' : ''}`}
                 style={{ fontSize: 12 }}
-                title="上传 .md/.txt/.json 文件并自动挂到本工作流"
+                title={sandboxFrozen ? '演示模式：上传操作已冻结' : '上传 .md/.txt/.json 文件并自动挂到本工作流'}
               >
                 上传文件
-                <input type="file" accept=".md,.txt,.json" className="hidden" onChange={(e) => onPickUploadFile(e, kind)} disabled={uploading} />
+                <input type="file" accept=".md,.txt,.json" className="hidden" onChange={(e) => onPickUploadFile(e, kind)} disabled={uploading || sandboxFrozen} />
               </label>
             </div>
 
@@ -456,9 +460,10 @@ export function AgentSettingsModal({
                     )}
                     <button
                       type="button"
-                      className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100"
+                      className={sandboxFrozen ? 'qs-meta shrink-0 cursor-not-allowed px-1 opacity-45' : 'qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100'}
                       style={{ color: 'var(--color-danger)' }}
-                      title={`从${MOUNT_PARTS[kind].label}移除`}
+                      title={sandboxFrozen ? '演示模式：工作流挂载已冻结' : '从' + MOUNT_PARTS[kind].label + '移除'}
+                      disabled={sandboxFrozen}
                       onClick={() => (kind === 'ecom' ? setEcomSkills : setXhsSkills)((prev) => prev.filter((x) => x !== s))}
                     >
                       ×
@@ -475,9 +480,10 @@ export function AgentSettingsModal({
                   )}
                   <button
                     type="button"
-                    className="qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100"
+                    className={sandboxFrozen ? 'qs-meta shrink-0 cursor-not-allowed px-1 opacity-45' : 'qs-meta shrink-0 cursor-pointer px-1 opacity-60 hover:opacity-100'}
                     style={{ color: 'var(--color-danger)' }}
-                    title="移除"
+                    title={sandboxFrozen ? '演示模式：工作流挂载已冻结' : '移除'}
+                    disabled={sandboxFrozen}
                     onClick={() => removeFile(kind, f)}
                   >
                     ×
@@ -489,7 +495,7 @@ export function AgentSettingsModal({
               ) : null}
             </div>
 
-            <Btn size="sm" className="mt-1.5" onClick={() => openPicker(kind)}>＋ 挂载</Btn>
+            <Btn size="sm" className="mt-1.5" disabled={sandboxFrozen} title={sandboxFrozen ? '演示模式：工作流挂载已冻结' : undefined} onClick={() => openPicker(kind)}>＋ 挂载</Btn>
           </div>
         ))}
 
@@ -497,7 +503,7 @@ export function AgentSettingsModal({
 
         {/* 二级挂载弹窗：只显示进入的那条工作流（技能 + 文件）；只有本设置弹窗才看到全部工作流 */}
         <SkillMountPicker
-          open={pickerOpen}
+          open={pickerOpen && !sandboxFrozen}
           target={pickerTarget}
           catalog={catalog}
           initialSkills={pickerTarget.workflowId === 'ecom-new-listing' ? ecomSkills : xhsSkills}
@@ -506,6 +512,7 @@ export function AgentSettingsModal({
           otherFiles={pickerTarget.workflowId === 'ecom-new-listing' ? xhsFiles : ecomFiles}
           onCancel={() => setPickerOpen(false)}
           onComplete={(next) => {
+            if (sandboxFrozen) return;
             if (pickerTarget.workflowId === 'ecom-new-listing') {
               setEcomSkills(next.skills);
               setEcomFiles(next.files);

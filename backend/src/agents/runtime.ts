@@ -97,7 +97,7 @@ export function isAgentConfigured(agentId: string): boolean {
 
 /**
  * Agent 运行时实际使用的模型（界面展示 / 执行日志的权威来源）：
- * 主管波波在视觉审阅渠道（SUPERVISOR_*）已配置时返回该渠道模型（gpt-5.5），
+ * 主管波波在视觉审阅渠道（SUPERVISOR_*）已配置时返回该渠道模型（gpt-6-luna），
  * 其余返回 agents 表存储的 model。
  */
 export function effectiveModel(agentId: string, storedModel?: string): string {

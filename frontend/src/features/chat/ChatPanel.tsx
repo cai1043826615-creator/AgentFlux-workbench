@@ -3,6 +3,7 @@ import type { AgentOnlineStatus, Message } from '@workbench/shared';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { Avatar } from '../../components/ui.tsx';
 import { AvatarStatus } from '../../components/AvatarStatus.tsx';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 
 /** 工作群头像命名规则（群头像统一放 frontend/public/groups/，直接引用路径、不落盘生成）：
  *  当前电商新品上架工作流 → 电商工作群 ecom.png（紫色购物袋）
@@ -44,7 +45,7 @@ function ChatHeader() {
   return (
     <div className="border-b px-3 pt-2.5 pb-2" style={{ borderColor: 'var(--color-line)' }}>
       {/* 圆头像横排：工作群（“群”符号圆）+ 3 个 Agent */}
-      <div className="flex items-center gap-3 overflow-x-auto">
+      <div className="flex items-center gap-3 overflow-x-auto" data-sandbox-ai-team>
         <button
           type="button"
           className="flex shrink-0 flex-col items-center gap-1"
@@ -115,9 +116,11 @@ const EVENT_FILTERS: { key: EventFilter; label: string }[] = [
 export function ChatPanel() {
   const { agents, messages, chatTarget, sendChat, connected, openTask } = useWorkbench();
   const [draft, setDraft] = useState('');
-  const [showEvents, setShowEvents] = useState(false); // 「全部」下事件折叠态（默认收起）
+  const [showEvents, setShowEvents] = useState(true); // 电商工作群默认展开系统事件
   const [filter, setFilter] = useState<EventFilter>('all'); // 筛选：默认「全部」
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sandbox = isSandboxMode();
+  const activeFilter = chatTarget.kind === 'group' ? filter : 'all';
 
   // 事件消息（kind==='evt'）数量：折叠行显示在固定筛选区右侧
   const evtCount = messages.filter((m) => m.kind === 'evt').length;
@@ -193,19 +196,19 @@ export function ChatPanel() {
             {messages.map((m) => {
               if (m.kind === 'receipt') {
                 // 回执属于非 evt 内容：「事件」筛选时隐藏
-                if (filter === 'evt') return null;
+                if (activeFilter === 'evt') return null;
                 return <ReceiptLine key={m.id} m={m} />;
               }
               if (m.kind === 'evt') {
                 // 「消息」筛选：只显示非 evt，事件行全部隐藏
-                if (filter === 'msg') return null;
+                if (activeFilter === 'msg') return null;
                 // 「事件」筛选：直接展开显示全部 evt 行
-                if (filter === 'evt') return renderEvt(m);
+                if (activeFilter === 'evt') return renderEvt(m);
                 // 「全部」筛选：折叠行已在固定区显示，此处仅展开态下原位显示 evt
-                return showEvents ? renderEvt(m) : null;
+                return showEvents && activeFilter === 'all' ? renderEvt(m) : null;
               }
               // 署名消息 / 用户消息：非 evt，「事件」筛选时隐藏
-              if (filter === 'evt') return null;
+              if (activeFilter === 'evt') return null;
               const isMe = m.from === '你';
               const agent = agents.find((a) => a.name === m.from || a.id === m.from);
               const time = new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -243,13 +246,18 @@ export function ChatPanel() {
         <div className="flex items-center gap-2">
           <input
             className="qs-input"
-            placeholder={connected ? '输入消息，回车发送…' : '连接中…'}
+            placeholder={sandbox ? '演示模式：消息发送已冻结' : connected ? '输入消息，回车发送…' : '连接中…'}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            disabled={!connected}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (!sandbox) submit();
+              }
+            }}
+            disabled={!connected || sandbox}
           />
-          <button type="button" className="qs-btn primary shrink-0" onClick={submit} disabled={!connected || !draft.trim()}>
+          <button type="button" className="qs-btn primary shrink-0" onClick={submit} disabled={!connected || sandbox || !draft.trim()}>
             发送
           </button>
         </div>

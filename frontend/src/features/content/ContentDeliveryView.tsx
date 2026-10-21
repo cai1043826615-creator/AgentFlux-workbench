@@ -9,6 +9,7 @@ import { MutedPlaceholder, resolveInfoBarRef, sortImagesByDeclaredOrder } from '
 import { TaskInfoBar } from './stage-panels/xhs/TaskInfoBar.tsx';
 import { api, parseCopy, parseImages } from '../../lib/api.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 
 /* ===== 内容交付视图（组7 · 任务 7.1-7.6：左右等宽分栏 + 逐张审批 + 终审回退） ===== */
 
@@ -138,6 +139,7 @@ function Thumb({ src, name, onZoom }: { src: string; name: string; onZoom?: () =
 
 export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const { tasks, deliverablesByTask, openTask, decide, retryImage, review, pushToast } = useWorkbench();
+  const sandboxFrozen = isSandboxMode();
   const [imageTab, setImageTab] = useState<'main' | 'detail'>('main');
   const [rejectingCopy, setRejectingCopy] = useState(false);
   const [copyNote, setCopyNote] = useState('');
@@ -200,6 +202,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   const reviewOutline = parseCopy(reviewDeliverables[reviewDeliverables.length - 1])?.outline;
 
   const doDecide = async (kind: 'copy' | 'image', decision: 'approve' | 'reject' | 'skip', imageId?: string, note?: string) => {
+    if (sandboxFrozen) return;
     if (!task || busy) return;
     setBusy(true);
     try {
@@ -224,6 +227,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
 
   /** 单张图片重试（B11 · 4.10）：只重新生成目标 failed 图；错误（非失败图/已达上限）以行内警示展示 */
   const doRetry = async (imageId: string) => {
+    if (sandboxFrozen) return;
     if (!task || busy || retrying) return;
     setRetrying(imageId);
     setRetryError(null);
@@ -239,6 +243,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
   };
 
   const doReview = async (decision: 'pass' | 'rollback') => {
+    if (sandboxFrozen) return;
     if (!task || busy) return;
     setBusy(true);
     try {
@@ -271,7 +276,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
           </div>
         </div>
         {/* 一键采纳（快捷操作，与上方内容卡内逐项操作并存；采纳后自动推进，条随之消失） */}
-        <Btn variant="primary" className="shrink-0" disabled={busy} onClick={() => void doDecide(pendingKind === 'copy' ? 'copy' : 'image', 'approve')}>
+        <Btn variant="primary" className="shrink-0" disabled={busy || sandboxFrozen} onClick={() => void doDecide(pendingKind === 'copy' ? 'copy' : 'image', 'approve')}>
           {busy ? '处理中…' : '一键采纳'}
         </Btn>
       </div>
@@ -354,10 +359,10 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
         {copyState === 'pending' ? (
           <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
             <div className="flex items-center gap-2">
-              <Btn variant="danger" size="sm" disabled={busy} onClick={() => setRejectingCopy(true)}>
+              <Btn variant="danger" size="sm" disabled={busy || sandboxFrozen} onClick={() => setRejectingCopy(true)}>
                 打回重做
               </Btn>
-              <Btn variant="primary" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'approve')}>
+              <Btn variant="primary" size="sm" disabled={busy || sandboxFrozen} onClick={() => void doDecide('copy', 'approve')}>
                 采纳
               </Btn>
             </div>
@@ -373,7 +378,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                   <Btn variant="ghost" size="sm" onClick={() => setRejectingCopy(false)}>
                     取消
                   </Btn>
-                  <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('copy', 'reject', undefined, copyNote)}>
+                  <Btn variant="danger" size="sm" disabled={busy || sandboxFrozen} onClick={() => void doDecide('copy', 'reject', undefined, copyNote)}>
                     确认打回
                   </Btn>
                 </div>
@@ -468,7 +473,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                           <Btn variant="ghost" size="sm" onClick={() => setRejectingImg(null)}>
                             取消
                           </Btn>
-                          <Btn variant="danger" size="sm" disabled={busy} onClick={() => void doDecide('image', 'reject', img.id, imgNotes[img.id])}>
+                          <Btn variant="danger" size="sm" disabled={busy || sandboxFrozen} onClick={() => void doDecide('image', 'reject', img.id, imgNotes[img.id])}>
                             确认打回
                           </Btn>
                         </div>
@@ -476,14 +481,14 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
                         {!failed ? (
-                          <Btn size="sm" variant="primary" disabled={busy} onClick={() => void doDecide('image', 'approve', img.id)}>
+                          <Btn size="sm" variant="primary" disabled={busy || sandboxFrozen} onClick={() => void doDecide('image', 'approve', img.id)}>
                             采纳
                           </Btn>
                         ) : null}
                         {failed ? (
                           <>
                             {(img.attempts ?? 0) < MAX_IMAGE_ATTEMPTS ? (
-                              <Btn size="sm" variant="signal" disabled={busy || retrying !== null} onClick={() => void doRetry(img.id)}>
+                              <Btn size="sm" variant="signal" disabled={busy || retrying !== null || sandboxFrozen} onClick={() => void doRetry(img.id)}>
                                 {retrying === img.id ? '重试中…' : '重试'}
                               </Btn>
                             ) : (
@@ -491,12 +496,12 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                                 已达上限
                               </span>
                             )}
-                            <Btn size="sm" variant="ghost" disabled={busy} onClick={() => void doDecide('image', 'skip', img.id)}>
+                            <Btn size="sm" variant="ghost" disabled={busy || sandboxFrozen} onClick={() => void doDecide('image', 'skip', img.id)}>
                               跳过
                             </Btn>
                           </>
                         ) : null}
-                        <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setRejectingImg(img.id)}>
+                        <Btn size="sm" variant="ghost" disabled={busy || sandboxFrozen} onClick={() => setRejectingImg(img.id)}>
                           打回重做
                         </Btn>
                       </div>
@@ -572,7 +577,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
           </div>
           <div>
             <div className="qs-meta mb-1.5">终审操作</div>
-            <Btn variant="primary" disabled={busy} onClick={() => void doReview('pass')}>
+            <Btn variant="primary" disabled={busy || sandboxFrozen} onClick={() => void doReview('pass')}>
               放行 → 交付完成
             </Btn>
             <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
@@ -585,7 +590,7 @@ export function ContentDeliveryView({ taskId }: { taskId: number }) {
                     </option>
                   ))}
                 </select>
-                <Btn variant="danger" disabled={busy} onClick={() => void doReview('rollback')}>
+                <Btn variant="danger" disabled={busy || sandboxFrozen} onClick={() => void doReview('rollback')}>
                   回退
                 </Btn>
               </div>

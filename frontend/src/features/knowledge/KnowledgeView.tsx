@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KnowledgeDirInfo, KnowledgeDoc, KnowledgeDocSummary, KnowledgeHealth, KnowledgeSearchHit, KnowledgeStats, KnowledgeStatus, KnowledgeTagInfo, TaskKbRefInput } from '@workbench/shared';
 import { Badge, Btn, Empty, Glyph, Modal, ModalFooter, Spinner } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { fmtFull } from '../../lib/format.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
@@ -189,6 +190,7 @@ function AttachDocToTaskModal({ open, docPath, docTitle, onClose, onDone }: { op
 
 /** 知识库视图：总览统计 + 目录/标签浏览 + 全文搜索 + Markdown 原文阅读 */
 export function KnowledgeView() {
+  const sandboxFrozen = isSandboxMode();
   const { kbDocPath, openKbDoc, kbDir, openKbDir } = useWorkbench();
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [stats, setStats] = useState<KnowledgeStats | null>(null);
@@ -722,8 +724,9 @@ export function KnowledgeView() {
                           size="sm"
                           variant="ghost"
                           className="shrink-0"
+                          disabled={sandboxFrozen}
                           onClick={() => setAttachDoc({ path: d.path, title: d.title })}
-                          title="挂到工作流（选择已存在任务，将本篇作为关联资料）"
+                          title={sandboxFrozen ? '演示模式：挂到工作流已冻结' : '挂到工作流（选择已存在任务，将本篇作为关联资料）'}
                         >
                           挂到工作流
                         </Btn>

@@ -258,6 +258,17 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     };
   }, [refresh, startWs]);
 
+  useEffect(() => {
+    let active = true;
+    setMessages([]);
+    void api.chatHistory(chatTarget.kind, chatTarget.to).then((r) => {
+      if (active) setMessages(r.messages);
+    });
+    return () => {
+      active = false;
+    };
+  }, [chatTarget]);
+
   /** 手动重连：顶栏状态徽章与聊天框共用同一个 connected 状态，断开后可立即重试 */
   const reconnect = useCallback(() => {
     setConnected(false);
@@ -403,7 +414,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const selectChat = useCallback(
     (target: ChatTarget) => {
       setChatTarget(target);
-      void api.chatHistory(target.kind, target.to).then((r) => setMessages(r.messages));
     },
     [],
   );

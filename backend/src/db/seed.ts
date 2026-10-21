@@ -67,21 +67,21 @@ export const SEED_AGENTS = [
     name: '美美',
     role: '文案',
     persona: '产品文案专家，擅长提炼卖点与转化话术；输出结构化文案包（标题/5条核心卖点/详情大纲/关键词清单）。语气专业、简洁。',
-    model: 'deepseek-chat',
+    model: CHANNEL.llm.model,
   },
   {
     id: 'agent-design',
     name: '平平',
     role: '设计师',
     persona: '电商视觉设计师，负责主图与详情图；构图干净、卖点清晰，输出白底图+场景图组。',
-    model: 'gpt-image-2',
+    model: CHANNEL.image.model,
   },
   {
     id: 'agent-supervisor',
     name: '波波',
     role: '主管',
     persona: '质检主管，跨产出物一致性校对（文案与图片信息一致、规格完整、平台合规），输出校对报告与修改意见单。',
-    model: 'deepseek-chat',
+    model: CHANNEL.supervisor.model,
   },
   {
     // P2·F3：知识库小助理「依依」。不参与电商工作流（AGENT_BY_ROLE 三角色白名单不含「助理」），
@@ -90,9 +90,59 @@ export const SEED_AGENTS = [
     name: '依依',
     role: '助理',
     persona: '知识库整理助理，负责把产品资料与每日热点素材整理成结构化 Markdown（保留关键事实与来源路径），并能对知识库做体检给出整理建议（重复主题/缺失标签/可互链孤岛）。只读知识库，绝不修改 Vault 内任何文件。',
-    model: 'deepseek-chat',
+    model: CHANNEL.llm.model,
   },
 ] as const;
+
+/**
+ * 一次性更新内置 Agent 与渠道配置中的已知旧模型名。
+ * 仅替换精确匹配的旧型号；保留用户自定义模型、API Base URL 和密钥。
+ */
+function migrateBuiltinAgentModelIds(): void {
+  const mark = 'migration:builtinAgentModelIds:2026-10-21-luna';
+  if (get<{ key: string }>('SELECT key FROM settings WHERE key = ?', [mark])) return;
+
+  const replacements: Record<string, string> = {
+    'deepseek-chat': 'deepseek-flash',
+    'gpt-5.5': 'gpt-6-luna',
+    'gpt-6-astra': 'gpt-6-luna',
+    'gpt-image-2': 'gpt-image-2.5-sunburst',
+  };
+
+  for (const agent of SEED_AGENTS) {
+    const row = get<{ model: string }>('SELECT model FROM agents WHERE id = ?', [agent.id]);
+    const next = row?.model ? replacements[row.model] : undefined;
+    if (next && next !== row?.model) {
+      run('UPDATE agents SET model = ? WHERE id = ?', [next, agent.id]);
+    }
+  }
+
+  const llmRow = get<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['llmChannels']);
+  if (llmRow) {
+    const channels = JSON.parse(llmRow.value) as Record<string, { model?: string }>;
+    let changed = false;
+    for (const channel of Object.values(channels)) {
+      const next = channel?.model ? replacements[channel.model] : undefined;
+      if (next) {
+        channel.model = next;
+        changed = true;
+      }
+    }
+    if (changed) run('UPDATE settings SET value = ? WHERE key = ?', [JSON.stringify(channels), 'llmChannels']);
+  }
+
+  const imageRow = get<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['imageChannel']);
+  if (imageRow) {
+    const channel = JSON.parse(imageRow.value) as { model?: string };
+    const next = channel.model ? replacements[channel.model] : undefined;
+    if (next) {
+      channel.model = next;
+      run('UPDATE settings SET value = ? WHERE key = ?', [JSON.stringify(channel), 'imageChannel']);
+    }
+  }
+
+  run('INSERT INTO settings (key,value) VALUES (?,?)', [mark, JSON.stringify({ completedAt: new Date().toISOString() })]);
+}
 
 /** 确保预置数据存在（幂等） */
 export function seed(): void {
@@ -153,12 +203,13 @@ export function seed(): void {
     }
     const img = get<{ key: string }>('SELECT key FROM settings WHERE key = ?', ['imageChannel']);
     if (!img) {
-      // 默认生图渠道（dsh-imagegen 默认渠道 gpt-image-2）
+      // 默认生图渠道
       run('INSERT INTO settings (key,value) VALUES (?,?)', [
         'imageChannel',
         JSON.stringify({ baseUrl: CHANNEL.image.baseUrl, apiKey: CHANNEL.image.apiKey, model: CHANNEL.image.model }),
       ]);
     }
+    migrateBuiltinAgentModelIds();
   });
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardColumn } from '@workbench/shared';
 import { WORKFLOW_STAGE_LABELS, approvalPointsOf, isXhsWorkflow, stageIndexOf, stageKeysOf } from '@workbench/shared';import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { applyTaskFilters } from '../../lib/taskFilters.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { Avatar, Btn, Empty, Spinner } from '../../components/ui.tsx';
 import { ArchivedTasksModal } from './ArchivedTasksModal.tsx';
 import { DeliverableSearch, KbInvalidBadge, TaskFilterBar, TaskListTable } from './TaskListView.tsx';
@@ -140,7 +141,7 @@ function TaskCard({
             size="sm"
             variant="primary"
             className="w-full"
-            disabled={confirming}
+            disabled={confirming || isSandboxMode()}
             onClick={() => {
               // 失败要可见：不再用 void 吞掉 rejection（生图失败时用户只会看到"一直转"）
               setConfirming(true);
@@ -207,7 +208,7 @@ function TaskCard({
               <button
                 type="button"
                 className="qs-nav-item"
-                disabled={packing}
+                disabled={packing || isSandboxMode()}
                 title="下载交付包 ZIP（文案 + 已采纳图片）"
                 onClick={() => {
                   void download();

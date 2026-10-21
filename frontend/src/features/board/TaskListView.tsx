@@ -9,6 +9,7 @@ import { useWorkbench, type TaskWithMeta } from '../../store/useWorkbench.tsx';
 import { api } from '../../lib/api.ts';
 import { isFilterActive, type TaskFilters } from '../../lib/taskFilters.ts';
 import { useDownloadPackage } from '../../lib/useDownloadPackage.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { fmtFull, relTime } from '../../lib/format.ts';
 import { Avatar, Badge, Btn, Empty } from '../../components/ui.tsx';
 
@@ -36,7 +37,7 @@ export function DownloadButton({ taskId }: { taskId: number }) {
   const { download, busy, error } = useDownloadPackage(taskId);
   return (
     <span className="inline-flex flex-col items-start gap-0.5">
-      <Btn size="sm" variant="ghost" disabled={busy} loading={busy} onClick={() => void download()} title="下载交付包 ZIP（文案 + 已采纳图片）">
+      <Btn size="sm" variant="ghost" disabled={busy || isSandboxMode()} loading={busy} onClick={() => void download()} title={isSandboxMode() ? '演示模式：下载操作已冻结' : '下载交付包 ZIP（文案 + 已采纳图片）'}>
         {busy ? '打包中…' : '下载交付包'}
       </Btn>
       {error ? (

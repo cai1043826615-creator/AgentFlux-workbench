@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440" role="img" aria-label="内页 · 桌面实拍">
+  <rect width="1080" height="1440" fill="#ffffff"/>
+  <rect x="0" y="0" width="1080" height="1440" fill="none" stroke="#ececee" stroke-width="2"/>
+  <!-- 首屏标题区（首图标题不超过 2 行的规范在这里体现为固定高度条） -->
+  <rect x="60" y="72" width="960" height="200" rx="4" fill="#fafafa" stroke="#dcdce0"/>
+  <text x="100" y="160" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="46" font-weight="600" fill="#0a0a0a">内页 · 桌面实拍</text>
+  <text x="100" y="222" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="28" fill="#52525b">无痕胶固定 · 撕下不留残胶</text>
+  <rect x="100" y="248" width="150" height="6" fill="#7c3aed"/>
+
+  <!-- 内容区 -->
+  <rect x="60" y="312" width="960" height="880" rx="4" fill="#f4f4f5" stroke="#dcdce0"/>
+  <g stroke="#dcdce0" fill="none">
+    <path d="M60 752 H1020"/>
+    <path d="M540 312 V1192" stroke-dasharray="8 10"/>
+  </g>
+  <text x="540" y="736" text-anchor="middle" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="38" fill="#52525b">图文内容区</text>
+  <text x="540" y="790" text-anchor="middle" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="28" fill="#71717a">（示意占位 · 发布时替换为实拍/成品图）</text>
+
+  <!-- 底部标签条 -->
+  <rect x="60" y="1240" width="960" height="120" rx="4" fill="#f3effe"/>
+  <text x="100" y="1312" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="30" fill="#52525b">#工位好物  #桌面改造  #好物分享</text>
+  <text x="980" y="1312" text-anchor="end" font-family="JetBrains Mono, Consolas, monospace" font-size="24" fill="#71717a">1080 × 1440 · 03/04</text>
+</svg>

@@ -22,6 +22,7 @@ import type { Agent, KnowledgeHealth, KnowledgeStats, KnowledgeStatus } from '@w
 import { Avatar, Badge, Btn, Field, Modal, ModalFooter } from '../../components/ui.tsx';
 import { AvatarStatus } from '../../components/AvatarStatus.tsx';
 import { api } from '../../lib/api.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { useWorkbench } from '../../store/useWorkbench.tsx';
 import { AgentCard } from '../workstation/AgentCard.tsx';
 import { AgentSettingsModal } from '../workstation/AgentSettingsModal.tsx';
@@ -159,9 +160,9 @@ const INSPIRATION_DIR = '知识库/灵感库';
  * 2. 复用范围：本文件内 3 处（上传文档 / 拆解小红书 / 和依依对话）。
  * 3. 是否应提升为通用组件：否（仅总览带使用；Btn 已是通用按钮，本组件只是「标签 + loading」薄封装）。
  */
-function OrganizeBtn({ label, active, busy, onClick }: { label: string; active?: boolean; busy?: boolean; onClick: () => void }) {
+function OrganizeBtn({ label, active, busy, disabled, onClick }: { label: string; active?: boolean; busy?: boolean; disabled?: boolean; onClick: () => void }) {
   return (
-    <Btn size="sm" variant={active ? 'primary' : 'ghost'} loading={busy} disabled={busy} onClick={onClick} className="justify-start">
+    <Btn size="sm" variant={active ? 'primary' : 'ghost'} loading={busy} disabled={busy || disabled} onClick={onClick} className="justify-start">
       {label}
     </Btn>
   );
@@ -182,6 +183,7 @@ export interface KnowledgeOverviewBarProps {
  */
 export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOverviewBarProps) {
   const { setView, openKbDir, pushToast, selectChat, setChatPanelOpen } = useWorkbench();
+  const sandboxFrozen = isSandboxMode();
   const usage = health?.usage;
   /** 文档使用率口径（2.5）：百分比（分子/分母）；ratio 为 null（未连接/0 篇文档）显示「—」 */
   const usageText = usage && usage.ratio !== null ? `${Math.round(usage.ratio * 100)}%（${usage.linkedDocs}/${usage.totalDocs}）` : '—';
@@ -310,9 +312,9 @@ export function KnowledgeOverviewBar({ status, stats, health }: KnowledgeOvervie
           report-driven-fixes 0.7：旧三枚整理按钮（整理热点素材 / 整理文档 / 知识库体检）已按用户定案替换。 */}
       <AssistantSpot assistant={assistant} onConfigure={() => assistant && setSettingsAgent(assistant)} />
       <div className="flex shrink-0 flex-col gap-1.5">
-        <input ref={fileRef} type="file" accept={ACCEPT_DOCS} className="hidden" onChange={(e) => void onPickFile(e)} />
-        <OrganizeBtn label="上传文档" active={busy === 'upload'} busy={busy === 'upload'} onClick={() => fileRef.current?.click()} />
-        <OrganizeBtn label="拆解小红书" active={busy === 'xhs'} busy={busy === 'xhs'} onClick={() => setXhsOpen(true)} />
+        <input ref={fileRef} type="file" accept={ACCEPT_DOCS} className="hidden" onChange={(e) => void onPickFile(e)} disabled={sandboxFrozen} />
+        <OrganizeBtn label="上传文档" active={busy === 'upload'} busy={busy === 'upload'} disabled={sandboxFrozen} onClick={() => fileRef.current?.click()} />
+        <OrganizeBtn label="拆解小红书" active={busy === 'xhs'} busy={busy === 'xhs'} disabled={sandboxFrozen} onClick={() => setXhsOpen(true)} />
         <OrganizeBtn label="和依依对话" onClick={chatWithAssistant} />
       </div>
 

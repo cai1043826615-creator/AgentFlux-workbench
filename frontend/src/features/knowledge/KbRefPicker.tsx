@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KB_REF_LIMIT, type KnowledgeSearchHit, type KnowledgeStatus, type TaskKbRefInput } from '@workbench/shared';
 import { Badge, Btn, Empty } from '../../components/ui.tsx';
 import { api } from '../../lib/api.ts';
+import { isSandboxMode } from '../../lib/sandbox-mode.ts';
 import { KB_EMPTY_STATES } from './kbEmpty.ts';
 
 /**
@@ -18,10 +19,12 @@ export function KbRefPicker({
   value,
   onChange,
   defaultQuery,
+  selectionDisabled,
 }: {
   value: TaskKbRefInput[];
   onChange: (next: TaskKbRefInput[]) => void;
   defaultQuery?: string;
+  selectionDisabled?: boolean;
 }) {
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [query, setQuery] = useState(defaultQuery ?? '');
@@ -42,6 +45,7 @@ export function KbRefPicker({
   }, []);
 
   const connected = status?.state === 'connected';
+  const frozen = selectionDisabled ?? isSandboxMode();
   const atLimit = value.length >= KB_REF_LIMIT;
 
   const isPicked = useCallback((docPath: string, anchor: string | null) => value.some((r) => r.docPath === docPath && (r.anchor ?? null) === anchor), [value]);
@@ -144,8 +148,8 @@ export function KbRefPicker({
   return (
     <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
-          从知识库搜索并勾选资料（可选，Agent 生成时会引用其内容）
+          <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>
+          {frozen ? '演示模式：关联资料操作已冻结' : '从知识库搜索并勾选资料（可选，Agent 生成时会引用其内容）'}
         </span>
         <span className="qs-meta tabular" style={{ color: atLimit ? 'var(--color-warn)' : 'var(--color-ink-faint)' }}>
           {countText}
@@ -190,9 +194,10 @@ export function KbRefPicker({
                       className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-signal)]"
                       checked={pickedWhole}
                       onChange={() => toggleDoc(h.path)}
+                      disabled={frozen}
                       aria-label={`勾选 ${h.title}（整篇）`}
                     />
-                    <button type="button" className="min-w-0 flex-1 cursor-pointer text-left" onClick={() => toggleDoc(h.path)}>
+                    <button type="button" className="min-w-0 flex-1 cursor-pointer text-left" onClick={() => toggleDoc(h.path)} disabled={frozen}>
                       <div className="truncate text-[13px] font-medium">{h.title}</div>
                       <div className="qs-meta mt-0.5 truncate" style={{ color: 'var(--color-ink-faint)' }}>
                         {h.path}
@@ -206,6 +211,7 @@ export function KbRefPicker({
                       className="qs-meta shrink-0 cursor-pointer rounded-[4px] border px-1.5 py-0.5"
                       style={{ borderColor: 'var(--color-line-strong)', color: 'var(--color-ink-soft)' }}
                       onClick={() => void expand(h.path)}
+                      disabled={busy}
                       title="选择章节片段"
                     >
                       {isOpen ? '收起' : '选章节'}
@@ -236,6 +242,7 @@ export function KbRefPicker({
                                   color: picked ? 'var(--color-signal)' : 'var(--color-ink-soft)',
                                 }}
                                 onClick={() => toggleAnchor(h.path, a.anchor)}
+                                disabled={frozen}
                                 title={`片段：${a.anchor}`}
                               >
                                 {a.title}
@@ -274,7 +281,7 @@ export function KbRefPicker({
                   {i + 1}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[12.5px]">{selectedLabel(r)}</span>
-                <button type="button" className="qs-meta shrink-0 cursor-pointer hover:underline" style={{ color: 'var(--color-danger)' }} onClick={() => onChange(value.filter((_, j) => j !== i))}>
+                <button type="button" className="qs-meta shrink-0 cursor-pointer hover:underline" style={{ color: 'var(--color-danger)' }} onClick={() => onChange(value.filter((_, j) => j !== i))} disabled={frozen}>
                   移除
                 </button>
               </div>

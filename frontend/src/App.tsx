@@ -4,6 +4,7 @@ import { WorkbenchProvider, useWorkbench } from './store/useWorkbench.tsx';
 import { Avatar, Badge, Btn, Field, Glyph, Modal, ModalFooter, type GlyphName } from './components/ui.tsx';
 import { AvatarStatus } from './components/AvatarStatus.tsx';
 import { api } from './lib/api.ts';
+import { isSandboxMode } from './lib/sandbox-mode.ts';
 import { onWindowFocus } from './lib/approval-notify.ts';
 import { LeftPanel } from './features/LeftPanel.tsx';
 import { ChatPanel } from './features/chat/ChatPanel.tsx';
@@ -41,15 +42,45 @@ const PANEL_MAX = 420;
  *  P1·3.5：任务角标改为有含义文案「N 待确认」，不再是裸数字。 */
 function TopBar() {
   const { connected, reconnect, backToBoard, tasks } = useWorkbench();
+  const brandCanvasRef = useRef<HTMLCanvasElement>(null);
   // 待确认角标从任务派生（column === 'awaiting' 且未归档，与 applyTaskFilters 口径一致），
   // 确保与看板「待确认」列数字一致（不再用 WS 推送的 approvalQueue；归档任务不参与主视图计数）
   const pendingCount = tasks.filter((t) => t.column === 'awaiting' && !t.archived).length;
+
+  useEffect(() => {
+    if (!isSandboxMode()) return;
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+    const motionUrl = new URL(import.meta.env.BASE_URL + 'sandbox-motion/morph-particles.js', window.location.href).href;
+    void import(/* @vite-ignore */ motionUrl)
+      .then((motion) => {
+        const canvas = brandCanvasRef.current;
+        if (cancelled || !canvas) return;
+        const mount = (motion as { mountMorphParticles: (canvas: HTMLCanvasElement, options: Record<string, unknown>) => () => void }).mountMorphParticles;
+        cleanup = mount(canvas, {
+          text: '',
+          anchorSelector: '[data-agentflux-brand]',
+          tone: 'normal',
+          ambientDensity: 0.32,
+          ambientSize: 0.9,
+          ambientAlpha: 0.8,
+          edgeFade: 16,
+          mouseRepel: false,
+          surround: true,
+        });
+      })
+      .catch((error: unknown) => console.warn('[sandbox] AgentFlux 品牌粒子效果加载失败', error));
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, []);
+
   return (
     <header className="flex items-center gap-3 px-4 h-[52px] border-b shrink-0" style={{ borderColor: 'var(--color-line)', background: 'var(--color-surface)' }}>
-      <img src="/logo.png" alt="logo" className="h-7 w-7 object-contain" style={{ imageRendering: 'auto' }} />
-      <span className="font-display text-[17px] font-bold leading-none" style={{ fontFamily: 'var(--font-display)' }}>
-        电商工作台
-      </span>
+      <div className="relative isolate flex h-8 w-44 shrink-0 items-center" data-agentflux-brand aria-label="AgentFlux 粒子效果">
+        <canvas ref={brandCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" />
+      </div>
       <div className="flex-1" />
       <Btn size="sm" variant="ghost" onClick={backToBoard} title="回到任务看板">
         任务
@@ -99,6 +130,7 @@ function RailIcon({ glyph, title, active, disabled, onClick }: { glyph: GlyphNam
 function NewTaskModal() {
   const { createTask, newTask, closeNewTask, workflows, currentWorkflowId } = useWorkbench();
   const open = newTask.open;
+  const sandboxMode = isSandboxMode();
   const [step, setStep] = useState<'form' | 'kb' | 'confirm'>('form');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -128,16 +160,17 @@ function NewTaskModal() {
     setImageCount(3);
   };
 
-  // 打开时重置表单（无任何预填——热点不得预填新建任务表单）
+  // 沙盒新建任务预填 iPad Pro 与随附参考图；正式模式仍从空表单开始。
   useEffect(() => {
     if (!open) return;
     setStep('form');
-    setTitle('');
-    setDesc('');
+    setTitle(sandboxMode ? 'iPad Pro' : '');
+    setDesc(sandboxMode ? '请依据参考图及已核验资料撰写内容；不得从图片推断未确认的规格、材质或功能。' : '');
     setPlatforms([]);
-    setRefDataUrl(null);
+    setRefDataUrl(sandboxMode ? new URL(`${import.meta.env.BASE_URL}demo/ipad-pro-reference.jpg`, window.location.href).toString() : null);
     setKbRefs([]);
     setTouched(false);
+    setProduct(sandboxMode ? 'iPad Pro' : '');
     setWorkflowId(currentWorkflowId); // 每次打开同步左栏当前工作流
     if (fileRef.current) fileRef.current.value = '';
   }, [open]);
@@ -180,7 +213,7 @@ function NewTaskModal() {
       let referenceImage: string | undefined = refDataUrl ?? undefined;
       // 优先上传换取 /uploads 地址；后端未实现（404 等）时回退为直接存 dataURL。
       // report-driven-fixes 1.5（D-06）：未选参考图（小红书工作流允许无图）时不发带空图的 400 请求。
-      if (refDataUrl) {
+      if (refDataUrl && !sandboxMode) {
         try {
           const { url } = await api.uploadImage(refDataUrl);
           if (url) referenceImage = url;
@@ -279,7 +312,7 @@ function NewTaskModal() {
             </div>
           )}
           <Field label={isXhs ? '参考图（选填，有图更像真实分享）' : '参考图（后续全部产出基于此图）'} required={!isXhs}>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} disabled={sandboxMode} />
             <div className="flex items-center gap-3">
               <div
                 className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden border"
@@ -288,13 +321,14 @@ function NewTaskModal() {
                 {refDataUrl ? <img src={refDataUrl} alt="参考图预览" className="h-full w-full object-cover" /> : <span className="qs-meta">无图</span>}
               </div>
               <div className="flex flex-col items-start gap-1.5">
-                <Btn size="sm" onClick={() => fileRef.current?.click()}>
-                  选择图片
+                <Btn size="sm" onClick={() => fileRef.current?.click()} disabled={sandboxMode}>
+                  {sandboxMode ? '预载参考图' : '选择图片'}
                 </Btn>
                 {refDataUrl ? (
                   <Btn
                     size="sm"
                     variant="ghost"
+                    disabled={sandboxMode}
                     onClick={() => {
                       setRefDataUrl(null);
                       if (fileRef.current) fileRef.current.value = '';
@@ -303,7 +337,7 @@ function NewTaskModal() {
                     移除图片
                   </Btn>
                 ) : null}
-                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>PNG / JPG，上传后由本地代理转存</span>
+                <span className="qs-meta" style={{ color: 'var(--color-ink-faint)' }}>{sandboxMode ? '演示预载图片；上传与替换已冻结' : 'PNG / JPG，上传后由本地代理转存'}</span>
               </div>
             </div>
           </Field>
@@ -325,7 +359,7 @@ function NewTaskModal() {
         </>
       ) : step === 'kb' ? (
         <>
-          <KbRefPicker value={kbRefs} onChange={setKbRefs} />
+          <KbRefPicker value={kbRefs} onChange={setKbRefs} selectionDisabled={sandboxMode} />
           <p className="qs-meta mt-3" style={{ color: 'var(--color-ink-faint)' }}>
             关联的资料会在 Agent 生成时作为只读事实参考注入上下文；本步骤可选，直接跳过不影响开工。
           </p>
@@ -564,7 +598,7 @@ function Shell() {
           </aside>
         ) : (
           <div className="flex w-12 shrink-0 flex-col items-center border-l py-3" style={{ borderColor: 'var(--color-line)' }}>
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-3" data-sandbox-ai-team>
               {/* 电商工作群头像（h-8 w-8 圆头像；当前群聊用紫 outline 选中态；hover 浅紫/缩放/阴影） */}
               <button
                 type="button"

@@ -17,18 +17,18 @@ export const CHANNEL = {
   llm: {
     baseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
     apiKey: process.env.DEEPSEEK_API_KEY ?? '',
-    model: process.env.DEEPSEEK_MODEL ?? 'deepseek-chat',
+    model: process.env.DEEPSEEK_MODEL ?? 'deepseek-flash',
   },
   image: {
     baseUrl: process.env.IMAGE_BASE_URL ?? '',
     apiKey: process.env.IMAGE_API_KEY ?? '',
-    model: process.env.IMAGE_MODEL ?? 'gpt-image-2',
+    model: process.env.IMAGE_MODEL ?? 'gpt-image-2.5-sunburst',
   },
   // 主管波波视觉审阅渠道（能识图的 API，默认独立于普通 LLM 渠道）
   supervisor: {
     baseUrl: process.env.SUPERVISOR_BASE_URL ?? '',
     apiKey: process.env.SUPERVISOR_API_KEY ?? '',
-    model: process.env.SUPERVISOR_MODEL ?? 'gpt-5.5',
+    model: process.env.SUPERVISOR_MODEL ?? 'gpt-6-luna',
   },
 };
 

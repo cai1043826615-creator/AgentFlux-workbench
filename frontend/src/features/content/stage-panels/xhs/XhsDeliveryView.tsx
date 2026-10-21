@@ -6,6 +6,7 @@ import { Btn, Empty, Spinner } from '../../../../components/ui.tsx';
 import { ImagePreview } from '../../../../components/ImagePreview.tsx';
 import { useWorkbench } from '../../../../store/useWorkbench.tsx';
 import { useDownloadPackage } from '../../../../lib/useDownloadPackage.ts';
+import { isSandboxMode } from '../../../../lib/sandbox-mode.ts';
 import { ImagePanel } from './ImagePanel.tsx';
 import { NotePanel } from './NotePanel.tsx';
 import { TopicPanel } from './TopicPanel.tsx';
@@ -37,6 +38,7 @@ function stateOf(task: Task, stage: string): PanelState {
 
 export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerName?: string }; deliverables: Deliverable[] }) {
   const { decide, retryImage, pushToast } = useWorkbench();
+  const sandboxFrozen = isSandboxMode();
   const [busy, setBusy] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
@@ -76,6 +78,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
   }, [task.id]);
 
   const doDecide = async (kind: 'copy' | 'image', decision: 'approve' | 'reject' | 'skip', imageId?: string, noteText?: string) => {
+    if (sandboxFrozen) return;
     setBusy(true);
     try {
       await decide(task.id, kind, decision, imageId, noteText);
@@ -87,6 +90,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
   };
 
   const doRetry = async (imageId: string) => {
+    if (sandboxFrozen) return;
     setRetrying(imageId);
     try {
       await retryImage(task.id, imageId);
@@ -118,6 +122,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
   const canOneClickAdopt = awaiting && task.stage !== XHS_STAGE_DELIVER;
   const isImageStage = task.stage === XHS_STAGE_COVER || task.stage === XHS_STAGE_INNER;
   const oneClickAdopt = async () => {
+    if (sandboxFrozen) return;
     setBusy(true);
     try {
       if (isImageStage) {
@@ -188,10 +193,10 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
       {/* 第一行：选题方向 | 笔记文案（等宽并排） */}
       <div className="grid grid-cols-2 items-stretch gap-4">
         <div className="flex flex-col">
-          {stTopic === 'none' ? <PendingCard label="选题策划" wait="任务确认后自动开始" /> : <TopicPanel topics={topics} state={stTopic} busy={busy} onDecide={doDecide} />}
+          {stTopic === 'none' ? <PendingCard label="选题策划" wait="任务确认后自动开始" /> : <TopicPanel topics={topics} state={stTopic} busy={busy || sandboxFrozen} onDecide={doDecide} />}
         </div>
         <div className="flex flex-col">
-          {stCopy === 'none' ? <PendingCard label="笔记撰写" wait="待选题确认后自动开始" /> : <NotePanel note={note} state={stCopy} busy={busy} onDecide={doDecide} />}
+          {stCopy === 'none' ? <PendingCard label="笔记撰写" wait="待选题确认后自动开始" /> : <NotePanel note={note} state={stCopy} busy={busy || sandboxFrozen} onDecide={doDecide} />}
         </div>
       </div>
 
@@ -205,7 +210,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               imgs={coverImgs}
               title="首图设计"
               state={stCover}
-              busy={busy}
+              busy={busy || sandboxFrozen}
               retrying={retrying}
               onDecide={doDecide}
               onRetry={doRetry}
@@ -221,7 +226,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               imgs={innerImgs}
               title="内页设计"
               state={stInner}
-              busy={busy}
+              busy={busy || sandboxFrozen}
               retrying={retrying}
               onDecide={doDecide}
               onRetry={doRetry}
@@ -249,7 +254,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               在上方内容卡内逐项「采纳 / 打回」，全部采纳后自动进入下一阶段；失败可打回重做。
             </div>
           </div>
-          <Btn variant="primary" className="shrink-0" disabled={busy} onClick={() => void oneClickAdopt()}>
+          <Btn variant="primary" className="shrink-0" disabled={busy || sandboxFrozen} onClick={() => void oneClickAdopt()}>
             {busy ? '处理中…' : '一键采纳'}
           </Btn>
         </div>
@@ -269,7 +274,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               主管校对已通过，正在归档。归档完成后可导出交付包（文案 + 全部已采纳图片）。
             </div>
           </div>
-          <Btn variant="primary" className="shrink-0" disabled={packing} onClick={() => void download()}>
+          <Btn variant="primary" className="shrink-0" disabled={packing || sandboxFrozen} onClick={() => void download()}>
             {packing ? '打包中…' : '导出交付包'}
           </Btn>
         </div>
@@ -288,7 +293,7 @@ export function XhsDeliveryView({ task, deliverables }: { task: Task & { ownerNa
               主管校对已通过，发布包与图片已归档。交付包 ZIP 内含文案与全部已采纳配图。
             </div>
           </div>
-          <Btn variant="primary" className="shrink-0" disabled={packing} onClick={() => void download()}>
+          <Btn variant="primary" className="shrink-0" disabled={packing || sandboxFrozen} onClick={() => void download()}>
             {packing ? '打包中…' : '导出交付包'}
           </Btn>
         </div>
