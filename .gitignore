@@ -5,7 +5,7 @@ backend/.env.local
 # 故显式白名单放行——否则本地有、CI 无，cost.test.ts 必红。
 backend/data/*
 !backend/data/model-pricing.json
-# 知识库本地配置（Vault 绝对路径与个性化关注域，不入库；见 openspec changes/knowledge-base）
+# 知识库本地配置（Vault 绝对路径与个性化关注域，不入库）
 backend/config/
 *.db
 *.db-wal

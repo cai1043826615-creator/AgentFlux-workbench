@@ -1,10 +1,14 @@
-# AgentFlux 多 Agent 电商内容工作台
+# AgentFlux-workbench
 
-AgentFlux 将电商新品上架和小红书种草内容的生产过程，组织成可追踪、可审核、可返工的多 Agent 工作流。团队可以在同一工作台中管理任务资料、阶段产出、Agent 协作、人工决策和最终交付。
+AgentFlux-workbench 是面向电商新品上架和小红书种草内容的多 Agent 协作工作台。它将任务资料、阶段产出、Agent 协作、人工决策和最终交付组织在同一条可追踪、可审核、可返工的工作流中。
 
-项目采用前后端分离架构，包含 React 工作台、Fastify 服务、SQLite 数据层、共享工作流定义，以及一个可选的浏览器沙盒演示模式。
+项目采用前后端分离架构，包含 React 工作台、Fastify 服务、SQLite 数据层、共享工作流定义和可选的浏览器沙盒演示模式。
 
 ## 项目概览
+
+工作台围绕内容生产任务组织角色分工与阶段交付。任务从需求输入开始，经过 Agent 生成和人工审核，再进入返工、复核或交付归档；每个阶段的状态、负责人和产出都能在工作台中查看。
+
+## 核心价值
 
 | 业务问题 | 工作台提供的能力 |
 | --- | --- |
@@ -79,7 +83,6 @@ flowchart LR
 | 后端 | Node.js、Fastify 5、`@fastify/websocket` | HTTP API、实时事件与聊天消息 |
 | 数据 | SQLite、Node.js `node:sqlite` | 任务、Agent、事件和交付数据 |
 | 共享层 | pnpm workspace、`@workbench/shared` | 前后端共用类型、工作流定义与事件协议 |
-| 项目规范 | OpenSpec、Markdown 设计与验收文档 | 需求变更、设计约束和验证记录 |
 
 ## 目录结构
 
@@ -87,8 +90,7 @@ flowchart LR
 backend/             Fastify API、工作流执行器、Agent、SQLite 与知识库服务
 frontend/            React 工作台、页面功能、沙盒演示与静态资源
 packages/shared/     前后端共享类型、事件协议和工作流定义
-docs/                设计规范、验收资料与示例知识库
-openspec/            功能规格与变更记录
+docs/示例Vault/      沙盒与默认技能使用的示例知识库数据
 ```
 
 ## 本地运行

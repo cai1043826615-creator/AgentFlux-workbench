@@ -1,8 +1,8 @@
 {
-  "name": "multi-agent-ecom-workbench",
+  "name": "agentflux-workbench",
   "private": true,
   "version": "0.1.0",
-  "description": "多 Agent 电商新品上架工作台 (OpenSpec: multi-agent-ecom-workbench)",
+  "description": "AgentFlux-workbench 多 Agent 电商与小红书内容工作台",
   "type": "module",
   "scripts": {
     "dev": "pnpm --parallel --filter ./frontend --filter ./backend dev",

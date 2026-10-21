@@ -1,5 +1,5 @@
 /**
- * 核心共享类型 —— 前后端契约（OpenSpec multi-agent-ecom-workbench · 契约先行冻结）
+ * 核心共享类型 —— 前后端共用契约
  */
 import type { TaskKbRefInput } from './knowledge.ts';
 
