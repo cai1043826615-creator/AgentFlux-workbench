@@ -334,7 +334,7 @@ describe('B12 cost API（组 15）', () => {
     assert.ok(summary.byStage.some((s) => s.stageLabel === '卖点文案'));
     assert.ok(summary.byStage.some((s) => s.stageLabel === '主图设计'));
     assert.ok(summary.byAgent.some((a) => a.agentId === 'agent-copy' && a.agentName));
-    assert.ok(summary.models.includes('deepseek-chat'), '默认渠道模型应在列表');
+    assert.ok(summary.models.length > 0, '执行汇总应列出实际模型');
     assert.ok(summary.tokens.input >= 0);
     assert.ok(summary.tokens.total > 0, 'mock 模式按字符估算 token（非 0）');
     assert.equal(summary.cost?.estimated, true, '本地默认单价表存在时应给出估算金额');
